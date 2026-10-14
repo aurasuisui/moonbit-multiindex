@@ -37,7 +37,8 @@ moon fmt     # format
 ├── tools/diffgen/          # Dev tooling: Rust fixture generator (standalone)
 ├── docs/                   # Full map in docs/README.md
 ├── .github/workflows/ci.yml
-└── README.md / CONTRIBUTING.md / CHANGELOG.md / CLAUDE.md / AGENTS.md / LICENSE
+└── README.md / CONTRIBUTING.md / CHANGELOG.md / AGENTS.md / LICENSE
+    (AGENTS.md 是面向所有编码 agent 的唯一会话入口,不再维护 CLAUDE.md 镜像)
 ```
 
 ## Style Guide
@@ -150,7 +151,7 @@ Every mutation funnels through exactly three private helpers; **no other code ma
 | 公开 API(签名/返回类型/语义) | `docs/SPEC.md` + `README.md` 的 API 表 |
 | 任何行为变化 / 关键决策 | `CHANGELOG.md`(Notes / Deviations) |
 | 架构 / 不变量 / 开发流程 | `CONTRIBUTING.md` |
-| 命令 / 工具链 / 高层架构速览 | `CLAUDE.md` **和** `AGENTS.md`(互为镜像) |
+| 命令 / 工具链 / 高层架构速览 | `AGENTS.md`(唯一会话入口) |
 | 新增或删除任何文档 | `docs/README.md` 枢纽的地图表 |
 | bump 版本 / `moon publish` 前 | `docs/RELEASE_CHECKLIST.md` 逐项全绿,并在 `CHANGELOG.md` 记一行勾选结果 |
 

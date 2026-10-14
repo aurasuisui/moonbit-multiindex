@@ -14,7 +14,7 @@
 | 架构深挖 / 开发流程 / 测试约定 / **文档同步约定** | [`CONTRIBUTING.md`](../CONTRIBUTING.md) |
 | 每次改动与关键决策 | [`CHANGELOG.md`](../CHANGELOG.md) |
 | API 契约(每个签名、不变量、错误语义) | [`SPEC.md`](SPEC.md) |
-| 会话入口(命令 + 架构速览 + 阅读顺序) | [`CLAUDE.md`](../CLAUDE.md)([`AGENTS.md`](../AGENTS.md) 是其镜像,改动时两处同步) |
+| 会话入口(命令 + 架构速览 + 阅读顺序) | [`AGENTS.md`](../AGENTS.md)(**唯一**入口,面向所有编码 agent) |
 
 ## 文档地图
 
@@ -25,8 +25,7 @@
 | [`../README.md`](../README.md) | 产品门面:用途、与 bimap/indexmap 的区别、API 表、Gotchas、致谢 | 想了解项目 |
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | 开发圣经:架构深挖、加功能清单、测试约定、**文档同步约定** | 要改代码 |
 | [`../CHANGELOG.md`](../CHANGELOG.md) | 发布历史 + 每次决策的 Notes/Deviations | 想知道改过什么 |
-| [`../CLAUDE.md`](../CLAUDE.md) | 会话自动加载的入口 | 每个会话开头 |
-| [`../AGENTS.md`](../AGENTS.md) | 非 Claude agent 的入口(CLAUDE.md 镜像,两处同步) | 非 Claude agent 会话 |
+| [`../AGENTS.md`](../AGENTS.md) | **唯一会话入口**:命令、架构速览、不变量、测试约定、阅读顺序 | 每个会话开头 |
 | [`SPEC.md`](SPEC.md) | **API 唯一真源**:签名/返回类型/语义,行为拿不准时以此为准 | 动公开 API |
 | [`DEVPLAN.md`](DEVPLAN.md) | 立项设计稿:数据布局、不变量、三条高危路径、**探针验证记录** | 想理解为什么这么设计 |
 | [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) | **发布门禁**:每次 bump 版本前必须逐项全绿的 Tier 0–4 | 准备发版 |
@@ -48,10 +47,10 @@
 ## 阅读顺序
 
 **新会话快速上手**(约 5 分钟):
-`CLAUDE.md` → `README.md` → `CONTRIBUTING.md` → 动 API 才读 `docs/SPEC.md`。
+`AGENTS.md` → `README.md` → `CONTRIBUTING.md` → 动 API 才读 `docs/SPEC.md`。
 
 **开任务会话**(测试 / 改进 / 新功能):
-`CLAUDE.md` → `docs/SESSION_PLAYBOOK.md` → 按任务读 `docs/SPEC.md` / `CONTRIBUTING.md`。
+`AGENTS.md` → `docs/SESSION_PLAYBOOK.md` → 按任务读 `docs/SPEC.md` / `CONTRIBUTING.md`。
 
 **准备发版**(bump `moon.mod` 版本):
-`CLAUDE.md` → `docs/RELEASE_CHECKLIST.md`(逐项全绿)→ 勾选结果记一行进 `CHANGELOG.md`。
+`AGENTS.md` → `docs/RELEASE_CHECKLIST.md`(逐项全绿)→ 勾选结果记一行进 `CHANGELOG.md`。

@@ -1,9 +1,10 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with this repository.
+Guidance for coding agents (Claude Code, Codex, and any other agent) working in this repository.
 
-> **镜像纪律**:本文件与 [`CLAUDE.md`](CLAUDE.md)(面向 Claude Code)内容同源,
-> **改动时必须两处同步**。
+> **入口纪律**:本文件是本仓库面向所有编码 agent 的**唯一**会话入口 —— 不再维护
+> `CLAUDE.md` 镜像,因此也不存在"两处同步"的漂移风险。改动命令 / 工具链 / 高层架构速览时,
+> 只改这一处,并按 [`CONTRIBUTING.md`](CONTRIBUTING.md) 的文档同步约定联动其他文档。
 
 ## What this is
 
@@ -124,7 +125,7 @@ I9 retired slots never re-enter free (generation exhausted -> slot permanently r
 ## Documentation map & reading order
 
 Full map: [`docs/README.md`](docs/README.md).
-New session: **CLAUDE.md (this) → README.md → CONTRIBUTING.md → `docs/SPEC.md`** (only when
+New session: **AGENTS.md (this) → README.md → CONTRIBUTING.md → `docs/SPEC.md`** (only when
 touching public API). Task session: follow [`docs/SESSION_PLAYBOOK.md`](docs/SESSION_PLAYBOOK.md).
 
 **Before you finish any task**, follow the Doc Sync Convention in CONTRIBUTING.md and update the

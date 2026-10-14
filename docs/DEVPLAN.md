@@ -190,6 +190,6 @@ I9  退役槽位永不回到 free(代际号达上限的槽位永久移出自由�
 ## §9 文档体系(对齐 bimap)
 
 `docs/README.md`(枢纽,SSOT 表)→ `SPEC.md`(API 真源)→ `CONTRIBUTING.md`(开发圣经)→
-`CLAUDE.md`/`AGENTS.md`(会话入口,互为镜像)→ `CHANGELOG.md`(决策史)→
+`AGENTS.md`(唯一会话入口,面向所有编码 agent)→ `CHANGELOG.md`(决策史)→
 `SESSION_PLAYBOOK.md`(任务会话手册)→ `RELEASE_CHECKLIST.md`(发布门禁)。
 **纪律**:每条事实只住一个文件;新增/删除文档必须同步 `docs/README.md` 地图。
