@@ -82,6 +82,24 @@ All notable changes to `aurasuisui/multiindex` are documented here.
   四个查询在**唯一有序 / 非唯一有序**两种索引上、边界全覆盖(`lo > hi`、半开 `lo == hi`、空表、
   无匹配、单点、全量)、`iter_desc_by` **方向证明**,以及 remove / update / clear 之后的跟随。
 
+#### M5 — 自检与诊断(2026-10-14)
+
+- **`insert_many(vs) -> Result[Array[RowId], Rejected[K, V]]`**(SPEC §11):整批原子 —— 先对全部
+  记录做唯一性预检(**既查活表、也查批内更早的成员**),全部通过后才逐条落库;任一条冲突 → `Err`
+  且**整批零变更**,冲突记录原样归还。**不采用参考实现的 first-wins**(那是静默胜出规则),
+  该偏离登记在 `tools/diffgen/README.md` 的不可差分清单。
+- **公开 `verify_invariants() -> Result[Unit, String]`**(SPEC §3.4):**首个违反者即返回**,
+  消息含不变量编号(I1–I9)与槽位/键;实现分 `verify_storage`(I1/I2/I6/I9)与
+  `verify_indexes`(I3/I4/I5/I7)两半,约束只需 `K : Eq + Debug`。
+- **`index_stats(name) -> IndexStats`**:桶数 / 条目数 / 最长桶 / 平均桶长(空索引全 0);
+  新公开类型 `IndexStats`。
+- **测试侧收敛为单一实现**:`property_wbtest.mbt` 的 `check_invariants` 改为**委托**公开校验器,
+  5 条「非空转」元测试保留(委托前把老校验器里唯一没进公开实现的一条断言补进了 `verify_indexes`,
+  确保委托**没有丢断言**)。
+- 测试 71 条(**M1–M4 的 59 条一条未削弱**):insert_many 的**句柄对拍**与两类整批零变更、
+  退化批次;`verify_invariants` 的健康表 Ok 与**消息定位**(I4 / I6 / I7);`index_stats` 的桶形统计;
+  `planned_handles` 预测与真实分配一致。
+
 ### Notes / Deviations
 - **`Conflict` 故意没有「无冲突」变体**:无冲突用 `Option::None` 表达。加变体会与
   `Option::None` 在 match 位置混淆,并迫使调用方匹配一个不可能出现的 `Err`。
@@ -170,6 +188,26 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 - **`range_by` 跟随平台语义**(§3.3.1):双闭区间直接转发 core 的 `SortedMap::range`;半开区间
   另立名字明确的 `range_half_open_by`,不制造语义重叠。
 
+#### M5 自检与诊断(2026-10-14)
+
+- **I5 与 I3 在当前表示下是结构性保证,无法人为破坏**(实测确认):唯一象限是 `Map[K, Int]`
+  (每桶恒 1 槽 → I5 恒真),非唯一桶是 `SortedSet[Int]`(槽位不重复 → I3 恒真),因此校验器里
+  这两支**构造不出违反**。它们作为**防御性交叉校验**保留(SPEC §4 对 I3 也是这么写的),并补了一条
+  **结构钉子**测试(唯一象限枚举出的每个桶恰好 1 槽;同时断言非唯一象限确实存在 2 槽桶,防止该断言
+  因夹具巧合而空转)。若希望 I5 可被破坏/可测,需要把唯一象限的桶也换成集合类型(代价:holder 查询
+  从 O(1) 退化)—— 本库不采纳,已在交付报告里提请裁定。
+- **I7 的两半可达性不对称**:计数半可达并已测(删掉一个桶条目 → entries ≠ len);**覆盖半在
+  I3 + I4 通过之后不可达**(投影正确的桶 + 无重复槽 ⟹ 每条活记录恰好出现一次),故同为防御性校验。
+  验收清单里「I5 与 I7 各一条」按此现实落地:I7 计数半有消息定位测试,I5 以结构钉子 + 说明代替。
+- **`insert_many` 批内冲突的 `holder` 语义**:SPEC §2.2 把 `holder` 定义为「活记录」,但批内冲突时
+  没有活记录。本库落地为:返回**"更早成员将会获得的句柄"**,由只读的 `Table::planned_handles`
+  精确预测(已有测试断言"预测 == 实际分配"),并在文档里写明「该句柄此刻不是活记录,因为整批被
+  原子拒绝」。**提请裁定**:接受该语义并写进 SPEC,或给 `Conflict` 增加一个批内变体(会改动 §2.2)。
+- **`insert_many` 的冲突顺序**:按批次顺序逐条查(先查活表、再查批内已声明键),因此报出的是
+  **批次里第一个冲突的成员**;预检用 `Map[String, Map[K, Int]]` 记录"每个唯一索引已声明的键",
+  只在预检阶段存在,失败时不发布任何东西。
+- **`index_stats` 的返回类型**是 SPEC §3.4 里唯一没写死的签名(`-> ...`);本库定为公开结构体
+  `IndexStats { buckets, entries, longest_bucket, average_bucket }`,**提请写进 SPEC**。
 #### 与参考实现 `multi_index_map` 的取舍(`docs/SPEC.md` §0.3)
 
 | 取舍点 | 参考实现 `multi_index_map` 0.15.1 | 本库 | 理由 |
