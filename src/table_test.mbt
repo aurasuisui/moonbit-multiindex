@@ -239,9 +239,13 @@ test "every quadrant answers get_by and iter_by" {
   // a unique index speaks the same shape: 0 or 1 entry
   @test.assert_eq(t.iter_by("u_sorted", 1).to_array().length(), 1)
   @test.assert_eq(t.iter_by("u_sorted", 3).to_array().length(), 0)
-  // unknown index name: empty answers, never a panic (SPEC §7)
-  @test.assert_eq(t.get_by("nope", 1), None)
-  @test.assert_eq(t.iter_by("nope", 1).to_array().length(), 0)
+  // An *absent key* is an empty answer; an *absent index name* is a caller bug
+  // that aborts (docs/SPEC.md §7.1). A MoonBit abort cannot be caught in-process,
+  // so the decision is pinned through its testable halves: `has_index` here and
+  // `Index::is_ordered` in `table_wbtest.mbt`.
+  @test.assert_eq(t.get_by("u_hash", 99), None)
+  @test.assert_eq(t.iter_by("u_hash", 99).to_array().length(), 0)
+  @test.assert_eq(t.has_index("nope"), false)
 }
 
 ///|
@@ -363,9 +367,11 @@ test "backfilling a conflicting unique index registers nothing" {
     }
     Err(_) => @test.fail("expected UniqueViolation")
   }
-  // atomic: the index is not registered at all — no half-filled index
+  // atomic: the index is not registered at all — no half-filled index. (Querying
+  // a name that was never registered now aborts, docs/SPEC.md §7.1, so the absence
+  // is asserted through the registry instead.)
   @test.assert_eq(t.index_names().length(), 0)
-  @test.assert_eq(t.get_by("low_digit", 1), None)
+  @test.assert_eq(t.has_index("low_digit"), false)
   @test.assert_eq(t.len(), 2)
   // and a name that does not conflict still registers afterwards
   assert_registered(t.register_unique("high_digit", fn(v) { v / 10 }))
