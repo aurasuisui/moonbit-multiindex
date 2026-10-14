@@ -399,35 +399,6 @@ pub fn[K : Hash + Eq + Compare, V] Table::insert(
 }
 
 ///|
-/// The handles the next `count` inserts would receive, computed **without touching**
-/// the table: the free stack pops LIFO, then fresh slots are appended — exactly what
-/// `alloc_slot` does, in the same order.
-///
-/// `insert_many` needs this to name the batch member a duplicate clashes with
-/// *before* anything is written (docs/SPEC.md §11).
-fn[K, V] Table::planned_handles(
-  self : Table[K, V],
-  count : Int,
-) -> Array[RowId] {
-  let handles : Array[RowId] = []
-  let mut free_pos = self.free.length() - 1
-  let mut fresh = self.rows.length()
-  let mut i = 0
-  while i < count {
-    if free_pos >= 0 {
-      let slot = self.free[free_pos]
-      free_pos = free_pos - 1
-      handles.push({ slot, gen: self.gens[slot], })
-    } else {
-      handles.push({ slot: fresh, gen: 0, })
-      fresh = fresh + 1
-    }
-    i = i + 1
-  }
-  handles
-}
-
-///|
 /// Store every record of `values`, or none of them.
 ///
 /// The whole batch is checked **before anything is written** (docs/SPEC.md §11):
@@ -449,7 +420,6 @@ pub fn[K : Hash + Eq + Compare, V] Table::insert_many(
   self : Table[K, V],
   values : Array[V],
 ) -> Result[Array[RowId], Rejected[K, V]] {
-  let planned = self.planned_handles(values.length())
   // Per unique index: the keys this batch has already claimed, and by which member.
   let claimed : Map[String, Map[K, Int]] = Map([])
   let mut i = 0
@@ -474,7 +444,9 @@ pub fn[K : Hash + Eq + Compare, V] Table::insert_many(
             match seen.get(key) {
               Some(at) =>
                 return Err({
-                  conflict: UniqueViolation(name, key, planned[at]),
+                  // Not UniqueViolation: nothing is live at that key, and the batch
+                  // position says exactly which member got there first.
+                  conflict: DuplicateInBatch(name, key, at),
                   record: value,
                 })
               None => seen.set(key, i)

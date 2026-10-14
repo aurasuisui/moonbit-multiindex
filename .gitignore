@@ -3,3 +3,13 @@ target/
 .mooncakes/
 *.mbti.bak
 .DS_Store
+
+# Local dev convenience: a temporary workspace manifest that lets `cmd/` and `bench/`
+# resolve the not-yet-published `aurasuisui/multiindex` while developing. It is NOT
+# committed on purpose: `moon publish` packages whatever sits in the module directory
+# (verified with `moon publish --dry-run`), and the published artifact should not carry
+# a workspace manifest (same rule as the author's moonbit-bimap). Recipe (verified):
+#   printf 'members = [".", "bench", "cmd/leaderboard"]\n' > moon.work
+#   moon run cmd/leaderboard && moon run --release bench/main.mbt
+#   rm moon.work
+moon.work

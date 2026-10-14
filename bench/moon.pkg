@@ -1,0 +1,6 @@
+import {
+  "aurasuisui/multiindex",
+  "moonbitlang/core/bench",
+}
+
+pkgtype(kind: "executable")

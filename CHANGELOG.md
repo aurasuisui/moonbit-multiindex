@@ -100,6 +100,28 @@ All notable changes to `aurasuisui/multiindex` are documented here.
   退化批次;`verify_invariants` 的健康表 Ok 与**消息定位**(I4 / I6 / I7);`index_stats` 的桶形统计;
   `planned_handles` 预测与真实分配一致。
 
+#### M6 — 工程面(2026-10-14)
+
+- **警告清零**:新建 `src/extends.mbt`(官方三段式:促进 `Eq::equal`,其余 `#deprecated + #doc(hidden)`),
+  测试夹具 `CountedKey` 加 `priv`,`src/moon.pkg` 改三段式(基础 + `for "test"` + `for "wbtest"`)。
+  结果:`moon check --deny-warn --target all` **0 warnings 0 errors**(此前 18 条)
+- **CI 加固**:五步 CI 新增 `moon check --deny-warn --target all`;明确不加 `moon bundle --all`
+  (moon 0.1.20260920 上 panic)与 `+unnecessary_annotation`(30 条 `[0073]`,其中 12 条来自黑盒前缀约定)
+- **`Conflict::DuplicateInBatch(String, K, Int)`**(落地 M5 审核裁定):批内冲突不再用预测句柄冒充
+  §2.2 的「活记录」,改为指向更早成员在批次中的下标;`planned_handles` 及其测试作为死代码删除
+- **对拍测试 `src/model_test.mbt`**:与朴素 `Array[(RowId, V)]` 线性扫描模型跑同一操作流,
+  **每步**比对 `len` / `iter` / `get` / `contains` / 四个索引的 `get_by`、`iter_by`、有序游走与
+  6 组区间(含空区间与倒置区间),并要求 `verify_invariants` 为 Ok
+- **可运行示例 `cmd/leaderboard`**:id(唯一)/ team(非唯一)/ score(有序)三视图 —— 点查、团队遍历、
+  排行榜降序、分数区间、冲突拒绝并归还记录、modify 同步各视图、陈旧句柄、`index_stats`、
+  `verify_invariants`;实测 `moon run cmd/leaderboard` 输出见交付报告
+- **基准 `bench/`**(官方 `@bench`,native+release,n=20000):点查(索引 vs 扫描)、非唯一遍历、
+  区间查询、`insert`/`remove` 随 k=1/2/4/8、槽位复用风暴;`bench/README.md` 补**实测表与成因**
+- **差分夹具(黄金序列)**:`tools/diffgen`(Rust,钉 `multi_index_map = "=0.15.1"`,`Cargo.lock` 入库)
+  生成 `src/differential_fixture_test.mbt`,`src/differential_test.mbt` 回放并逐步比对;
+  第二条 LCG 随机流**有意不实现**(理由与逐项覆盖面表写进 `tools/diffgen/README.md`)
+- 测试 72 条(**M1–M5 的 69 条一条未削弱**;另 2 条随 `planned_handles` 死代码一并删除)
+
 ### Notes / Deviations
 - **`Conflict` 故意没有「无冲突」变体**:无冲突用 `Option::None` 表达。加变体会与
   `Option::None` 在 match 位置混淆,并迫使调用方匹配一个不可能出现的 `Err`。
@@ -208,6 +230,27 @@ All notable changes to `aurasuisui/multiindex` are documented here.
   只在预检阶段存在,失败时不发布任何东西。
 - **`index_stats` 的返回类型**是 SPEC §3.4 里唯一没写死的签名(`-> ...`);本库定为公开结构体
   `IndexStats { buckets, entries, longest_bucket, average_bucket }`,**提请写进 SPEC**。
+#### M6 工程面(2026-10-14)
+
+- **`moon.work` 的处理(有实测证据)**:为让 `cmd/`、`bench/` 在包发布前解析本地模块,我用了临时
+  workspace 清单并**实测其后果**:`moon publish --dry-run` 会把 `moon.work` **打进产物 zip**
+  (逐条列出产物内容确认),但在解包目录上重跑 moon check 仍通过。结论:不是硬失败,但属于「发布物
+  不该带的开发态文件」(与 bimap 的约定一致),故**不入库**并加入 `.gitignore`,配方写在 `.gitignore`
+  注释与示例文件头。**M7 前仍建议复核**(真正的 mooncakes 行为只能在实际发布时确认)。
+- **基准暴露的一处 SPEC 偏差**:实测显示 `remove` 比 `insert` 贵 20–44× 且随 n 增长 —— 因为 `order`
+  数组是**原地压缩 O(len)**,而 SPEC §6 把 `remove` 记为 `O(I + Σ桶长)`。**提请裁定**:是把 SPEC §6
+  改成含 `O(len)`,还是换掉 `order` 的表示(会牺牲插入序的紧凑性)。
+- **两处不利基准数字照实报**:非唯一大桶的 `iter_by` 略慢于线性扫描、宽区间 `range_by` 比扫描慢
+  ~20×,根因都是**每条产出记录一次 `(RowId, V)` 拷贝**(SPEC §3.3 已声明该代价)。
+  由此给出一条 v0.2 候选:热循环用的「只给 id / 只给键」游走。
+- **mbti 变化逐条**:`extends.mbt` 的促进让 5 个类型多出常规方法 —— `RowId::equal`、
+  `Conflict::equal[K : Eq]`、`RegisterError::equal[K : Eq]`、`UpdateRejected::equal[K : Eq, V : Eq]`、
+  `IndexStats::equal`;**没有任何既有签名被改或被删**;deprecated 的那些不出现在 mbti 里。
+- **批内冲突的报告顺序**:同一成员同时撞「活记录」与「更早成员」时,表报告哪一条取决于注册表遍历序
+  (稳定但非排序),SPEC 未规定;对拍按「模型给出冲突集合、表报告其中一条」处理。
+  **提请裁定**:是否把冲突索引顺序钉死(例如按索引名升序)—— 代价是每次写入多一次排序。
+- **示例与基准的运行前提**:`cmd/`、`bench/` 与差分夹具生成物都 **import 已发布的包**,发布前只能靠
+  本地临时 workspace 运行(M6 已实测通过);M7 发布后按各文件头命令即可直接跑。
 #### 与参考实现 `multi_index_map` 的取舍(`docs/SPEC.md` §0.3)
 
 | 取舍点 | 参考实现 `multi_index_map` 0.15.1 | 本库 | 理由 |

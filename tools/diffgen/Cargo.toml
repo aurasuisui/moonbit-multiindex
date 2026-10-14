@@ -1,0 +1,10 @@
+[package]
+name = "diffgen"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# The reference implementation, **pinned**. The generated fixture records what this
+# exact version observed; bumping it means regenerating and re-reading the diff.
+[dependencies]
+multi_index_map = "=0.15.1"

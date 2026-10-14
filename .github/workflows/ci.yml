@@ -19,6 +19,14 @@ jobs:
         run: moon fmt --check
       - name: Type check
         run: moon check
+      # Zero-warning gate (docs/STYLE.md §H): warnings are errors here, on every
+      # target the package claims to support. Deliberately NOT enabled elsewhere:
+      #   * `moon bundle --all` panics on moon 0.1.20260920
+      #     ("declared execution output has multiple producers") — do not add it;
+      #   * `+unnecessary_annotation` fires 30x [0073], 12 of them on the intentional
+      #     black-box `@aurasuisui/multiindex.` prefix — do not enable it.
+      - name: Warning check (deny-warn, all targets)
+        run: moon check --deny-warn --target all
       - name: Interface check (mbti up-to-date)
         run: |
           moon info

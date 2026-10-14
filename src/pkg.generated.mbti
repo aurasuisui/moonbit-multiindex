@@ -13,7 +13,9 @@ pub const VERSION : String = "0.1.0"
 // Types and methods
 pub enum Conflict[K] {
   UniqueViolation(String, K, RowId)
+  DuplicateInBatch(String, K, Int)
 } derive(Eq, @debug.Debug)
+pub fn[K : Eq] Conflict::equal(Self[K], Self[K]) -> Bool
 pub impl[K : Show] Show for Conflict[K]
 
 pub struct IndexStats {
@@ -22,11 +24,13 @@ pub struct IndexStats {
   longest_bucket : Int
   average_bucket : Double
 } derive(Eq, @debug.Debug)
+pub fn IndexStats::equal(Self, Self) -> Bool
 
 pub enum RegisterError[K] {
   DuplicateName(String)
   UniqueViolation(String, K)
 } derive(Eq, @debug.Debug)
+pub fn[K : Eq] RegisterError::equal(Self[K], Self[K]) -> Bool
 
 pub struct Rejected[K, V] {
   conflict : Conflict[K]
@@ -38,6 +42,7 @@ pub struct RowId {
   slot : Int
   gen : Int
 } derive(Eq, Hash, @debug.Debug)
+pub fn RowId::equal(Self, Self) -> Bool
 pub impl Show for RowId
 
 pub struct Table[K, V] {
@@ -75,6 +80,7 @@ pub enum UpdateRejected[K, V] {
   StaleHandle(RowId, V?)
   Conflict(Conflict[K], V)
 } derive(Eq, @debug.Debug)
+pub fn[K : Eq, V : Eq] UpdateRejected::equal(Self[K, V], Self[K, V]) -> Bool
 
 // Type aliases
 

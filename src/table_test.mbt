@@ -396,6 +396,8 @@ test "a unique collision is reported with the record and changes nothing" {
           @test.assert_eq(key, 1)
           @test.assert_eq(holder, a)
         }
+        @aurasuisui/multiindex.DuplicateInBatch(_, _, _) =>
+          @test.fail("a single insert cannot report a batch duplicate")
       }
     }
   }
@@ -471,6 +473,8 @@ test "regression: updating into an occupied unique key changes nothing" {
               @test.assert_eq(key, 2)
               @test.assert_eq(holder, b)
             }
+            @aurasuisui/multiindex.DuplicateInBatch(_, _, _) =>
+              @test.fail("an update cannot report a batch duplicate")
           }
         }
         @aurasuisui/multiindex.StaleHandle(_, _) =>
@@ -831,14 +835,18 @@ test "insert_many fails the whole batch when two of its own records collide" {
       // the *second* member is the offender and comes back untouched
       @test.assert_eq(rejected.record, (2, 10, 2))
       match rejected.conflict {
-        @aurasuisui/multiindex.UniqueViolation(name, key, holder) => {
+        // No record is live at that key — the whole batch was rejected atomically —
+        // so the conflict names the *batch position* of the earlier member instead of
+        // pretending some handle exists (docs/SPEC.md §2.2).
+        @aurasuisui/multiindex.DuplicateInBatch(name, key, at) => {
           @test.assert_eq(name, "hi")
           @test.assert_eq(key, 10)
-          // no record is live at that key, so the holder is the handle the first
-          // member *would* have received (slot 1, right after the live `a`)
-          @test.assert_eq(holder.slot, 1)
-          @test.assert_eq(t.contains(holder), false)
+          @test.assert_eq(at, 0)
         }
+        @aurasuisui/multiindex.UniqueViolation(_, _, _) =>
+          @test.fail(
+            "nothing is live at that key, so it cannot be a UniqueViolation",
+          )
       }
     }
   }
@@ -873,6 +881,8 @@ test "insert_many fails the whole batch when it clashes with a live record" {
           @test.assert_eq(holder, a)
           @test.assert_eq(t.contains(holder), true)
         }
+        @aurasuisui/multiindex.DuplicateInBatch(_, _, _) =>
+          @test.fail("the clash is with a live record, not inside the batch")
       }
     }
   }
