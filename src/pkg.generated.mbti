@@ -1,0 +1,45 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "aurasuisui/multiindex"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub const VERSION : String = "0.1.0"
+
+// Errors
+
+// Types and methods
+pub enum Conflict[K] {
+  UniqueViolation(String, K, RowId)
+} derive(Eq, @debug.Debug)
+pub impl[K : Show] Show for Conflict[K]
+
+pub struct Rejected[K, V] {
+  conflict : Conflict[K]
+  record : V
+} derive(@debug.Debug)
+pub impl[K : Show, V : Show] Show for Rejected[K, V]
+
+pub struct RowId {
+  slot : Int
+  gen : Int
+} derive(Eq, Hash, @debug.Debug)
+pub impl Show for RowId
+
+pub struct Table[K, V] {
+  // private fields
+}
+pub fn[K, V] Table::clear(Self[K, V]) -> Unit
+pub fn[K, V] Table::get(Self[K, V], RowId) -> V?
+pub fn[K, V] Table::insert(Self[K, V], V) -> Result[RowId, Rejected[K, V]]
+pub fn[K, V] Table::is_empty(Self[K, V]) -> Bool
+pub fn[K, V] Table::iter(Self[K, V]) -> Iter[V]
+pub fn[K, V] Table::len(Self[K, V]) -> Int
+pub fn[K, V] Table::new() -> Self[K, V]
+pub fn[K, V] Table::remove(Self[K, V], RowId) -> V?
+
+// Type aliases
+
+// Traits
