@@ -224,7 +224,25 @@ pub enum RegisterError[K] {
   这是不必要的负担。契约定为 **`RegisterError[K]`**,与既有 `Conflict[K]` 形状一致,键原样携带,不需要任何额外约束。
   > 该改动列入 [§12 实现与契约的已知偏差](#§12-实现与契约的已知偏差待收敛)。
 
-### §2.5 `Table[K, V]` — 记录表
+### §2.5 `UpdateRejected[K, V]` — 更新失败(句柄失效 / 唯一冲突)
+
+```moonbit
+pub enum UpdateRejected[K, V] {
+  StaleHandle(RowId, V?)   // 句柄已失效
+  Conflict(Conflict[K], V) // 唯一冲突
+} derive(Debug, Eq)
+```
+
+- **为什么不复用 `Rejected[K, V]`**:陈旧句柄**不是唯一性冲突**,硬塞进 `Conflict[K]` 会污染那个类型;
+  但 `update`/`modify` 又必须同时表达两种失败,所以单独立一个枚举。
+- **`StaleHandle` 的 `V?` 为什么可选**:两条路径的信息量不同 ——
+  - `update(id, v)`:调用方已把待写入记录交出来,失败时**必须归还**(否则数据丢失)→ `Some(v)`;
+  - `modify(id, f)`:`f` 需要旧记录才能算出新记录,句柄失效时**根本算不出来** → `None`。
+  这是两条路径的真实差异;不用 `Option` 就得为它们各立一个错误类型,反而更难用。
+- **`Conflict` 分支的 `V` 总有值**:冲突判定发生在新记录已在手之后,一定归还。
+- 与 `insert` 的 `Rejected[K, V]` 同一条原则:**绝不吞掉调用方的数据**。
+
+### §2.6 `Table[K, V]` — 记录表
 
 ```moonbit
 pub struct Table[K, V] {
@@ -314,8 +332,8 @@ pub struct Table[K, V] {
 |---|---|---|
 | `insert(v : V) -> Result[RowId, Rejected[K, V]]` | 新记录句柄 | 冲突时**表零变更**,记录原样归还 |
 | `insert_many(vs : Array[V]) -> ...` | 批量 | 先全部落库,再**每索引一次性构建**(把 N×k 次索引插入降为 k 次批量构建);**遇重复键的胜出规则须在实现时明确并测试钉死**(主蓝本是"第一个胜出",§0.4-6) |
-| `update(id : RowId, v : V) -> Result[Unit, Rejected[K, V]]` | 成功/冲突 | **排除自身**的冲突检查;陈旧 id → `Err` |
-| `modify(id : RowId, f : (V) -> V) -> Result[Unit, Rejected[K, V]]` | 成功/冲突 | 用 `f` 变换记录后重索引;**逐索引对比新旧投影键,只动真正变化的桶**(见 §5 规则 4) |
+| `update(id : RowId, v : V) -> Result[Unit, UpdateRejected[K, V]]` | 成功/失败 | **排除自身**的冲突检查;陈旧 id → `Err(StaleHandle(id, Some(v)))` |
+| `modify(id : RowId, f : (V) -> V) -> Result[Unit, UpdateRejected[K, V]]` | 成功/失败 | 用 `f` 变换记录后重索引;**逐索引对比新旧投影键,只动真正变化的桶**(见 §5 规则 4);陈旧 id → `Err(StaleHandle(id, None))` |
 | `remove(id : RowId) -> V?` | 被删记录 | 陈旧 id → `None` |
 | `clear() -> Unit` | — | 清空所有记录与条目,**但保留索引注册**(只清桶,不删注册)—— 否则 `clear` 之后新插入的记录会静默不被索引。**批量退役**:每个活槽的 `gen += 1` 后归还 `free`(代际耗尽的永久退役),因此 **`clear` 之前的句柄永不复活** —— 若直接清空数组,清空后插入会复用同一个 `(slot, gen)`,旧句柄就会静默命中新记录,违反 §7。清空**空表**不算真实变更,不递增 `version`(I8) |
 
