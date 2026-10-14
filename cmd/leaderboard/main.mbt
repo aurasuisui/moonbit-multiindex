@@ -56,7 +56,9 @@ fn add(t : @multiindex.Table[Int, Player], player : Player) -> Unit {
             "  refused #\{rejected.record.id}: index \{index} already maps \{key} to \{holder}",
           )
         @multiindex.DuplicateInBatch(index, key, at) =>
-          println("  refused #\{rejected.record.id}: duplicates batch member \{at} on \{index} (\{key})")
+          println(
+            "  refused #\{rejected.record.id}: duplicates batch member \{at} on \{index} (\{key})",
+          )
       }
   }
 }
@@ -65,7 +67,8 @@ fn add(t : @multiindex.Table[Int, Player], player : Player) -> Unit {
 /// Print one player, or say the handle found nothing.
 fn show(label : String, found : (@multiindex.RowId, Player)?) -> Unit {
   match found {
-    Some((id, p)) => println("  \{label}: #\{p.id} \{p.name} score \{p.score} (\{id})")
+    Some((id, p)) =>
+      println("  \{label}: #\{p.id} \{p.name} score \{p.score} (\{id})")
     None => println("  \{label}: nobody")
   }
 }
@@ -74,11 +77,11 @@ fn show(label : String, found : (@multiindex.RowId, Player)?) -> Unit {
 fn main {
   let t = new_table()
   println("== adding players ==")
-  add(t, { id: 7, name: "ada", team: 1, score: 120 })
-  add(t, { id: 9, name: "bob", team: 1, score: 340 })
-  add(t, { id: 4, name: "cyd", team: 2, score: 210 })
-  add(t, { id: 2, name: "dee", team: 2, score: 90 })
-  add(t, { id: 7, name: "eve", team: 3, score: 500 }) // duplicate id -> refused, record returned
+  add(t, { id: 7, name: "ada", team: 1, score: 120, })
+  add(t, { id: 9, name: "bob", team: 1, score: 340, })
+  add(t, { id: 4, name: "cyd", team: 2, score: 210, })
+  add(t, { id: 2, name: "dee", team: 2, score: 90, })
+  add(t, { id: 7, name: "eve", team: 3, score: 500, }) // duplicate id -> refused, record returned
   println("  len = \{t.len()}")
 
   println("== by id (unique index) ==")
@@ -100,7 +103,7 @@ fn main {
   }
 
   println("== updating keeps every view in step ==")
-  match t.modify(t.get_by("id", 4).unwrap().0, fn(p) { { ..p, score: 400 } }) {
+  match t.modify(t.get_by("id", 4).unwrap().0, fn(p) { { ..p, score: 400, } }) {
     Ok(_) => println("  cyd now scores 400")
     Err(_) => println("  unexpected refusal")
   }
@@ -111,8 +114,12 @@ fn main {
     Some((id, _)) => {
       t.remove(id) |> ignore
       println("  removed dee; len = \{t.len()}")
-      println("  team 2 now has \{t.iter_by("team", 2).to_array().length()} player(s)")
-      println("  the stale handle still answers: get = \{@debug.to_string(t.get(id))}")
+      println(
+        "  team 2 now has \{t.iter_by("team", 2).to_array().length()} player(s)",
+      )
+      println(
+        "  the stale handle still answers: get = \{@debug.to_string(t.get(id))}",
+      )
     }
     None => println("  dee is gone already")
   }
