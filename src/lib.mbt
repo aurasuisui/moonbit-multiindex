@@ -110,7 +110,7 @@ pub impl[K : Show, V : Show] Show for Rejected[K, V] with fn output(
 }
 
 ///|
-/// Why an index registration was refused (docs/SPEC.md §3.1).
+/// Why an index registration was refused (docs/SPEC.md §2.4).
 ///
 /// Registration never half-succeeds: on `Err` the registry and the records are
 /// exactly what they were.
@@ -118,8 +118,25 @@ pub impl[K : Show, V : Show] Show for Rejected[K, V] with fn output(
 /// - `DuplicateName(name)` — an index of that name is already registered; the
 ///   existing one is **not** overwritten.
 /// - `UniqueViolation(name, key)` — backfilling the unique index `name` found two
-///   live records projecting to the same key; `key` is its display form.
-pub enum RegisterError {
+///   live records projecting to the same key. The key travels as itself, so
+///   registering a unique index adds **no** `Show` bound on `K` (it mirrors
+///   `Conflict[K]`).
+pub enum RegisterError[K] {
   DuplicateName(String)
-  UniqueViolation(String, String)
+  UniqueViolation(String, K)
+} derive(Debug, Eq)
+
+///|
+/// Why an update was refused (docs/SPEC.md §2.5).
+///
+/// - `StaleHandle(id, pending)` — `id` no longer names a live record. `update`
+///   gives the record it was handed back (`Some(value)`); `modify` has none to
+///   give (`None`: with no record to transform, no new record exists).
+/// - `Conflict(conflict, value)` — a unique index already holds one of the
+///   record's keys; the record always comes back.
+///
+/// Same principle as `Rejected`: a refused write never swallows the caller's data.
+pub enum UpdateRejected[K, V] {
+  StaleHandle(RowId, V?)
+  Conflict(Conflict[K], V)
 } derive(Debug, Eq)

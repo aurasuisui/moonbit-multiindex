@@ -16,11 +16,11 @@
 /// Fails with `DuplicateName` when the name is taken, or with `UniqueViolation`
 /// when the existing records already share a key — in both cases **nothing is
 /// registered**.
-pub fn[K : Hash + Eq + Show, V] Table::register_unique(
+pub fn[K : Hash + Eq, V] Table::register_unique(
   self : Table[K, V],
   name : String,
   project : (V) -> K,
-) -> Result[Unit, RegisterError] {
+) -> Result[Unit, RegisterError[K]] {
   if self.indexes.contains(name) {
     return Err(DuplicateName(name))
   }
@@ -32,7 +32,7 @@ pub fn[K : Hash + Eq + Show, V] Table::register_unique(
       Some(record) => {
         let key = project(record)
         match buckets.get(key) {
-          Some(_) => return Err(UniqueViolation(name, Show::to_string(key)))
+          Some(_) => return Err(UniqueViolation(name, key))
           None => buckets.set(key, slot)
         }
       }
@@ -50,11 +50,11 @@ pub fn[K : Hash + Eq + Show, V] Table::register_unique(
 ///
 /// Same contract as `register_unique`; the sorted quadrant additionally supports
 /// the range queries of a later milestone.
-pub fn[K : Compare + Show, V] Table::register_unique_ordered(
+pub fn[K : Compare, V] Table::register_unique_ordered(
   self : Table[K, V],
   name : String,
   project : (V) -> K,
-) -> Result[Unit, RegisterError] {
+) -> Result[Unit, RegisterError[K]] {
   if self.indexes.contains(name) {
     return Err(DuplicateName(name))
   }
@@ -66,7 +66,7 @@ pub fn[K : Compare + Show, V] Table::register_unique_ordered(
       Some(record) => {
         let key = project(record)
         match buckets.get(key) {
-          Some(_) => return Err(UniqueViolation(name, Show::to_string(key)))
+          Some(_) => return Err(UniqueViolation(name, key))
           None => buckets.set(key, slot)
         }
       }
@@ -91,7 +91,7 @@ pub fn[K : Hash + Eq, V] Table::register_non_unique(
   self : Table[K, V],
   name : String,
   project : (V) -> K,
-) -> Result[Unit, RegisterError] {
+) -> Result[Unit, RegisterError[K]] {
   if self.indexes.contains(name) {
     return Err(DuplicateName(name))
   }
@@ -125,7 +125,7 @@ pub fn[K : Compare, V] Table::register_non_unique_ordered(
   self : Table[K, V],
   name : String,
   project : (V) -> K,
-) -> Result[Unit, RegisterError] {
+) -> Result[Unit, RegisterError[K]] {
   if self.indexes.contains(name) {
     return Err(DuplicateName(name))
   }
@@ -232,4 +232,10 @@ pub fn[K, V] Table::index_names(self : Table[K, V]) -> Array[String] {
   let names = self.indexes.keys().to_array()
   names.sort()
   names
+}
+
+///|
+/// Whether an index is registered under `name`.
+pub fn[K, V] Table::has_index(self : Table[K, V], name : String) -> Bool {
+  self.indexes.contains(name)
 }

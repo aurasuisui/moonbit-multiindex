@@ -218,6 +218,29 @@ fn[K : Hash + Eq + Compare, V] Index::remove(
 }
 
 ///|
+/// Point `slot` at `new_key` instead of `old_key`, and report whether any bucket
+/// moved.
+///
+/// **Equal keys are the fast path** of docs/SPEC.md §5 rule 3: the bucket already
+/// names this slot and the record's remaining fields are not indexed, so nothing
+/// is deleted and re-added — no intermediate state exists to observe. Returns
+/// `false` exactly in that case (the white-box tests observe this with a key
+/// type that counts hashing).
+fn[K : Hash + Eq + Compare, V] Index::retarget(
+  self : Index[K, V],
+  slot : Int,
+  old_key : K,
+  new_key : K,
+) -> Bool {
+  if old_key == new_key {
+    return false
+  }
+  self.remove(slot, old_key)
+  self.add(slot, new_key)
+  true
+}
+
+///|
 /// The slots stored under `key`, ascending (`[]` when the key is absent).
 ///
 /// A unique quadrant yields 0 or 1 slot, a non-unique one all of them — the same

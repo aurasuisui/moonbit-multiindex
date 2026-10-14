@@ -16,9 +16,9 @@ pub enum Conflict[K] {
 } derive(Eq, @debug.Debug)
 pub impl[K : Show] Show for Conflict[K]
 
-pub enum RegisterError {
+pub enum RegisterError[K] {
   DuplicateName(String)
-  UniqueViolation(String, String)
+  UniqueViolation(String, K)
 } derive(Eq, @debug.Debug)
 
 pub struct Rejected[K, V] {
@@ -37,20 +37,30 @@ pub struct Table[K, V] {
   // private fields
 }
 pub fn[K, V] Table::clear(Self[K, V]) -> Unit
+pub fn[K, V] Table::contains(Self[K, V], RowId) -> Bool
 pub fn[K, V] Table::get(Self[K, V], RowId) -> V?
 pub fn[K : Hash + Eq + Compare, V] Table::get_by(Self[K, V], String, K) -> (RowId, V)?
+pub fn[K, V] Table::has_index(Self[K, V], String) -> Bool
 pub fn[K, V] Table::index_names(Self[K, V]) -> Array[String]
 pub fn[K : Hash + Eq + Compare, V] Table::insert(Self[K, V], V) -> Result[RowId, Rejected[K, V]]
 pub fn[K, V] Table::is_empty(Self[K, V]) -> Bool
 pub fn[K, V] Table::iter(Self[K, V]) -> Iter2[RowId, V]
 pub fn[K : Hash + Eq + Compare, V] Table::iter_by(Self[K, V], String, K) -> Iter2[RowId, V]
 pub fn[K, V] Table::len(Self[K, V]) -> Int
+pub fn[K : Hash + Eq + Compare, V] Table::modify(Self[K, V], RowId, (V) -> V) -> Result[Unit, UpdateRejected[K, V]]
 pub fn[K, V] Table::new() -> Self[K, V]
-pub fn[K : Hash + Eq, V] Table::register_non_unique(Self[K, V], String, (V) -> K) -> Result[Unit, RegisterError]
-pub fn[K : Compare, V] Table::register_non_unique_ordered(Self[K, V], String, (V) -> K) -> Result[Unit, RegisterError]
-pub fn[K : Hash + Eq + Show, V] Table::register_unique(Self[K, V], String, (V) -> K) -> Result[Unit, RegisterError]
-pub fn[K : Compare + Show, V] Table::register_unique_ordered(Self[K, V], String, (V) -> K) -> Result[Unit, RegisterError]
+pub fn[K : Hash + Eq, V] Table::register_non_unique(Self[K, V], String, (V) -> K) -> Result[Unit, RegisterError[K]]
+pub fn[K : Compare, V] Table::register_non_unique_ordered(Self[K, V], String, (V) -> K) -> Result[Unit, RegisterError[K]]
+pub fn[K : Hash + Eq, V] Table::register_unique(Self[K, V], String, (V) -> K) -> Result[Unit, RegisterError[K]]
+pub fn[K : Compare, V] Table::register_unique_ordered(Self[K, V], String, (V) -> K) -> Result[Unit, RegisterError[K]]
 pub fn[K : Hash + Eq + Compare, V] Table::remove(Self[K, V], RowId) -> V?
+pub fn[K : Hash + Eq + Compare, V] Table::update(Self[K, V], RowId, V) -> Result[Unit, UpdateRejected[K, V]]
+pub fn[K, V] Table::with_capacity(Int) -> Self[K, V]
+
+pub enum UpdateRejected[K, V] {
+  StaleHandle(RowId, V?)
+  Conflict(Conflict[K], V)
+} derive(Eq, @debug.Debug)
 
 // Type aliases
 

@@ -287,3 +287,191 @@ test "a failed backfill leaves the registry and the buckets untouched" {
   @test.assert_eq(t.indexes.length(), 1)
   check_invariants(t)
 }
+
+///|
+test "with_capacity pre-fills the free stack, highest slot first" {
+  let t : Table[Int, Int] = Table::with_capacity(4)
+  @test.assert_eq(t.rows.length(), 4)
+  @test.assert_eq(t.gens.length(), 4)
+  assert_ints(t.gens, [0, 0, 0, 0])
+  // LIFO: slot 0 is on top, so allocation hands slots out in ascending order
+  assert_ints(t.free, [3, 2, 1, 0])
+  check_invariants(t)
+  let a = wb_insert(t, 1)
+  @test.assert_eq(a.slot, 0)
+  assert_ints(t.free, [3, 2, 1])
+  @test.assert_eq(t.order.length(), 1)
+  check_invariants(t)
+}
+
+// ---------------------------------------------------------------------------
+// M3: the fast path has to be *shown*, not asserted
+// ---------------------------------------------------------------------------
+
+///|
+/// A key that counts how often it is hashed.
+///
+/// Every bucket operation (`get` / `set` / `remove`) hashes its key, so this
+/// counter is a direct white-box measure of "did that index touch a bucket?" —
+/// exactly what the equal-key fast path must be shown to avoid. `counter` is a
+/// one-element array: a mutable cell shared by every copy of the key.
+struct CountedKey {
+  value : Int
+  counter : Array[Int]
+} derive(Debug)
+
+///|
+impl Eq for CountedKey with fn equal(self, other) {
+  self.value == other.value
+}
+
+///|
+impl Compare for CountedKey with fn compare(self, other) {
+  self.value.compare(other.value)
+}
+
+///|
+impl Hash for CountedKey with fn hash_combine(self, hasher) {
+  self.counter[0] = self.counter[0] + 1
+  Hash::hash_combine(self.value, hasher)
+}
+
+///|
+/// A `(lo, hi, shared)` table whose keys are `CountedKey`s sharing `counter`.
+fn counted_table(
+  counter : Array[Int],
+) -> Table[CountedKey, (Int, Int, Int)] raise {
+  let t : Table[CountedKey, (Int, Int, Int)] = Table::new()
+  let registrations : Array[Result[Unit, RegisterError[CountedKey]]] = [
+    t.register_unique("lo", fn(p) { { value: p.0, counter, } }),
+    t.register_unique_ordered("hi", fn(p) { { value: p.1, counter, } }),
+    t.register_non_unique("shared", fn(p) { { value: p.2, counter, } }),
+    t.register_non_unique_ordered("shared_sorted", fn(p) {
+      { value: p.2, counter, }
+    }),
+  ]
+  let mut i = 0
+  while i < registrations.length() {
+    match registrations[i] {
+      Ok(_) => ()
+      Err(_) => @test.fail("registration unexpectedly failed")
+    }
+    i = i + 1
+  }
+  t
+}
+
+///|
+test "fast path: an update with unchanged keys performs no bucket work" {
+  let counter : Array[Int] = [0]
+  let t = counted_table(counter)
+  let id = match t.insert((1, 10, 7)) {
+    Ok(id) => id
+    Err(_) => @test.fail("the first insert cannot conflict")
+  }
+  // control experiment: a lookup really does hash its key, so the counter is a
+  // usable probe — without this the rest of the test could be vacuous
+  let probe = counter[0]
+  let hit = t.get_by("lo", { value: 1, counter, })
+  match hit {
+    Some(_) => ()
+    None => @test.fail("the record should be in the index")
+  }
+  @test.assert_eq(counter[0] > probe, true)
+  // (1) rewriting the record with its own keys must not touch a single bucket:
+  // only the uniqueness pre-check hashes anything
+  let before_same = counter[0]
+  match t.update(id, (1, 10, 7)) {
+    Ok(_) => ()
+    Err(_) =>
+      @test.fail("rewriting a record with its own keys is not a conflict")
+  }
+  let same_delta = counter[0] - before_same
+  @test.assert_eq(same_delta > 0, true) // the pre-check did hash
+  // (2) moving one shared key really does re-index that bucket
+  let before_moved = counter[0]
+  match t.update(id, (1, 10, 9)) {
+    Ok(_) => ()
+    Err(_) => @test.fail("a legal update must succeed")
+  }
+  let moved_delta = counter[0] - before_moved
+  // both runs paid for the same pre-check; only the moved one paid for buckets
+  @test.assert_eq(moved_delta > same_delta, true)
+}
+
+///|
+test "fast path: a sabotaged bucket proves the equal-key update never consults it" {
+  let t = wb_indexed_table()
+  let id = wb_insert_indexed(t, (1, 10, 7))
+  check_invariants(t)
+  // sabotage: empty the "lo" bucket behind the table\u2019s back. A slow path would
+  // call `Index::remove` on it — which aborts on a missing bucket — or repopulate
+  // it through `add`; the fast path must leave it exactly as it was.
+  match t.indexes.get("lo") {
+    Some(HashUnique(_, buckets)) => buckets.clear()
+    _ => @test.fail("the index vanished")
+  }
+  match t.update(id, (1, 10, 7)) {
+    Ok(_) => ()
+    Err(_) =>
+      @test.fail("rewriting a record with its own keys is not a conflict")
+  }
+  match t.indexes.get("lo") {
+    Some(index) => @test.assert_eq(index.slots(1).length(), 0)
+    _ => @test.fail("the index vanished")
+  }
+}
+
+///|
+test "an update never replaces a bucket container" {
+  let t = wb_indexed_table()
+  let id = wb_insert_indexed(t, (1, 10, 7))
+  let before : Map[Int, @sorted_set.SortedSet[Int]] = match
+    t.indexes.get("shared") {
+    Some(HashMulti(_, buckets)) => buckets
+    _ => @test.fail("the index vanished")
+  }
+  match t.update(id, (1, 10, 9)) {
+    Ok(_) => ()
+    Err(_) => @test.fail("a legal update must succeed")
+  }
+  let after : Map[Int, @sorted_set.SortedSet[Int]] = match
+    t.indexes.get("shared") {
+    Some(HashMulti(_, buckets)) => buckets
+    _ => @test.fail("the index vanished")
+  }
+  // the registry still holds the very same container object, not a rebuilt one
+  @test.assert_eq(physical_equal(before, after), true)
+}
+
+///|
+test "update and modify keep the storage invariants intact" {
+  let t = wb_indexed_table()
+  let a = wb_insert_indexed(t, (1, 10, 7))
+  let b = wb_insert_indexed(t, (2, 20, 7))
+  check_invariants(t)
+  match t.update(a, (1, 10, 9)) {
+    Ok(_) => ()
+    Err(_) => @test.fail("a legal update must succeed")
+  }
+  check_invariants(t)
+  match t.modify(b, fn(record) { (record.0, 21, record.2) }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("a legal modify must succeed")
+  }
+  check_invariants(t)
+  // a refused update leaves the table exactly as it was
+  match t.update(a, (2, 11, 9)) {
+    Ok(_) => @test.fail("2 belongs to b")
+    Err(_) => ()
+  }
+  check_invariants(t)
+  match t.get(a) {
+    Some(value) => @test.assert_eq(value, (1, 10, 9))
+    None => @test.fail("a vanished")
+  }
+  match t.get(b) {
+    Some(value) => @test.assert_eq(value, (2, 21, 7))
+    None => @test.fail("b vanished")
+  }
+}

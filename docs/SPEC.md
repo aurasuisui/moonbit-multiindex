@@ -301,7 +301,7 @@ pub struct Table[K, V] {
 | 方法 | 说明 |
 |---|---|
 | `Table::new() -> Table[K, V]` | 空表 |
-| `Table::with_capacity(cap : Int)` | 预留容量 |
+| `Table::with_capacity(cap : Int)` | 预留容量。**语义已裁定**:预填 `rows`/`gens` 到 `cap` 个空槽,并把这些槽**全部压入 `free`(由高到低)**;因此前 `cap` 次插入按 slot `0,1,2…` 分配且不增长数组。`cap <= 0` 等价于 `new()`。空槽都在 `free` 上,所以"死槽只能是 free 或退役"(`I9` 可观测形式)依然成立 |
 | `register_unique(name, project) -> Result[Unit, RegisterError[K]]` | **哈希唯一**索引(`Map[K, Int]`) |
 | `register_unique_ordered(name, project) -> Result[Unit, RegisterError[K]]` (需 `K : Compare`) | **有序唯一**索引(`SortedMap[K, Int]`) |
 | `register_non_unique(name, project) -> Result[Unit, RegisterError[K]]` | **哈希非唯一**索引(`Map[K, SortedSet[Int]]`) |
@@ -335,6 +335,24 @@ pub struct Table[K, V] {
 | `update(id : RowId, v : V) -> Result[Unit, UpdateRejected[K, V]]` | 成功/失败 | **排除自身**的冲突检查;陈旧 id → `Err(StaleHandle(id, Some(v)))` |
 | `modify(id : RowId, f : (V) -> V) -> Result[Unit, UpdateRejected[K, V]]` | 成功/失败 | 用 `f` 变换记录后重索引;**逐索引对比新旧投影键,只动真正变化的桶**(见 §5 规则 4);陈旧 id → `Err(StaleHandle(id, None))` |
 | `remove(id : RowId) -> V?` | 被删记录 | 陈旧 id → `None` |
+
+#### §3.2.1 `update` / `modify` 的两个语义裁定
+
+**(a) 两者都**必定**递增 `version`(即使写入的记录与原来逐字段相同)。**
+理由:本库**不要求 `V : Eq`**,因此无法判断"新记录是否等于旧的";在无法判断时,按"记录被替换 = 真实变更"处理是保守且可预测的一侧。
+代价:一次"内容没变"的更新会让既有迭代器 fail-fast —— 但这正是 I8 想要的语义边界:**`version` 追的是"表被改动过",不是"内容不同"**。
+> 若将来为了性能想跳过"无变化"的更新,前提是先引入 `V : Eq`(会污染所有 API 的约束),收益不足以抵消代价,故不做。
+
+**(b) 为什么 `update` 与 `modify` 两个都保留**(回应官方"能组合就不加 API"的原则)。
+
+官方 `CONTRIBUTING.md` 说:*"If the new API can be composed with existing APIs **without losing efficiency**, it is better to use the existing APIs."*
+表面上 `update(id, v)` ≡ `modify(id, fn(_) { v })`,应当砍掉一个。**但这里组合会丢东西**:
+
+- `modify(id, fn(_) { v })` 的闭包**捕获**了 `v`。一旦返回 `Err`,调用方**拿不回这条记录**;
+- 而本库从 `insert` 起就立了"**绝不吞掉调用方的数据**"这条原则(`Rejected[K, V]` / `UpdateRejected[K, V]` 都为此存在)。
+
+**裁定:保留两个方法。** 组合损失的不是效率,是**失败路径上的数据所有权** —— 这不在官方那句话的豁免范围内。
+两个方法共用同一条预检与落地路径,增量成本接近零。
 | `clear() -> Unit` | — | 清空所有记录与条目,**但保留索引注册**(只清桶,不删注册)—— 否则 `clear` 之后新插入的记录会静默不被索引。**批量退役**:每个活槽的 `gen += 1` 后归还 `free`(代际耗尽的永久退役),因此 **`clear` 之前的句柄永不复活** —— 若直接清空数组,清空后插入会复用同一个 `(slot, gen)`,旧句柄就会静默命中新记录,违反 §7。清空**空表**不算真实变更,不递增 `version`(I8) |
 
 ### §3.3 查询
@@ -436,7 +454,7 @@ I4  桶内每个槽位 s 满足 (idx.project)(rows[s]) == 桶键
 I5  唯一索引的每个桶长度 <= 1
 I6  free 中无重复,且 free 与活记录集合不相交
 I7  每个活记录恰好出现在每条索引的对应桶中(无遗漏、无悬挂)
-I8  version 仅在真实变更时递增
+I8  version 仅在真实变更时递增(update/modify 一律视为真实变更,见 §3.2.1)
 I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见 §3.4)
 ```
 
@@ -480,8 +498,29 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 
 - **唯一冲突不覆盖**:`insert` / `update` 返回 `Err(UniqueViolation(...))`,且**返回前零变更**。
 - **陈旧句柄**:`remove`/`get` 返回 `None`,`update` 返回 `Err`;**不 panic、不误伤新占用者**。
-- **未知索引名**:查询类返回空(`None` / 空数组);写入类因索引名由 `register_*` 给定的闭包投影驱动,
-  不存在"写入时索引名未知"的路径。错误类型形态待 §0 调研后锁定。
+#### §7.1 三类"失败"必须分开对待(裁定)
+
+| 类别 | 例子 | 语义 | 处理 |
+|---|---|---|---|
+| **可预期的运行时条件** | 唯一冲突、陈旧句柄、键查不到 | 正常业务结果 | 返回 `Err` / `None` / **空迭代器**;**绝不 panic** |
+| **编程错误:名字写错** | 查询一个从未注册的索引名 | 调用方 bug | **`abort`** |
+| **编程错误:问题问错了** | 在**哈希**索引上做 `range_by` / `iter_asc_by` / `iter_desc_by` | 该索引**根本没有序**,不存在"空结果"这一说 | **`abort`** |
+
+**关键区分**:"空结果"只应表示"**查得到,但没有**"。若索引名不存在、或该索引是哈希索引(无全序),
+返回空会把**调用方的 bug** 伪装成"没有数据",让人在生产环境里排查很久。故这两类一律 `abort`。
+
+> **与"绝不 panic"原则的关系(不是矛盾)**:本库"绝不 panic"针对的是**可预期的运行时条件**
+> (冲突、陈旧句柄、未命中)—— 那些绝不能靠进程崩溃来表达。**编程错误**是另一类:它在开发期就该暴露,
+> 且没有合理的返回值可以表达("返回空"本身就是在撒谎)。官方 core 在同类情形下同样 `abort`
+> (例如 `m[k]` 取缺失键会 panic 且 `try/catch` 抓不住 —— 见 [`MOONBIT_REF.md`](MOONBIT_REF.md))。
+
+**边界要一并测到**:
+- `lo > hi` → **空**(合法的"空区间",不是编程错误);
+- `range_half_open_by(lo, hi)` 当 `lo == hi` → **空**;
+- 空表 / 有序索引存在但无匹配 → **空**。
+
+> **落地归属**:M2 的 `get_by` / `iter_by` 目前对未知索引名返回空(与上表冲突),已登记进 [§12](#§12-实现与契约的已知偏差待收敛),
+> 由 **M4 统一收敛**(M4 本来就要动这组查询)。
 
 ---
 
@@ -547,10 +586,14 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 
 | # | 契约(§) | 当前实现 | 关闭于 | 状态 |
 |---|---|---|---|---|
-| 1 | §2.4 `RegisterError[K]`,`UniqueViolation(String, K)` | 非泛型 `RegisterError`,第二字段是键的 `Show` 字符串,导致两个唯一注册方法要求 `K : Show` | M3 | ⬜ 未关闭 |
-| 2 | §3.1 `has_index(name) -> Bool` | 未实现 | M3 | ⬜ 未关闭 |
-| 3 | §3.1 `Table::with_capacity(cap : Int)` | 未实现 | M3 | ⬜ 未关闭 |
-| 4 | §3.3 `contains(id : RowId) -> Bool` | 未实现 | M3 | ⬜ 未关闭 |
+| 1 | §2.4 `RegisterError[K]`,`UniqueViolation(String, K)` | 已实现为泛型,键原样携带,**两个唯一注册方法不再要求 `K : Show`** | M3 | ✅ 已关闭(`7199afa`) |
+| 2 | §3.1 `has_index(name) -> Bool` | 已实现 | M3 | ✅ 已关闭(`7199afa`) |
+| 3 | §3.1 `Table::with_capacity(cap : Int)` | 已实现(语义见 §3.1) | M3 | ✅ 已关闭(`7199afa`) |
+| 4 | §3.3 `contains(id : RowId) -> Bool` | 已实现 | M3 | ✅ 已关闭(`7199afa`) |
+
+| 5 | §7.1 未知索引名 → `abort` | `get_by` / `iter_by` 对未知索引名返回空(静默) | M4 | ⬜ 未关闭 |
+
+> 下次出现契约与实现的差距时在此追加,不要另开一处记录。
 
 > 偏差必须**逐条关闭或显式废弃**:若某条最终决定不做,把它移到 §11(明确不实现)并在此记一行
 > "废弃(理由)",而不是静默删除。
