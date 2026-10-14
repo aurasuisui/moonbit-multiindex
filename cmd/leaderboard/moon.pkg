@@ -1,0 +1,6 @@
+import {
+  "aurasuisui/multiindex",
+  "moonbitlang/core/debug",
+}
+
+pkgtype(kind: "executable")
