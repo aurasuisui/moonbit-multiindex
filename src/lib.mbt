@@ -108,3 +108,18 @@ pub impl[K : Show, V : Show] Show for Rejected[K, V] with fn output(
   Show::output(self.record, logger)
   logger.write_string(")")
 }
+
+///|
+/// Why an index registration was refused (docs/SPEC.md §3.1).
+///
+/// Registration never half-succeeds: on `Err` the registry and the records are
+/// exactly what they were.
+///
+/// - `DuplicateName(name)` — an index of that name is already registered; the
+///   existing one is **not** overwritten.
+/// - `UniqueViolation(name, key)` — backfilling the unique index `name` found two
+///   live records projecting to the same key; `key` is its display form.
+pub enum RegisterError {
+  DuplicateName(String)
+  UniqueViolation(String, String)
+} derive(Debug, Eq)

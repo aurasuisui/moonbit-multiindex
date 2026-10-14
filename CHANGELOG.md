@@ -27,6 +27,28 @@ All notable changes to `aurasuisui/multiindex` are documented here.
   "校验器非空转"元测试(共 4 条);`table_wbtest.mbt` 白盒 6 条(LIFO 复用 / 代际单调 / I9 退役 /
   陈旧句柄不误伤 / I8 version / `clear` 台账)。
 
+#### M2 — 索引核心(2026-10-14)
+
+- **四象限索引注册表**(`src/index.mbt`):`Index[K, V]` = HashUnique / SortedUnique /
+  HashMulti / SortedMulti;桶内只存**槽位号**,非唯一桶为 `SortedSet[Int]`。
+- **四个 `register_*`**(`src/table_api.mbt`),均返回 `Result[Unit, RegisterError]`:
+  重名 → `Err(DuplicateName)`;**对非空表回填扫描**(O(len),注册后立即可查);回填唯一索引
+  遇冲突 → `Err(UniqueViolation(name, key))` 且**完全不注册**(原子,无半成品)。
+- **查询**:`get_by(name, key) -> (RowId, V)?`(非唯一索引返回桶内**槽位号最小**者)、
+  `iter_by(name, key) -> Iter2[RowId, V]`(槽位号升序;唯一索引产出 0/1 条)、
+  `index_names() -> Array[String]`。未知索引名一律返回空,**绝不 panic**。
+- **索引接进三个汇聚点**:`insert_impl`(加桶)、`remove_impl`(删桶,空桶即删)、
+  `clear_impl`(清空全部桶、保留注册)。
+- **`insert` 的唯一性前置检查**:`find_conflict` 在任何变更之前探测全部唯一索引;冲突时
+  **表零变更**,记录随 `Err(Rejected{ conflict, record })` 原样归还。
+- 新公开类型 `RegisterError`(SPEC §2.4);`Rejected` 的 Debug/Show M1 已具备。
+- 测试 35 条(**M1 的 19 条一条未削弱**):`check_invariants` 扩展到 **I3/I4/I5/I7**
+  (逐索引、逐桶断言投影一致 / 桶内无重复 / 唯一桶 ≤ 1 / 计数与覆盖两半)并在随机序列
+  **每一步之后**校验;新增 2 条索引版「校验器非空转」元测试;黑盒新增注册与查询矩阵 9 条;
+  黑盒与白盒各加一个带索引的随机序列(30 轮 × 120 步 / 25 轮 × 80 步,每步校验)。
+- M1 遗留的 **6 条声明式死代码警告**(未构造的 `Index` 变体 / `IndexMeta`)随 M2 落地**全部消失**;
+  当前 `moon check` 为 13 warnings / 0 errors(其余为 `derive` 的 `[0079]` 与 `moon.pkg` 的
+  `unused_package`,与 M1 同源)。
 ### Notes / Deviations
 - **`Conflict` 故意没有「无冲突」变体**:无冲突用 `Option::None` 表达。加变体会与
   `Option::None` 在 match 位置混淆,并迫使调用方匹配一个不可能出现的 `Err`。
@@ -61,6 +83,26 @@ All notable changes to `aurasuisui/multiindex` are documented here.
   6 条 dead-code 警告(4 个未构造的 `Index` 变体 + `IndexMeta` 未构造 + 2 个未读字段);
   `moon check` 仍为 **0 error**,M2 落地后自然消失。
 
+#### M2 索引核心(2026-10-14)
+
+- **类型约束取并集(提请裁定)**:注册表是一个异构枚举,任何遍历它的操作都同时需要
+  `Hash + Eq`(哈希象限)与 `Compare`(有序象限),因此 `insert` / `remove` / `get_by` /
+  `iter_by` 写成 `K : Hash + Eq + Compare`。SPEC §2.5 要求"按方法最小化":真正最小化需要把
+  有序象限的桶操作**擦除**成注册时捕获的闭包(或 trait object),代价是不变量检查无法枚举桶。
+  **未做该优化,等审核裁定**;不触碰索引的方法(`new` / `len` / `is_empty` / `get` / `iter` /
+  `clear` / `index_names`)保持**零约束**。
+- **`index_names()` 的"升序"= MoonBit 的 `String` 序(shortlex)**:`String : Compare` 先比长度
+  再比码元(`builtin/string.mbt`),所以 `["aa", "b"]` 枚举为 `["b", "aa"]`。按 SPEC §3.3.1
+  「跟随平台语义」的先例处理,并在 API 文档与测试里**钉死该行为**(避免被当成字典序)。
+- **`clear()` 保留索引注册**:SPEC §3.2 的"清空所有记录与索引"读作"清空记录与**索引条目**";
+  注册(模式)保留 —— 否则 `clear` 之后新插入的记录会**静默地不被索引**。已提请 SPEC 明确措辞。
+- **`insert` 的冲突探测只针对唯一象限**;非唯一象限没有冲突概念(`Index::holder` 对它们恒 `None`)。
+- **`iter()` 改为返回 `Iter2[RowId, V]`**:SPEC §3.3 的统一查询形状是 M1 审核轮才写进 SPEC 的;
+  M2 按 SPEC 对齐。M1 的 19 条断言**一条未削弱** —— 只把取值方式改成二元组,并**加强**为同时
+  断言身份与值(`check_observable` 现在逐项比对 `(RowId, V)` 全对)。
+- **`RegisterError` 暂无 `Show`**:SPEC §2.4 只要求 `derive(Debug, Eq)`;需要人读文案时再加。
+- **桶枚举辅助函数放在测试侧**:`index_buckets` 只在白盒测试里需要,放在 `property_wbtest.mbt`
+  而非库里,避免发布代码里出现"仅测试使用"的死函数(M5 的 `index_stats` 会在库里重新实现它)。
 #### 与参考实现 `multi_index_map` 的取舍(`docs/SPEC.md` §0.3)
 
 | 取舍点 | 参考实现 `multi_index_map` 0.15.1 | 本库 | 理由 |

@@ -12,12 +12,17 @@
 // `property_wbtest.mbt`.
 
 ///|
-/// Insert and unwrap inside the package: M1 registers no index, so no write can
-/// conflict yet. Shared by both white-box test files.
-fn[K, V] wb_insert(t : Table[K, V], value : V) -> RowId raise {
+/// Insert and unwrap inside the package, for tables with no unique index (a
+/// conflict here would be a bug in the test, not in the table). Shared by both
+/// white-box test files.
+fn[K : Hash + Eq + Compare, V] wb_insert(
+  t : Table[K, V],
+  value : V,
+) -> RowId raise {
   match t.insert(value) {
     Ok(id) => id
-    Err(_) => @test.fail("insert returned Err although no index is registered")
+    Err(_) =>
+      @test.fail("insert returned Err although no unique index is registered")
   }
 }
 
@@ -173,5 +178,112 @@ test "clear recycles every live slot and keeps storage allocated" {
   let d = wb_insert(t, 4)
   @test.assert_eq(d.gen, 1)
   @test.assert_eq(int_member(t.free, d.slot), false)
+  check_invariants(t)
+}
+// ---------------------------------------------------------------------------
+// Index bucket bookkeeping (M2)
+// ---------------------------------------------------------------------------
+
+///|
+test "index buckets store slot numbers and drop a bucket once it empties" {
+  let t = wb_indexed_table()
+  let a = wb_insert_indexed(t, (1, 10, 7))
+  let b = wb_insert_indexed(t, (2, 20, 7))
+  // the non-unique quadrant keeps both slots under the shared key, ascending
+  match t.indexes.get("shared") {
+    Some(index) => {
+      assert_ints(index.slots(7), [a.slot, b.slot])
+      assert_ints(index.slots(5), [])
+      @test.assert_eq(index_buckets(index).length(), 1)
+    }
+    None => @test.fail("the index vanished")
+  }
+  // removing one record shrinks the bucket ...
+  t.remove(a) |> ignore
+  match t.indexes.get("shared") {
+    Some(index) => {
+      assert_ints(index.slots(7), [b.slot])
+      @test.assert_eq(index_buckets(index).length(), 1)
+    }
+    None => @test.fail("the index vanished")
+  }
+  // ... and the unique quadrant of the removed record is empty again
+  match t.indexes.get("lo") {
+    Some(index) => assert_ints(index.slots(1), [])
+    None => @test.fail("the index vanished")
+  }
+  // removing the last record leaves no bucket behind at all
+  t.remove(b) |> ignore
+  match t.indexes.get("shared") {
+    Some(index) => @test.assert_eq(index_buckets(index).length(), 0)
+    None => @test.fail("the index vanished")
+  }
+  check_invariants(t)
+}
+
+///|
+test "clear drops every bucket but keeps the registrations" {
+  let t = wb_indexed_table()
+  let a = wb_insert_indexed(t, (1, 10, 7))
+  @test.assert_eq(t.indexes.length(), 4)
+  t.clear()
+  @test.assert_eq(t.indexes.length(), 4) // the schema survives a clear
+  match t.indexes.get("lo") {
+    Some(index) => {
+      @test.assert_eq(index_buckets(index).length(), 0)
+      assert_ints(index.slots(1), [])
+    }
+    None => @test.fail("the registration was dropped")
+  }
+  @test.assert_eq(t.get(a), None)
+  check_invariants(t)
+}
+
+///|
+test "a stale handle cannot touch the index entries of the new occupant" {
+  let t = wb_indexed_table()
+  let old = wb_insert_indexed(t, (1, 10, 7))
+  t.remove(old) |> ignore
+  let fresh = wb_insert_indexed(t, (1, 20, 8))
+  @test.assert_eq(fresh.slot, old.slot)
+  // the stale handle is rejected, and every index still names the new record
+  @test.assert_eq(t.remove(old), None)
+  match t.indexes.get("lo") {
+    Some(index) => assert_ints(index.slots(1), [fresh.slot])
+    None => @test.fail("the index vanished")
+  }
+  match t.indexes.get("shared") {
+    Some(index) => {
+      assert_ints(index.slots(8), [fresh.slot])
+      assert_ints(index.slots(7), []) // the old record left no trace
+    }
+    None => @test.fail("the index vanished")
+  }
+  check_invariants(t)
+}
+
+///|
+test "a failed backfill leaves the registry and the buckets untouched" {
+  let t : Table[Int, Int] = Table::new()
+  let a = wb_insert(t, 1)
+  let b = wb_insert(t, 11)
+  check_invariants(t)
+  let before = t.indexes.length()
+  match t.register_unique("low_digit", fn(v) { v % 10 }) {
+    Ok(_) => @test.fail("the backfill must report the duplicate key")
+    Err(_) => ()
+  }
+  // white-box: nothing was published into the registry — not even partially
+  @test.assert_eq(t.indexes.length(), before)
+  @test.assert_eq(t.index_names().length(), 0)
+  check_invariants(t)
+  @test.assert_eq(t.get(a), Some(1))
+  @test.assert_eq(t.get(b), Some(11))
+  // the data is still intact enough to accept a non-conflicting registration
+  match t.register_unique("by_ten", fn(v) { v / 10 }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("registration unexpectedly failed")
+  }
+  @test.assert_eq(t.indexes.length(), 1)
   check_invariants(t)
 }
