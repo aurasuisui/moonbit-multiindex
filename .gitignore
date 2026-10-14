@@ -13,3 +13,8 @@ target/
 #   moon run cmd/leaderboard && moon run --release bench/main.mbt
 #   rm moon.work
 moon.work
+# Interface snapshots of the standalone member modules (`cmd/`, `bench/`): a
+# workspace-wide `moon info` generates them next to their `moon.pkg`, but they are not
+# part of this module's published interface.
+bench/pkg.generated.mbti
+cmd/*/pkg.generated.mbti
