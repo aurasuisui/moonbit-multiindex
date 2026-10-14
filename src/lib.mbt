@@ -125,3 +125,18 @@ pub enum RegisterError[K] {
   DuplicateName(String)
   UniqueViolation(String, K)
 } derive(Debug, Eq)
+
+///|
+/// Why an update was refused (docs/SPEC.md §2.5).
+///
+/// - `StaleHandle(id, pending)` — `id` no longer names a live record. `update`
+///   gives the record it was handed back (`Some(value)`); `modify` has none to
+///   give (`None`: with no record to transform, no new record exists).
+/// - `Conflict(conflict, value)` — a unique index already holds one of the
+///   record's keys; the record always comes back.
+///
+/// Same principle as `Rejected`: a refused write never swallows the caller's data.
+pub enum UpdateRejected[K, V] {
+  StaleHandle(RowId, V?)
+  Conflict(Conflict[K], V)
+} derive(Debug, Eq)

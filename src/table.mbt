@@ -187,14 +187,31 @@ fn[K : Hash + Eq + Compare, V] Table::find_conflict(
   self : Table[K, V],
   value : V,
 ) -> Conflict[K]? {
+  self.find_conflict_excluding(value, -1)
+}
+
+///|
+/// The first unique-index collision `value` would cause **against some record
+/// other than `exclude_slot`**, or `None` (pass `-1` to exclude nothing).
+///
+/// Excluding self is what makes "write a record back under a key it already
+/// holds" a no-op instead of a conflict — docs/SPEC.md §5 rule 1, the bug the
+/// original probe caught. Like `find_conflict`, this mutates nothing.
+fn[K : Hash + Eq + Compare, V] Table::find_conflict_excluding(
+  self : Table[K, V],
+  value : V,
+  exclude_slot : Int,
+) -> Conflict[K]? {
   for name, index in self.indexes {
     if index.is_unique() {
       let key = index.project()(value)
       match index.holder(key) {
         Some(slot) =>
-          return Some(
-            UniqueViolation(name, key, { slot, gen: self.gens[slot], }),
-          )
+          if slot != exclude_slot {
+            return Some(
+              UniqueViolation(name, key, { slot, gen: self.gens[slot], }),
+            )
+          }
         None => ()
       }
     }
@@ -303,6 +320,34 @@ fn[K : Hash + Eq + Compare, V] Table::remove_impl(
 }
 
 ///|
+/// CHOKEPOINT (update): swap the record in `slot` for `value`, retargeting only
+/// the index buckets whose projected key really changes.
+///
+/// The index work happens **before** the row is overwritten, so no bucket ever
+/// points at a slot whose projection has stopped matching (I4), and the equal-key
+/// indexes are not touched at all (docs/SPEC.md §5 rule 3). The caller must have
+/// completed every uniqueness pre-check — this is the commit half.
+fn[K : Hash + Eq + Compare, V] Table::modify_impl(
+  self : Table[K, V],
+  slot : Int,
+  value : V,
+) -> Unit {
+  let previous = match self.rows[slot] {
+    Some(record) => record
+    None =>
+      abort(
+        "Table::modify_impl: slot " + slot.to_string() + " holds no live record",
+      )
+  }
+  for _, index in self.indexes {
+    let project = index.project()
+    index.retarget(slot, project(previous), project(value)) |> ignore
+  }
+  self.rows[slot] = Some(value)
+  self.version = self.version + 1
+}
+
+///|
 /// CHOKEPOINT (bulk removal): retire every live slot in one O(n) sweep, then drop
 /// the insertion order and every index bucket.
 ///
@@ -350,6 +395,60 @@ pub fn[K : Hash + Eq + Compare, V] Table::insert(
   match self.find_conflict(value) {
     Some(conflict) => Err({ conflict, record: value, })
     None => Ok(self.insert_impl(value))
+  }
+}
+
+///|
+/// Replace the record named by `id` with `value`.
+///
+/// The **excluding-self** check runs first (docs/SPEC.md §5 rule 1): writing a
+/// record back under a key it already holds is not a conflict. Every unique index
+/// is probed before anything is written, so on `Err` the table is exactly what it
+/// was and `value` travels back inside `UpdateRejected`. A stale `id` yields
+/// `Err(StaleHandle(id, Some(value)))` — the caller's record is never swallowed.
+pub fn[K : Hash + Eq + Compare, V] Table::update(
+  self : Table[K, V],
+  id : RowId,
+  value : V,
+) -> Result[Unit, UpdateRejected[K, V]] {
+  match self.get(id) {
+    None => Err(StaleHandle(id, Some(value)))
+    Some(_) =>
+      match self.find_conflict_excluding(value, id.slot) {
+        Some(conflict) => Err(Conflict(conflict, value))
+        None => {
+          self.modify_impl(id.slot, value)
+          Ok(())
+        }
+      }
+  }
+}
+
+///|
+/// Replace the record named by `id` with `f(record)`.
+///
+/// `f` runs exactly once, before any mutation, and only the index buckets whose
+/// projected key changes are touched (docs/SPEC.md §5 rule 4 — the ordering the
+/// reference implementation gets wrong). A stale `id` yields
+/// `Err(StaleHandle(id, None))`: with no record to transform there is no new
+/// record to hand back.
+pub fn[K : Hash + Eq + Compare, V] Table::modify(
+  self : Table[K, V],
+  id : RowId,
+  f : (V) -> V,
+) -> Result[Unit, UpdateRejected[K, V]] {
+  match self.get(id) {
+    None => Err(StaleHandle(id, None))
+    Some(previous) => {
+      let value = f(previous)
+      match self.find_conflict_excluding(value, id.slot) {
+        Some(conflict) => Err(Conflict(conflict, value))
+        None => {
+          self.modify_impl(id.slot, value)
+          Ok(())
+        }
+      }
+    }
   }
 }
 
