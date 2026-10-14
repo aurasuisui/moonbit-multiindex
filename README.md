@@ -102,6 +102,8 @@ t.verify_invariants()                // -> Result[Unit, String](首个违反点 
   它们是有序哈希表(单索引、保留插入序);本库是多路查找结构。
 - **不依赖** `aurasuisui/bimap` 或 `aurasuisui/indexmap`:同作者作品,思路延续,代码独立。
 
+> **分支**:`main` 是里程碑视图(每个阶段一个提交),`dev` 保留完整的逐节点开发历史。
+
 ## 文档
 
 - 文档枢纽/全量地图:[`docs/README.md`](docs/README.md)
