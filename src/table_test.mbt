@@ -21,8 +21,8 @@ fn[K : Hash + Eq + Compare, V] insert_ok(
 
 ///|
 /// Unwrap a registration that must succeed.
-fn assert_registered(
-  result : Result[Unit, @aurasuisui/multiindex.RegisterError],
+fn[K] assert_registered(
+  result : Result[Unit, @aurasuisui/multiindex.RegisterError[K]],
 ) -> Unit raise {
   match result {
     Ok(_) => ()
@@ -231,6 +231,67 @@ test "index_names is ascending in MoonBit's shortlex string order" {
   @test.assert_eq(names[0], "b")
   @test.assert_eq(names[1], "aa")
 }
+// ---------------------------------------------------------------------------
+// §12 ledger: has_index / with_capacity / contains
+// ---------------------------------------------------------------------------
+
+///|
+test "has_index tracks the registry" {
+  let t : @aurasuisui/multiindex.Table[Int, Int] = @aurasuisui/multiindex.Table::new()
+  @test.assert_eq(t.has_index("k"), false)
+  assert_registered(t.register_unique("k", fn(v) { v }))
+  @test.assert_eq(t.has_index("k"), true)
+  @test.assert_eq(t.has_index("other"), false)
+  @test.assert_eq(t.has_index(""), false)
+}
+
+///|
+test "contains reports live handles only" {
+  let t : @aurasuisui/multiindex.Table[Int, Int] = @aurasuisui/multiindex.Table::new()
+  let a = insert_ok(t, 1)
+  @test.assert_eq(t.contains(a), true)
+  t.remove(a) |> ignore
+  @test.assert_eq(t.contains(a), false)
+  // the slot gets reused, but the old handle stays dead
+  let b = insert_ok(t, 2)
+  @test.assert_eq(b.slot, a.slot)
+  @test.assert_eq(t.contains(b), true)
+  @test.assert_eq(t.contains(a), false)
+}
+
+///|
+test "with_capacity reserves slots without inventing records" {
+  let t : @aurasuisui/multiindex.Table[Int, Int] = @aurasuisui/multiindex.Table::with_capacity(
+    8,
+  )
+  @test.assert_eq(t.len(), 0)
+  @test.assert_eq(t.is_empty(), true)
+  @test.assert_eq(t.iter().to_array().length(), 0)
+  // the reserved slots are handed out in ascending order
+  let a = insert_ok(t, 10)
+  let b = insert_ok(t, 20)
+  @test.assert_eq(a.slot, 0)
+  @test.assert_eq(b.slot, 1)
+  @test.assert_eq(a.gen, 0)
+  @test.assert_eq(t.len(), 2)
+  // and recycling still works on top of the reservation
+  t.remove(a) |> ignore
+  let c = insert_ok(t, 30)
+  @test.assert_eq(c.slot, 0)
+  @test.assert_eq(c.gen, 1)
+  @test.assert_eq(t.contains(a), false)
+  @test.assert_eq(t.get(c), Some(30))
+  // a non-positive capacity behaves exactly like `new`
+  let zero : @aurasuisui/multiindex.Table[Int, Int] = @aurasuisui/multiindex.Table::with_capacity(
+    0,
+  )
+  @test.assert_eq(zero.len(), 0)
+  let negative : @aurasuisui/multiindex.Table[Int, Int] = @aurasuisui/multiindex.Table::with_capacity(
+    -5,
+  )
+  @test.assert_eq(negative.len(), 0)
+  @test.assert_eq(negative.iter().to_array().length(), 0)
+}
 
 ///|
 test "registering over a non-empty table backfills it" {
@@ -256,7 +317,7 @@ test "backfilling a conflicting unique index registers nothing" {
     Ok(_) => @test.fail("the backfill must report the duplicate key")
     Err(@aurasuisui/multiindex.UniqueViolation(name, key)) => {
       @test.assert_eq(name, "low_digit")
-      @test.assert_eq(key, "1")
+      @test.assert_eq(key, 1)
     }
     Err(_) => @test.fail("expected UniqueViolation")
   }

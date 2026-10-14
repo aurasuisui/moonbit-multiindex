@@ -287,3 +287,19 @@ test "a failed backfill leaves the registry and the buckets untouched" {
   @test.assert_eq(t.indexes.length(), 1)
   check_invariants(t)
 }
+
+///|
+test "with_capacity pre-fills the free stack, highest slot first" {
+  let t : Table[Int, Int] = Table::with_capacity(4)
+  @test.assert_eq(t.rows.length(), 4)
+  @test.assert_eq(t.gens.length(), 4)
+  assert_ints(t.gens, [0, 0, 0, 0])
+  // LIFO: slot 0 is on top, so allocation hands slots out in ascending order
+  assert_ints(t.free, [3, 2, 1, 0])
+  check_invariants(t)
+  let a = wb_insert(t, 1)
+  @test.assert_eq(a.slot, 0)
+  assert_ints(t.free, [3, 2, 1])
+  @test.assert_eq(t.order.length(), 1)
+  check_invariants(t)
+}

@@ -179,7 +179,7 @@ fn[K : Hash + Eq + Compare + Debug, V] check_invariants(
 /// a non-unique key (which is what makes multi-record buckets testable).
 fn wb_indexed_table() -> Table[Int, (Int, Int, Int)] raise {
   let t : Table[Int, (Int, Int, Int)] = Table::new()
-  let registrations : Array[Result[Unit, RegisterError]] = [
+  let registrations : Array[Result[Unit, RegisterError[Int]]] = [
     t.register_unique("lo", fn(p) { p.0 }),
     t.register_unique_ordered("hi", fn(p) { p.1 }),
     t.register_non_unique("shared", fn(p) { p.2 }),

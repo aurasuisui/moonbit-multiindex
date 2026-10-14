@@ -171,7 +171,9 @@ test "qc: handles issued before clear never resolve after it" {
 /// non-unique key and really fill a bucket.
 fn indexed_table() -> @aurasuisui/multiindex.Table[Int, (Int, Int, Int)] raise {
   let t : @aurasuisui/multiindex.Table[Int, (Int, Int, Int)] = @aurasuisui/multiindex.Table::new()
-  let registrations : Array[Result[Unit, @aurasuisui/multiindex.RegisterError]] = [
+  let registrations : Array[
+    Result[Unit, @aurasuisui/multiindex.RegisterError[Int]],
+  ] = [
     t.register_unique("lo", fn(p) { p.0 }),
     t.register_unique_ordered("hi", fn(p) { p.1 }),
     t.register_non_unique("shared", fn(p) { p.2 }),

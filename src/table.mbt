@@ -69,6 +69,24 @@ pub fn[K, V] Table::new() -> Table[K, V] {
   }
 }
 
+///|
+/// Create an empty table whose slot storage is already sized for `cap` records.
+///
+/// The reserved slots are all vacant, so they all go on `free` — pushed
+/// high-to-low, so the LIFO stack hands out slot 0 first and the first `cap`
+/// inserts never have to grow the slot arrays. `cap <= 0` reserves nothing.
+pub fn[K, V] Table::with_capacity(cap : Int) -> Table[K, V] {
+  let t = Table::new()
+  let mut i = cap - 1
+  while i >= 0 {
+    t.rows.push(None)
+    t.gens.push(0)
+    t.free.push(i)
+    i = i - 1
+  }
+  t
+}
+
 // ---------------------------------------------------------------------------
 // Reads (no bounds: none of these touches an index)
 // ---------------------------------------------------------------------------
@@ -100,6 +118,15 @@ pub fn[K, V] Table::get(self : Table[K, V], id : RowId) -> V? {
     return None
   }
   self.rows[slot]
+}
+
+///|
+/// Whether `id` names a live record (a stale handle answers `false`).
+pub fn[K, V] Table::contains(self : Table[K, V], id : RowId) -> Bool {
+  match self.get(id) {
+    Some(_) => true
+    None => false
+  }
 }
 
 ///|
