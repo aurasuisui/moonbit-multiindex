@@ -17,9 +17,9 @@ moon fmt     # format
 .
 ├── src/
 │   ├── lib.mbt             # Public re-exports, VERSION, RowId, Conflict
-│   ├── table.mbt           # Table core: rows/gens/free/order + chokepoints
-│   ├── index.mbt           # Index / SortedIndex types + bucket add/del
-│   ├── table_api.mbt       # register_* / get_by / iter_by / range_by / update
+│   ├── table.mbt           # Table core: rows/gens/free/order + chokepoints + find_conflict
+│   ├── index.mbt           # Index[K,V] four-quadrant enum + bucket add/remove/slots
+│   ├── table_api.mbt       # register_* (atomic backfill) / get_by / iter_by / index_names
 │   ├── table_iter.mbt      # Fail-fast iterators
 │   ├── table_traits.mbt    # Debug/Default/Show/Eq/ToJson/Arbitrary
 │   ├── json.mbt            # JSON round-trip + decode errors

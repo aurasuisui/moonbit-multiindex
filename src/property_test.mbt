@@ -2,19 +2,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Black-box property tests: random `insert` / `remove` / `clear` sequences with
-// the observable invariants re-checked after EVERY step.
+// the observable invariants re-checked after EVERY step — first on a table with
+// no index, then on one with all four quadrants registered.
 //
-// The private-field form of I1 / I2 / I6 lives in `property_wbtest.mbt`: MoonBit
-// compiles `*_test.mbt` as an external package, so `free` / `order` / `gens` are
-// not reachable from here (see CHANGELOG Notes/Deviations).
+// The private-field form of I1 / I2 / I6 (and of the index invariants I3 / I4 /
+// I5 / I7) lives in `property_wbtest.mbt`: MoonBit compiles `*_test.mbt` as an
+// external package, so `free` / `order` / `gens` / `indexes` are not reachable
+// from here (see CHANGELOG Notes/Deviations).
 
 ///|
 /// Re-assert the black-box projection of the storage invariants against a shadow
-/// model that holds the handles which should still be live, in insertion order:
-/// - I2: `len()` agrees with the number of records `iter()` yields, and with the
-///   number of model entries
+/// model of the handles that should still be live, in insertion order:
+/// - I2: `len()` agrees with the number of records `iter()` yields (and with the
+///   number of model entries)
 /// - every handle believed live still resolves to its record
-/// - `iter()` walks the live records in insertion order
+/// - `iter()` walks the live records in insertion order, identity included
 fn[K, V : Eq + Debug] check_observable(
   t : @aurasuisui/multiindex.Table[K, V],
   model : Array[(@aurasuisui/multiindex.RowId, V)],
@@ -27,14 +29,12 @@ fn[K, V : Eq + Debug] check_observable(
     @test.assert_eq(t.get(id), Some(value))
     i = i + 1
   }
-  let seen : Array[V] = []
-  for value in t.iter() {
-    seen.push(value)
-  }
+  let seen = t.iter().to_array()
   @test.assert_eq(seen.length(), model.length())
   let mut j = 0
   while j < model.length() {
-    @test.assert_eq(seen[j], model[j].1)
+    @test.assert_eq(seen[j].0, model[j].0)
+    @test.assert_eq(seen[j].1, model[j].1)
     j = j + 1
   }
 }
@@ -84,7 +84,7 @@ test "qc: observable invariants hold after every step of a random sequence" {
         let id = match t.insert(step) {
           Ok(id) => id
           Err(_) =>
-            @test.fail("insert returned Err although no index is registered")
+            @test.fail("insert conflicted although no index is registered")
         }
         issued.push(id)
         alive.push(true)
@@ -102,8 +102,6 @@ test "qc: observable invariants hold after every step of a random sequence" {
               None => @test.fail("remove rejected a handle that was still live")
             }
           } else {
-            // a stale handle must be rejected and must not touch its slot's
-            // current occupant (ABA guard); check_observable re-verifies that
             @test.assert_eq(t.remove(id), None)
             @test.assert_eq(t.get(id), None)
           }
@@ -136,7 +134,7 @@ test "qc: handles issued before clear never resolve after it" {
         match t.insert(i) {
           Ok(id) => id
           Err(_) =>
-            @test.fail("insert returned Err although no index is registered")
+            @test.fail("insert conflicted although no index is registered")
         },
       )
       i = i + 1
@@ -147,19 +145,153 @@ test "qc: handles issued before clear never resolve after it" {
       let fresh = match t.insert(-j) {
         Ok(id) => id
         Err(_) =>
-          @test.fail("insert returned Err although no index is registered")
+          @test.fail("insert conflicted although no index is registered")
       }
       @test.assert_eq(t.get(fresh), Some(-j))
-      // every stale handle stays dead ...
       let mut k = 0
       while k < before.length() {
         @test.assert_eq(t.get(before[k]), None)
         @test.assert_eq(t.remove(before[k]), None)
         k = k + 1
       }
-      // ... and every record inserted after the clear is still there
       @test.assert_eq(t.len(), j + 1)
       j = j + 1
+    }
+    round = round + 1
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Indexed tables (M2)
+// ---------------------------------------------------------------------------
+
+///|
+/// A table with all four quadrants registered over `(unique, unique, shared)`
+/// records: the unique indexes project disjoint fields, so records can share a
+/// non-unique key and really fill a bucket.
+fn indexed_table() -> @aurasuisui/multiindex.Table[Int, (Int, Int, Int)] raise {
+  let t : @aurasuisui/multiindex.Table[Int, (Int, Int, Int)] = @aurasuisui/multiindex.Table::new()
+  let registrations : Array[Result[Unit, @aurasuisui/multiindex.RegisterError]] = [
+    t.register_unique("lo", fn(p) { p.0 }),
+    t.register_unique_ordered("hi", fn(p) { p.1 }),
+    t.register_non_unique("shared", fn(p) { p.2 }),
+    t.register_non_unique_ordered("shared_sorted", fn(p) { p.2 }),
+  ]
+  let mut i = 0
+  while i < registrations.length() {
+    match registrations[i] {
+      Ok(_) => ()
+      Err(_) => @test.fail("registration unexpectedly failed")
+    }
+    i = i + 1
+  }
+  t
+}
+
+///|
+/// Every index must agree with the shadow model: the unique quadrants answer with
+/// exactly the model record, and the non-unique bucket holds exactly the model
+/// records that share the key, ascending by slot.
+fn check_indexes(
+  t : @aurasuisui/multiindex.Table[Int, (Int, Int, Int)],
+  model : Array[(@aurasuisui/multiindex.RowId, (Int, Int, Int))],
+) -> Unit raise {
+  let mut i = 0
+  while i < model.length() {
+    let (id, record) = model[i]
+    @test.assert_eq(t.get_by("lo", record.0), Some((id, record)))
+    @test.assert_eq(t.get_by("hi", record.1), Some((id, record)))
+    let bucket = t.iter_by("shared", record.2).to_array()
+    let mut expected = 0
+    let mut k = 0
+    while k < model.length() {
+      if model[k].1.2 == record.2 {
+        expected = expected + 1
+      }
+      k = k + 1
+    }
+    @test.assert_eq(bucket.length(), expected)
+    let mut previous_slot = -1
+    let mut l = 0
+    while l < bucket.length() {
+      @test.assert_eq(bucket[l].0.slot > previous_slot, true)
+      previous_slot = bucket[l].0.slot
+      @test.assert_eq(bucket[l].1.2, record.2)
+      l = l + 1
+    }
+    i = i + 1
+  }
+  // a key nobody used answers empty on every quadrant, never a panic
+  @test.assert_eq(t.get_by("lo", -1), None)
+  @test.assert_eq(t.get_by("shared", -1), None)
+  @test.assert_eq(t.iter_by("shared", -1).to_array().length(), 0)
+}
+
+///|
+test "qc: indexed tables keep every bucket consistent after each step" {
+  let r = @random.Rand::new()
+  let mut round = 0
+  while round < 25 {
+    let t = indexed_table()
+    let model : Array[(@aurasuisui/multiindex.RowId, (Int, Int, Int))] = []
+    let issued : Array[@aurasuisui/multiindex.RowId] = []
+    let alive : Array[Bool] = []
+    let mut step = 0
+    while step < 80 {
+      let op = r.int(limit=10)
+      if op < 6 {
+        // a deliberately small key space, so unique collisions really happen
+        let record = (r.int(limit=5), r.int(limit=4), r.int(limit=3))
+        let mut conflict = false
+        let mut i = 0
+        while i < model.length() {
+          if model[i].1.0 == record.0 || model[i].1.1 == record.1 {
+            conflict = true
+          }
+          i = i + 1
+        }
+        match t.insert(record) {
+          Ok(id) => {
+            // accepted although a unique key was taken would be a bug
+            @test.assert_eq(conflict, false)
+            issued.push(id)
+            alive.push(true)
+            model.push((id, record))
+          }
+          Err(rejected) => {
+            @test.assert_eq(conflict, true)
+            // the refused record is handed back untouched
+            @test.assert_eq(rejected.record, record)
+          }
+        }
+      } else if op < 9 {
+        if issued.length() > 0 {
+          let pick = r.int(limit=issued.length())
+          let id = issued[pick]
+          if alive[pick] {
+            match t.remove(id) {
+              Some(value) => {
+                model_remove(model, id, value)
+                alive[pick] = false
+              }
+              None => @test.fail("remove rejected a handle that was still live")
+            }
+          } else {
+            @test.assert_eq(t.remove(id), None)
+          }
+        }
+      } else {
+        t.clear()
+        model.clear()
+        let mut k = 0
+        while k < alive.length() {
+          alive[k] = false
+          k = k + 1
+        }
+      }
+      check_observable(t, model)
+      check_indexes(t, model)
+      step = step + 1
     }
     round = round + 1
   }

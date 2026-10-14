@@ -212,15 +212,37 @@ pub struct Rejected[K, V] {
 ### §2.4 `RegisterError` — 索引注册失败
 
 ```moonbit
-pub enum RegisterError {
-  DuplicateName(String)              // 同名索引已存在
-  UniqueViolation(String, String)    // (索引名, 冲突键的 Show 形式):回填唯一索引时发现已有冲突
+pub enum RegisterError[K] {
+  DuplicateName(String)           // 同名索引已存在
+  UniqueViolation(String, K)      // (索引名, 冲突键)
 } derive(Debug, Eq)
 ```
 
 - **不静默覆盖、不部分注册**:失败时注册表与数据**完全不变**(§5 规则 2 的推广)。
+- **为什么泛型而不是把键转成字符串**:M2 实现时曾用 `UniqueViolation(String, String)`(键的 `Show` 形式),
+  代价是**两个唯一注册方法被迫要求 `K : Show`** —— 使用者必须给键类型实现 `Show` 才能注册唯一索引,
+  这是不必要的负担。契约定为 **`RegisterError[K]`**,与既有 `Conflict[K]` 形状一致,键原样携带,不需要任何额外约束。
+  > 该改动列入 [§12 实现与契约的已知偏差](#§12-实现与契约的已知偏差待收敛)。
 
-### §2.5 `Table[K, V]` — 记录表
+### §2.5 `UpdateRejected[K, V]` — 更新失败(句柄失效 / 唯一冲突)
+
+```moonbit
+pub enum UpdateRejected[K, V] {
+  StaleHandle(RowId, V?)   // 句柄已失效
+  Conflict(Conflict[K], V) // 唯一冲突
+} derive(Debug, Eq)
+```
+
+- **为什么不复用 `Rejected[K, V]`**:陈旧句柄**不是唯一性冲突**,硬塞进 `Conflict[K]` 会污染那个类型;
+  但 `update`/`modify` 又必须同时表达两种失败,所以单独立一个枚举。
+- **`StaleHandle` 的 `V?` 为什么可选**:两条路径的信息量不同 ——
+  - `update(id, v)`:调用方已把待写入记录交出来,失败时**必须归还**(否则数据丢失)→ `Some(v)`;
+  - `modify(id, f)`:`f` 需要旧记录才能算出新记录,句柄失效时**根本算不出来** → `None`。
+  这是两条路径的真实差异;不用 `Option` 就得为它们各立一个错误类型,反而更难用。
+- **`Conflict` 分支的 `V` 总有值**:冲突判定发生在新记录已在手之后,一定归还。
+- 与 `insert` 的 `Rejected[K, V]` 同一条原则:**绝不吞掉调用方的数据**。
+
+### §2.6 `Table[K, V]` — 记录表
 
 ```moonbit
 pub struct Table[K, V] {
@@ -230,6 +252,24 @@ pub struct Table[K, V] {
 
 **类型参数约束**:MoonBit 的结构体泛型**不能**带 trait 约束,因此 `K : Hash + Eq`(以及
 有序索引需要的 `K : Compare`)**写在每个方法上**,按方法最小化。
+
+#### §2.5.1 约束并集:一处**已知且有理由的**取舍
+
+注册表是**异构枚举**(`HashUnique` / `SortedUnique` / `HashMulti` / `SortedMulti`),
+任何遍历它的操作都同时需要 `Hash + Eq` 与 `Compare`。因此:
+
+| 方法 | 约束 |
+|---|---|
+| `insert` / `remove` / `get_by` / `iter_by` / `modify` | `K : Hash + Eq + Compare` |
+| `new` / `len` / `is_empty` / `get` / `iter` / `clear` / `index_names` | **零约束** |
+
+**这意味着即使只注册哈希索引,键类型也必须实现 `Compare`。** 真正做到按方法最小化,需要把有序象限的
+桶操作在注册时**擦除成闭包/trait object**,代价是白盒不变量检查无法再枚举桶(而 I3/I4/I5/I7 的
+逐步校验正是本库最核心的质量保障)。
+
+**裁定:接受约束并集,换取可验证性。** 实际键类型(`String` / `Int` / 可比较的记录键)几乎都天然满足
+`Compare`,而"不变量能被逐步校验"的价值远高于省掉一个约束。
+> 类型擦除方案列为 **v0.2 候选**(见 [§11](#v0.2-候选本期明确不做记录以免遗忘))。
 
 **字段可见性**:MoonBit 的 `pub struct` 字段**默认可读公开**(会出现在 `pkg.generated.mbti` 里),
 要真正私有必须逐字段写 `priv`。本库选择**字段全部 `priv`**:
@@ -262,11 +302,11 @@ pub struct Table[K, V] {
 |---|---|
 | `Table::new() -> Table[K, V]` | 空表 |
 | `Table::with_capacity(cap : Int)` | 预留容量 |
-| `register_unique(name, project) -> Unit` | **哈希唯一**索引(`Map[K, Int]`) |
-| `register_unique_ordered(name, project)` (需 `K : Compare`) | **有序唯一**索引(`SortedMap[K, Int]`) |
-| `register_non_unique(name, project) -> Unit` | **哈希非唯一**索引(`Map[K, SortedSet[Int]]`) |
-| `register_non_unique_ordered(name, project)` (需 `K : Compare`) | **有序非唯一**索引(`SortedMap[K, SortedSet[Int]]`) |
-| `has_index(name) -> Bool` / `index_names() -> Array[String]` | 索引枚举 |
+| `register_unique(name, project) -> Result[Unit, RegisterError[K]]` | **哈希唯一**索引(`Map[K, Int]`) |
+| `register_unique_ordered(name, project) -> Result[Unit, RegisterError[K]]` (需 `K : Compare`) | **有序唯一**索引(`SortedMap[K, Int]`) |
+| `register_non_unique(name, project) -> Result[Unit, RegisterError[K]]` | **哈希非唯一**索引(`Map[K, SortedSet[Int]]`) |
+| `register_non_unique_ordered(name, project) -> Result[Unit, RegisterError[K]]` (需 `K : Compare`) | **有序非唯一**索引(`SortedMap[K, SortedSet[Int]]`) |
+| `has_index(name) -> Bool` / `index_names() -> Array[String]` | 索引枚举;`index_names` 按 **MoonBit `String` 序**(长度优先的 shortlex)升序,已由测试钉死 |
 
 **2×2 四象限**(与主蓝本的 `hashed_unique` / `ordered_unique` / `hashed_non_unique` /
 `ordered_non_unique` 一一对应):两个正交维度 —— **唯一性**(unique / non-unique)与
@@ -292,10 +332,10 @@ pub struct Table[K, V] {
 |---|---|---|
 | `insert(v : V) -> Result[RowId, Rejected[K, V]]` | 新记录句柄 | 冲突时**表零变更**,记录原样归还 |
 | `insert_many(vs : Array[V]) -> ...` | 批量 | 先全部落库,再**每索引一次性构建**(把 N×k 次索引插入降为 k 次批量构建);**遇重复键的胜出规则须在实现时明确并测试钉死**(主蓝本是"第一个胜出",§0.4-6) |
-| `update(id : RowId, v : V) -> Result[Unit, Rejected[K, V]]` | 成功/冲突 | **排除自身**的冲突检查;陈旧 id → `Err` |
-| `modify(id : RowId, f : (V) -> V) -> Result[Unit, Rejected[K, V]]` | 成功/冲突 | 用 `f` 变换记录后重索引;**逐索引对比新旧投影键,只动真正变化的桶**(见 §5 规则 4) |
+| `update(id : RowId, v : V) -> Result[Unit, UpdateRejected[K, V]]` | 成功/失败 | **排除自身**的冲突检查;陈旧 id → `Err(StaleHandle(id, Some(v)))` |
+| `modify(id : RowId, f : (V) -> V) -> Result[Unit, UpdateRejected[K, V]]` | 成功/失败 | 用 `f` 变换记录后重索引;**逐索引对比新旧投影键,只动真正变化的桶**(见 §5 规则 4);陈旧 id → `Err(StaleHandle(id, None))` |
 | `remove(id : RowId) -> V?` | 被删记录 | 陈旧 id → `None` |
-| `clear() -> Unit` | — | 清空所有记录与索引。**批量退役**:每个活槽的 `gen += 1` 后归还 `free`(代际耗尽的永久退役),因此 **`clear` 之前的句柄永不复活** —— 若直接清空数组,清空后插入会复用同一个 `(slot, gen)`,旧句柄就会静默命中新记录,违反 §7。清空**空表**不算真实变更,不递增 `version`(I8) |
+| `clear() -> Unit` | — | 清空所有记录与条目,**但保留索引注册**(只清桶,不删注册)—— 否则 `clear` 之后新插入的记录会静默不被索引。**批量退役**:每个活槽的 `gen += 1` 后归还 `free`(代际耗尽的永久退役),因此 **`clear` 之前的句柄永不复活** —— 若直接清空数组,清空后插入会复用同一个 `(slot, gen)`,旧句柄就会静默命中新记录,违反 §7。清空**空表**不算真实变更,不递增 `version`(I8) |
 
 ### §3.3 查询
 
@@ -493,3 +533,24 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
   (主蓝本靠过程宏,我们靠代码生成)。
 - 密集整数键的 SparseSet 式加速(参照 bevy `ComponentSparseSet` 的 dense+sparse 双数组)。
 - 批量重建索引 `rebuild_index(name)` / 延迟建索引。
+- **约束擦除**:把有序象限桶操作在注册时擦除成闭包/trait object,使 `insert`/`remove` 只需
+  `K : Hash + Eq`。代价见 §2.5.1 —— 需要先解决"擦除后如何继续逐步校验 I3/I4/I5/I7"。
+- 查询的 id-only 变体(若 profiling 证明 `(RowId, V)` 的取值拷贝在热循环里有代价)。
+
+---
+
+## §12 实现与契约的已知偏差(待收敛)
+
+> **台账纪律**:SPEC 是**契约**,代码是**实现**。两者出现差距时,要么改代码、要么改契约,
+> **不允许差距停留在口口相传里**。每条偏差登记在此,并在对应里程碑关闭。
+> 审核会话负责维护本表;执行会话不得自行删除条目。
+
+| # | 契约(§) | 当前实现 | 关闭于 | 状态 |
+|---|---|---|---|---|
+| 1 | §2.4 `RegisterError[K]`,`UniqueViolation(String, K)` | 非泛型 `RegisterError`,第二字段是键的 `Show` 字符串,导致两个唯一注册方法要求 `K : Show` | M3 | ⬜ 未关闭 |
+| 2 | §3.1 `has_index(name) -> Bool` | 未实现 | M3 | ⬜ 未关闭 |
+| 3 | §3.1 `Table::with_capacity(cap : Int)` | 未实现 | M3 | ⬜ 未关闭 |
+| 4 | §3.3 `contains(id : RowId) -> Bool` | 未实现 | M3 | ⬜ 未关闭 |
+
+> 偏差必须**逐条关闭或显式废弃**:若某条最终决定不做,把它移到 §11(明确不实现)并在此记一行
+> "废弃(理由)",而不是静默删除。
