@@ -1,0 +1,94 @@
+moonbit-multiindex
+Copyright (c) 2026 moonbit-multiindex contributors
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product is an independent MoonBit implementation. Its design was informed by
+the open-source projects listed below. **No third-party source code was copied
+verbatim**; concepts, algorithms and data structures are not subject to copyright,
+and every line here is written in MoonBit against MoonBit's own idioms. Where a
+project is under a file-level copyleft license, only its ideas were consulted.
+
+Verification date for all licenses below: 2026-10-14 (crates.io API + upstream
+Cargo.toml / LICENSE files).
+
+--------------------------------------------------------------------------------
+PRIMARY REFERENCE
+--------------------------------------------------------------------------------
+multi_index_map 0.15.1 — MIT License
+  Repository : https://github.com/lun3x/multi_index_map
+  crates.io  : https://crates.io/crates/multi_index_map
+  Copyright  : Copyright (c) 2022 Louis Wyborn
+  License text: third_party/LICENSES/multi_index_map-MIT.txt
+  Note       : Upstream master was read at 2026-10-14 (its Cargo.toml already
+               declares 0.16.0); the published 0.15.1 is the pinned reference.
+  Concepts referenced (no code copied):
+    - record store + one lookup table per indexed field, four index quadrants
+      (hashed/ordered x unique/non-unique)
+    - non-unique index as key -> ordered set of slot ids
+    - slot table with holes that keeps ids stable across removals
+    - "uniqueness violation leaves the container completely unchanged"
+    - per-index iterators, and iterating an index by retrieving from the store
+  Deliberate deviations from this reference are documented in
+  docs/SPEC.md (section 0.3) and CHANGELOG.md (Notes / Deviations).
+
+--------------------------------------------------------------------------------
+SUPPORTING REFERENCES (concepts only)
+--------------------------------------------------------------------------------
+slotmap 1.1.1 — Zlib License
+  https://github.com/orlp/slotmap
+  Concept: slot + generation stable keys, free-list reuse, sparse secondary maps.
+
+thunderdome 0.6.1 — MIT OR Apache-2.0
+  https://github.com/LPGhatguy/thunderdome
+  Concept: generation bumped on slot reuse; explicit, tested overflow behaviour.
+
+indexmap 2.14.2 — Apache-2.0 OR MIT
+  https://github.com/indexmap-rs/indexmap
+  Concept: making the cost of removal explicit (swap_remove vs shift_remove).
+  Also the origin of the Robin Hood engine adapted in the author's
+  aurasuisui/indexmap (Apache-2.0).
+
+bimap 0.6.3 — Apache-2.0 OR MIT (dual-licensed; upstream writes "Apache-2.0/MIT")
+  https://github.com/billyrieger/bimap-rs
+  Concept: reporting an overwrite structurally (Overwritten enum) instead of
+  discarding it. The author's aurasuisui/bimap is a MoonBit port of this crate.
+
+hecs 0.11.2 — MIT OR Apache-2.0
+  https://github.com/Ralith/hecs
+  Concept: separating the stable handle table from the movable physical storage.
+
+bevy_ecs 0.20.0 — MIT OR Apache-2.0
+  https://github.com/bevyengine/bevy
+  Concept: ComponentSparseSet (dense + sparse arrays) for dense integer keys.
+
+Boost.MultiIndex (C++), BSL-1.0
+  https://www.boost.org/doc/libs/1_79_0/libs/multi_index/doc/index.html
+  Concept origin of the multi-index container model (via the reference above).
+
+--------------------------------------------------------------------------------
+CONSULTED, CONCEPTS ONLY — FILE-LEVEL COPYLEFT, NO CODE USED
+--------------------------------------------------------------------------------
+generational-arena 0.2.9 — MPL-2.0 (repository archived)
+  https://github.com/fitzgen/generational-arena
+  Ideas only. No source file from this project was copied, translated, or
+  adapted, so no MPL-2.0 obligation attaches to this repository.
+
+im 15.1.0 — MPL-2.0+ (repository archived)
+  https://github.com/bodil/im-rs
+  Ideas only, as above.
+
+--------------------------------------------------------------------------------
+DOCUMENTATION AND TEST LAYERING
+--------------------------------------------------------------------------------
+moonbit-bimap — Apache-2.0
+  https://github.com/aurasuisui/moonbit-bimap
+  Same author. The documentation system (SSOT hub, SPEC as single source of
+  truth, layered tests, differential fixture generator) is reused, and
+  docs/MOONBIT_REF.md is a direct port with attribution.
+
+--------------------------------------------------------------------------------
+NOTICE FOR REDISTRIBUTORS
+--------------------------------------------------------------------------------
+If you redistribute this project, keep this NOTICE file and the LICENSE file.
+The full research report behind the attributions above is archived at
+docs/research/rust-ecosystem-2026-10-14.md.
