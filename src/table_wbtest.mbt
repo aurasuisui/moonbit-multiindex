@@ -315,10 +315,10 @@ test "with_capacity pre-fills the free stack, highest slot first" {
 /// counter is a direct white-box measure of "did that index touch a bucket?" —
 /// exactly what the equal-key fast path must be shown to avoid. `counter` is a
 /// one-element array: a mutable cell shared by every copy of the key.
-struct CountedKey {
+priv struct CountedKey {
   value : Int
   counter : Array[Int]
-} derive(Debug)
+}
 
 ///|
 impl Eq for CountedKey with fn equal(self, other) {

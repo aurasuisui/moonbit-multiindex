@@ -1,7 +1,15 @@
 import {
   "moonbitlang/core/debug",
-  "moonbitlang/core/random",
   "moonbitlang/core/sorted_map",
   "moonbitlang/core/sorted_set",
-  "moonbitlang/core/test",
 }
+
+import {
+  "moonbitlang/core/random",
+  "moonbitlang/core/test",
+} for "test"
+
+import {
+  "moonbitlang/core/random",
+  "moonbitlang/core/test",
+} for "wbtest"
