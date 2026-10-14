@@ -79,12 +79,13 @@ I9 retired slots never re-enter free (generation exhausted -> slot permanently r
 ```
 
 **I5 + I7 must be checked as a pair** — I7 catches "missing", I5 catches "extra".
-`check_invariants` in `property_test.mbt` is the guard; when in doubt, it's the truth.
+`check_invariants` in `property_wbtest.mbt` is the guard; when in doubt, it's the truth.
 
 ### Chokepoints (the #1 source of bugs)
 
-`insert_impl` / `remove_impl` / `update_impl` are the only places allowed to touch
-`rows` + `order` + `indexes` + `gens` + `free` together.
+`insert_impl` / `remove_impl` / `modify_impl` / `clear_impl` are the only places allowed to
+touch `rows` + `order` + `indexes` + `gens` + `free` together. (`clear_impl` is the bulk path —
+looping `remove_impl` would be O(n²) through the `order` compaction.)
 
 **Four high-risk paths (probe- and source-validated):**
 1. `update` must conflict-check **excluding self**.
@@ -116,11 +117,14 @@ I9 retired slots never re-enter free (generation exhausted -> slot permanently r
 ## Source map
 
 - `src/lib.mbt` — public re-exports, `VERSION`, `RowId`, `Conflict`.
-- `src/table.mbt` — `Table` core + the three chokepoints.
-- `src/index.mbt` — `Index` / `SortedIndex` + bucket add/del.
-- `src/table_api.mbt` — `register_*` / `get_by` / `iter_by` / `range_by` / `update`.
-- `src/table_iter.mbt` — fail-fast iterators.
-- `src/table_traits.mbt`, `src/json.mbt` — traits and JSON round-trip.
+- `src/table.mbt` — `Table` core, the chokepoints, and the uniqueness pre-check `find_conflict`.
+- `src/index.mbt` — the `Index[K, V]` four-quadrant enum + bucket add/remove/slots.
+- `src/table_api.mbt` — `register_*` (atomic backfill) / `get_by` / `iter_by` / `index_names`.
+- `src/property_wbtest.mbt` — `check_invariants` (`I1`–`I9` + index invariants) and the
+  "the guard is not vacuous" meta-tests.
+- `src/table_iter.mbt` — fail-fast iterators *(planned; `Table::iter` / `iter_by` currently
+  build their iterators inline)*.
+- `src/table_traits.mbt`, `src/json.mbt` — traits and JSON round-trip *(planned)*.
 
 ## Documentation map & reading order
 
