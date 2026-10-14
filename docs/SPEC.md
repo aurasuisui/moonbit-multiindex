@@ -160,7 +160,26 @@ pub struct RowId {
 - **语义**:`RowId` 只在 `gen` 与槽当前代际一致时有效。用陈旧 `RowId` 调用 `remove` / `update` /
   `get` 一律返回 `None` / `false` / `Err`,**绝不静默命中槽的新占用者**(ABA 防护)。
   > 已由探针实测:删除后槽位被新记录复用,用旧 `RowId` 删除返回 `None`。
+- `slot` / `gen` 字段**只读公开**(外部可读、不可构造),便于调用方诊断;构造只能由 `Table` 产生。
 - 不保证 `RowId` 可跨进程/跨版本持久化(见 §11)。
+
+#### §2.1.1 代际号上限 `GEN_MAX`(I9 的退役阈值)
+
+```moonbit
+const GEN_MAX : Int = 1073741824   // 2^30
+```
+
+> ⚠️ **前提:MoonBit 的 `Int` 是 32 位有符号整数**(`@int.max_value == 2147483647`),
+> 在 **native 与 js 两个 target 上实测一致**。**不要**把它当 64 位推理。
+>
+> 这条前提是踩坑换来的:`const GEN_MAX : Int = 1 << 62` 会被**移位取模**成 `1 << 30`
+> (即 `62 mod 32 = 30`),编译不报错、运行不警告,但语义已完全不同。
+> 因此本库**只用显式字面量**,并选择 `2^30` —— 保证 `GEN_MAX + 1` 仍在 32 位 `Int` 内不溢出,
+> 且远超实际可达的槽位复用次数。
+
+**退役语义(I9)**:删除时若 `gens[slot] < GEN_MAX` 则 `gens[slot] += 1` 并把槽位放回 `free`;
+若 `gens[slot] == GEN_MAX` 则该槽**永久退役**(代际号不变、不入 `free`、永不再分配),
+使任何陈旧 `RowId` 都不可能复活。
 
 ### §2.2 `Conflict[K]` — 唯一性冲突上报
 
@@ -190,7 +209,18 @@ pub struct Rejected[K, V] {
   `Err` 里还给调用者(§0.4-3)。
 - `Rejected` 实现 `Debug` / `Show`,并在文档中给出"取出记录重试"的惯用写法。
 
-### §2.4 `Table[K, V]` — 记录表
+### §2.4 `RegisterError` — 索引注册失败
+
+```moonbit
+pub enum RegisterError {
+  DuplicateName(String)              // 同名索引已存在
+  UniqueViolation(String, String)    // (索引名, 冲突键的 Show 形式):回填唯一索引时发现已有冲突
+} derive(Debug, Eq)
+```
+
+- **不静默覆盖、不部分注册**:失败时注册表与数据**完全不变**(§5 规则 2 的推广)。
+
+### §2.5 `Table[K, V]` — 记录表
 
 ```moonbit
 pub struct Table[K, V] {
@@ -199,7 +229,26 @@ pub struct Table[K, V] {
 ```
 
 **类型参数约束**:MoonBit 的结构体泛型**不能**带 trait 约束,因此 `K : Hash + Eq`(以及
-`SortedIndex` 需要的 `K : Compare`)**写在每个方法上**,按方法最小化。
+有序索引需要的 `K : Compare`)**写在每个方法上**,按方法最小化。
+
+**字段可见性**:MoonBit 的 `pub struct` 字段**默认可读公开**(会出现在 `pkg.generated.mbti` 里),
+要真正私有必须逐字段写 `priv`。本库选择**字段全部 `priv`**:
+
+```moonbit
+pub struct Table[K, V] {
+  priv rows : Array[V?]
+  priv gens : Array[Int]
+  priv free : Array[Int]
+  priv order : Array[Int]
+  priv indexes : Map[String, Index[K, V]]
+  priv mut len : Int
+  priv mut version : Int
+}
+```
+
+**理由**:内部布局(`rows/gens/free/order` 的具体形态)必须能在不破坏 semver 的前提下演进;
+对外只保证行为契约。mbti 中呈现为 `pub struct Table[K, V] { // private fields }`。
+**代价**:黑盒 `*_test.mbt` 无法直读字段,不变量断言必须放在包内的 `*_wbtest.mbt`(见 §8)。
 
 ---
 
@@ -223,11 +272,19 @@ pub struct Table[K, V] {
 `ordered_non_unique` 一一对应):两个正交维度 —— **唯一性**(unique / non-unique)与
 **有序性**(hashed / ordered)。四类各有一个注册方法,不做"含糊的三合一"。
 
-**注册语义(待锁定)**:重名注册应报错还是覆盖?**倾向**:返回 `Result[Unit, ...]`,
-重名报错(与"冲突不静默覆盖"的整体风格一致)。
+#### 注册语义(已裁定)
 
-**对已有数据注册索引**:注册时表非空则必须回填扫描(`insert` 全部活记录),复杂度 O(len)。
-须在 SPEC 中明确,并由测试钉死。
+所有 `register_*` 返回 `Result[Unit, RegisterError]`:
+
+| 情形 | 行为 |
+|---|---|
+| 索引名重复 | `Err(DuplicateName(name))`,**不覆盖** |
+| 对**非空表**注册 | **回填扫描**全部活记录,O(len);注册后立即可查 |
+| 回填**唯一**索引时发现已有记录键冲突 | `Err(UniqueViolation(name, key))`,且**完全不注册**(原子,无半成品索引) |
+| `index_names()` | 按名称**升序**返回(确定性,便于测试) |
+
+> 裁定理由:"冲突不静默覆盖"是本库的整体风格,注册路径不应例外;
+> 半注册状态(索引存在但只回填了一半)是最难排查的一类 bug,必须堵死。
 
 ### §3.2 写入
 
@@ -238,23 +295,43 @@ pub struct Table[K, V] {
 | `update(id : RowId, v : V) -> Result[Unit, Rejected[K, V]]` | 成功/冲突 | **排除自身**的冲突检查;陈旧 id → `Err` |
 | `modify(id : RowId, f : (V) -> V) -> Result[Unit, Rejected[K, V]]` | 成功/冲突 | 用 `f` 变换记录后重索引;**逐索引对比新旧投影键,只动真正变化的桶**(见 §5 规则 4) |
 | `remove(id : RowId) -> V?` | 被删记录 | 陈旧 id → `None` |
-| `clear() -> Unit` | — | 清空所有记录与索引 |
+| `clear() -> Unit` | — | 清空所有记录与索引。**批量退役**:每个活槽的 `gen += 1` 后归还 `free`(代际耗尽的永久退役),因此 **`clear` 之前的句柄永不复活** —— 若直接清空数组,清空后插入会复用同一个 `(slot, gen)`,旧句柄就会静默命中新记录,违反 §7。清空**空表**不算真实变更,不递增 `version`(I8) |
 
 ### §3.3 查询
 
 | 方法 | 返回 | 说明 |
 |---|---|---|
-| `get_by(name : String, key : K) -> RowId?` | 唯一索引命中 | 非唯一索引上的语义待定(倾向返回首个,`iter_by` 才是正解) |
-| `iter_by(name : String, key : K)` | 该键下所有记录 | 非唯一索引;**返回顺序 = 槽位号升序**(桶为 `SortedSet[Int]`) |
-| `range_by(name, lo, hi)` (需 `Compare`) | `[lo, hi)` 区间内记录 | 有序索引;**本库增量**(主蓝本无 range API) |
-| `range_inclusive_by(name, lo, hi)` (需 `Compare`) | `[lo, hi]` 闭区间 | 同上 |
+| `get_by(name : String, key : K) -> (RowId, V)?` | 命中记录的身份 + 值 | 非唯一索引上返回**桶内槽位号最小**的一条;该选择**确定但不跨操作稳定**,要全部命中请用 `iter_by` |
+| `iter_by(name : String, key : K) -> Iter2[RowId, V]` | 该键下所有记录 | 唯一索引上产出 0 或 1 条(API 统一);**顺序 = 槽位号升序**(桶为 `SortedSet[Int]`) |
+| `range_by(name, lo, hi)` (需 `Compare`) | **双闭区间 `[lo, hi]`** 内的记录 | 有序索引;**本库增量**(主蓝本无 range API) |
+| `range_half_open_by(name, lo, hi)` (需 `Compare`) | **半开区间 `[lo, hi)`** 内的记录 | 同上 |
 | `iter_asc_by(name)` / `iter_desc_by(name)` (需 `Compare`) | 按索引键升/降序遍历全部记录 | 同上 |
 
 > **范围查询返回惰性迭代器**,不预先收集成数组(避免大区间一次性物化)。
+
+#### §3.3.1 为什么 `range_by` 是双闭区间(语义裁定)
+
+初稿把 `range_by` 定为 `[lo, hi)`、另设 `range_inclusive_by` 为 `[lo, hi]`。**实测推翻了这个设计**:
+core 的 `SortedMap::range` / `SortedSet::range` 本身就是**双闭区间 `[lo, hi]`**
+(在键 `1,2,3` 上 `range(1, 2)` 返回 **2** 条)。
+
+裁定:**跟随平台语义**。
+- `range_by` = `[lo, hi]`,**直接转发** `SortedMap::range`,零额外代价、零意外
+  (MoonBit 用户读我们的文档时默认会按 core 语义理解);
+- 半开区间另立**名字明确**的 `range_half_open_by`,实现为"闭区间结果过滤掉键 `== hi` 的条目";
+- **删除** `range_inclusive_by` —— 与 `range_by` 语义完全重合,留着只会造成歧义。
+
+> 教训:"两个名字相近的方法"如果底层只支持一种语义,不要制造语义重叠;
+> 要么跟随平台,要么起一个不会误读的名字。
 | `get(id : RowId) -> V?` | 按句柄取记录 | 陈旧 id → `None` |
 | `contains(id : RowId) -> Bool` | — | |
 | `len() -> Int` / `is_empty() -> Bool` | — | |
-| `iter()` | 插入序遍历 | fail-fast(比照 `version`) |
+| `iter() -> Iter2[RowId, V]` | 插入序遍历 | fail-fast(比照 `version`) |
+
+> **查询统一返回 `(RowId, V)` 二元组**,理由:一次调用同时给出**身份**与**值**,不丢信息、
+> 不需要调用方决定"要不要再取一次",也避免为"只要值"和"只要身份"各开一套方法把 API 面积翻倍。
+> **代价**:MoonBit 不能返回元素内部的引用,取 `V` 是一次拷贝(记录内的容器是共享引用,通常不贵);
+> 若将来 profiling 证明热循环里这次拷贝有代价,再加 id-only 变体(v0.2 候选)。
 | `index_names() -> Array[String]` | 已注册索引名 | |
 
 ### §3.4 诊断(拿分点,也是自测手段)
@@ -331,8 +408,11 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 
 ## §5 变更汇聚点与三条高危路径
 
-**汇聚点**:`insert_impl` / `remove_impl` / `update_impl` 是**唯一**允许同时触碰
+**汇聚点**:`insert_impl` / `remove_impl` / `modify_impl` / **`clear_impl`** 是**唯一**允许同时触碰
 `rows` + `order` + `indexes` + `gens` + `free` 的地方。
+
+> **第四条是 M1 实施中补上的**:`clear` 必须同时触碰这四个结构,而循环调用 `remove_impl` 会因
+> `order` 的 O(n) 压缩退化成 **O(n²)**。`clear_impl` 是 O(n) 批量退役路径,角色等同 bimap 的 `retain`。
 
 1. **`update` 必须做"排除自身"的冲突检查** —— 记录更新成自身已有的唯一键不算冲突。
 2. **冲突检查在任何变更之前完成** —— 返回 `Err` 时表必须与调用前等价。

@@ -57,3 +57,54 @@ pub impl Show for RowId with fn output(self : RowId, logger : &Logger) {
 pub enum Conflict[K] {
   UniqueViolation(String, K, RowId)
 } derive(Debug, Eq)
+
+///|
+/// Display form: `UniqueViolation(index, key, holder)`.
+pub impl[K : Show] Show for Conflict[K] with fn output(
+  self : Conflict[K],
+  logger : &Logger,
+) {
+  match self {
+    UniqueViolation(index, key, holder) => {
+      logger.write_string("UniqueViolation(")
+      logger.write_string(index)
+      logger.write_string(", ")
+      Show::output(key, logger)
+      logger.write_string(", ")
+      Show::output(holder, logger)
+      logger.write_string(")")
+    }
+  }
+}
+
+///|
+/// A write that was refused because a unique index already holds the key —
+/// carrying the record back to the caller.
+///
+/// MoonBit passes records by value, so an `insert(v)` that reported only
+/// `Conflict[K]` would consume `v` for good. Returning the *record itself*
+/// inside the error keeps the caller's data intact; the idiomatic retry is:
+///
+/// ```moonbit nocheck
+/// match table.insert(record) {
+///   Ok(id) => id
+///   Err(rejected) => retry_with(rejected.record)
+/// }
+/// ```
+pub struct Rejected[K, V] {
+  conflict : Conflict[K]
+  record : V
+} derive(Debug)
+
+///|
+/// Display form: `Rejected(conflict=..., record=...)`.
+pub impl[K : Show, V : Show] Show for Rejected[K, V] with fn output(
+  self : Rejected[K, V],
+  logger : &Logger,
+) {
+  logger.write_string("Rejected(conflict=")
+  Show::output(self.conflict, logger)
+  logger.write_string(", record=")
+  Show::output(self.record, logger)
+  logger.write_string(")")
+}

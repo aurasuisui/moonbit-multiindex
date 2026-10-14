@@ -95,7 +95,13 @@ I9  退役槽位永不回到 free(代际号达上限的槽位永久移出自由�
 |---|---|---|
 | `insert_impl` | 冲突检查(**变更前**)→ 分配槽(复用或新槽)→ 写入行 → 每索引加桶 → `order.push` | `RowId` |
 | `remove_impl` | 每索引删桶 → `rows[slot]=None` → `gens[slot]+=1` → `free.push` → `order` 压缩 | `V` |
-| `update_impl` | **排除自身的冲突检查** → 每索引删旧桶 → 写入新行 → 每索引加新桶 | `Result[Unit, Conflict[K]]` |
+| `modify_impl` | **排除自身的冲突检查** → 每索引删旧桶 → 写入新行 → 每索引加新桶 | `Result[Unit, Rejected[K, V]]` |
+| `clear_impl` | **批量退役**:每个活槽 `gen += 1` 后归还 `free`(代际耗尽的永久退役)→ 清空 `rows`/`order`/`indexes`;`version` 仅在非空时递增 | `Unit` |
+
+> **`clear_impl` 是 M1 实施中补上的第四条汇聚点**。理由:`clear` 必须同时触碰这四个结构,
+> 而循环调用 `remove_impl` 会因 `order` 的 O(n) 压缩退化成 **O(n²)**。它是 O(n) 批量路径,
+> 角色等同 bimap 的 `retain`。**汇聚点纪律仍是"只有这几条路径"**,不是"可以随手加路径" ——
+> 新增路径必须写进本表并说明为什么不能复用现有汇聚点。
 
 ### 三条高危路径(探针已验证)
 
@@ -176,8 +182,9 @@ I9  退役槽位永不回到 free(代际号达上限的槽位永久移出自由�
 
 | 层次 | 文件 | 职责 |
 |---|---|---|
-| 单元 | `table_test.mbt` | 注册/插入/查找/删除/更新的基本矩阵 |
-| 不变量 | `property_test.mbt` | `check_invariants`(I1–I8),随机操作序列每步后校验 |
+| 单元 | `table_test.mbt` | 插入/查找/删除/更新/清空的基本矩阵(黑盒) |
+| 不变量(白盒) | `property_wbtest.mbt` | `check_invariants`(I1/I2/I6 + I9 可观测形式)直读私有字段,随机序列**每一步之后**校验;**含"校验器非空转"元测试** |
+| 不变量(黑盒) | `property_test.mbt` | 同一批不变量的**可观测投影**(len / iter / get / 插入序 / 陈旧句柄被拒),随机序列逐步校验 |
 | 模型对拍 | `model_test.mbt` | 与 `Array[V]` 线性扫描朴素实现全操作序列差分 |
 | 差分(Tier 1) | `differential_test.mbt` + `*_fixture_test.mbt` | 与 Rust 参考实现的观测序列对齐,夹具由 `tools/diffgen` 生成并入库 |
 | 白盒 | `table_wbtest.mbt` | 直读私有字段:I6(free 一致性)、槽位逆映射、代际号单调性 |
