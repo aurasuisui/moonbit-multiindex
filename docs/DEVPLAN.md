@@ -132,9 +132,26 @@ I8  version 仅在真实变更时递增
 
 ## §7 参考实现(Rust 生态)
 
-> 待补:子代理正在调研 `multi_index_map` / `indexmap` / `bimap` / `slotmap` / `generational-arena` /
-> `hecs` 等,结论将填入本节(含许可证、API 表面、可迁移部分、必须自研部分)。
-> **许可证纪律**:本库以 Apache-2.0 发布;若参考 GPL/MPL 系实现,只能借鉴思路、不得复制代码。
+**主蓝本**:[`multi_index_map`](https://github.com/lun3x/multi_index_map) v0.15.1,**MIT** 许可,
+377,774 次下载,2026-01-18 更新。它同样是"记录 + N 个索引"容器:`slab::Slab` 后备存储 +
+每个索引字段一张查找表(`HashMap` 或 `BTreeMap`),索引种类为 `hashed_unique` /
+`hashed_non_unique` / `ordered_unique` / `ordered_non_unique`。
+
+**完整的许可证核查、API 表面、本库的原创新增(代际 RowId / 运行时注册 / 插入序 / 公开自检)
+与取舍对照表,见 [`SPEC.md` §0`](SPEC.md)。** 要点:
+
+| 维度 | 主蓝本 | 本库 |
+|---|---|---|
+| 后备存储 | `Slab<T>`(槽 + 空洞) | `Array[V?]` + `free` + **`gens`** |
+| 句柄 | `usize` 槽下标 | **`RowId{slot, gen}`(ABA 防护)** |
+| 索引定义 | derive 宏(编译期) | 运行时闭包注册 |
+| 非唯一桶 | `BTreeSet<usize>` | `Array[Int]`(插入序) |
+| 冲突 | `try_insert` → `Err` | 一律 `Err`,零变更 |
+| 自检 | 无 | 公开 `verify_invariants()` |
+
+**许可证纪律**:主蓝本 MIT(兼容 Apache-2.0,须保留归属);辅助参考 `slotmap` 为 Zlib(宽松)、
+`thunderdome`/`hecs` 为 MIT OR Apache-2.0;`generational-arena` 为 **MPL-2.0(弱 copyleft)**
+——**只借鉴思路,不复制代码**。
 
 ---
 

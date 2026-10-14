@@ -66,10 +66,25 @@ t.range_by("age", 18, 30)            // -> 范围
 
 ## 致谢与来源
 
-- 记录身份采用「槽位 + 代际号」方案,思路来自 Rust `slotmap` / `generational-arena` 一系。
-- 多索引容器的 API 形态参考 Rust `multi_index_map`(详见 [`docs/DEVPLAN.md`](docs/DEVPLAN.md) §7 与 `CHANGELOG.md` 的 Notes/Deviations)。
-- 文档体系与测试分层沿用同作者的 `moonbit-bimap`。
-- Robin Hood 哈希引擎如需,将适配自 `aurasuisui/indexmap`(Apache-2.0),不引入依赖。
+**主要参考**:[Rust `multi_index_map`](https://github.com/lun3x/multi_index_map) v0.15.1(**MIT** 许可)
+——同样"记录 + N 索引"的容器,后备存储用 `slab::Slab` + 每索引一张查找表(`HashMap`/`BTreeMap`)。
+本库的索引分类(唯一 / 非唯一 / 有序)与"冲突不改变容器"的语义与之一致。
+完整的许可证核查与 API 对照见 [`docs/SPEC.md`](docs/SPEC.md) §0。
+
+**本库的原创新增**(这些在主蓝本中不存在):
+
+1. **代际 `RowId`(ABA 防护)** —— 主蓝本的 `Slab` 槽位复用不带代际号,陈旧下标会静默命中复用该槽的**新**元素。
+2. **运行时注册索引**(闭包投影)—— 主蓝本依赖 derive 宏;MoonBit 无等价机制,故采用运行时注册,代价是索引名运行时校验,收益是可动态增删/枚举索引。
+3. **插入序语义** —— 主蓝本按槽位序遍历;本库额外维护 `order`。
+4. **公开 `verify_invariants()`** —— 主蓝本没有一致性自检 API。
+
+**其他参考**:`slotmap`(Zlib)/ `thunderdome`(MIT OR Apache-2.0)/ `hecs`(MIT OR Apache-2.0)
+提供"槽位 + 代际号"稳定键方案的先例;`generational-arena`(**MPL-2.0**)仅借鉴思路、不复制代码。
+
+**文档与测试体系**:沿用同作者的 [`moonbit-bimap`](https://github.com/aurasuisui/moonbit-bimap)
+(文档枢纽/SSOT 纪律、SPEC 唯一真源、分层测试、差分夹具生成器)。
+
+**哈希引擎**:如需自研哈希表,将适配自 `aurasuisui/indexmap`(Apache-2.0),**不引入依赖**。
 
 ## License
 
