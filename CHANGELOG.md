@@ -66,6 +66,22 @@ All notable changes to `aurasuisui/multiindex` are documented here.
   两个随机序列驱动接入 update/modify 并**每一步**校验不变量。
 - `moon check` 现为 **15 warnings / 0 errors**(测试构建 16):比 M2 多 2 条,均为
   `UpdateRejected` 的 `derive(Debug, Eq)` 触发的 `[0079]`。
+
+#### M4 — 有序索引与范围查询 + 失败分类收敛(2026-10-14)
+
+- **有序遍历原语**(`src/index.mbt`):`Index::is_ordered`(可测谓词)、`BucketCursor`(一次只物化
+  一个桶的游标,满足 §3.3「范围查询保持惰性」)、`Index::range_cursor(lo, hi, include_hi)`、
+  `Index::ordered_cursor(descending)` / `reversed_cursor`。
+- **四个有序查询**(`src/table_api.mbt`):`range_by`(双闭 `[lo, hi]`,转发 core 的
+  `SortedMap::range`)、`range_half_open_by`(`[lo, hi)`,过滤键 `== hi`)、`iter_asc_by`、
+  `iter_desc_by`。公开约束按 SPEC §3.3 为 `K : Compare`;非唯一有序索引会展开桶,**桶内按槽位号升序**。
+- **失败分类收敛(关闭 SPEC §12 第 5 条)**:未知索引名由「返回空」改为 `abort`;在哈希索引上
+  做有序查询同样 `abort`(SPEC §7.1)。判定抽成可测谓词(`Table::has_index` / `Index::is_ordered`),
+  `abort` 各一行。
+- 测试 59 条(**M1/M2/M3 的 51 条一条未削弱**;两处旧断言因契约变更改为经 `has_index` 断言缺失):
+  四个查询在**唯一有序 / 非唯一有序**两种索引上、边界全覆盖(`lo > hi`、半开 `lo == hi`、空表、
+  无匹配、单点、全量)、`iter_desc_by` **方向证明**,以及 remove / update / clear 之后的跟随。
+
 ### Notes / Deviations
 - **`Conflict` 故意没有「无冲突」变体**:无冲突用 `Option::None` 表达。加变体会与
   `Option::None` 在 match 位置混淆,并迫使调用方匹配一个不可能出现的 `Err`。
@@ -135,6 +151,25 @@ All notable changes to `aurasuisui/multiindex` are documented here.
   **恰好调用 `f` 一次**(测试钉死),但表零变更。
 - **`update` / `modify` 与 M2 同源的类型约束**:二者都要遍历异构注册表,故为
   `K : Hash + Eq + Compare`(并集约束已在 M2 Notes 登记,仍待裁定)。
+
+#### M4 有序索引与范围查询(2026-10-14)
+
+- **降序遍历必须物化**:core 的 `SortedMap` 没有反向迭代器,`iter_desc_by` 只能先把桶收集成数组
+  再倒着走(内存 O(#桶));**范围查询两个方向都保持惰性**(一次一个桶)。这是实现限制而非设计
+  偏好 —— 将来 core 提供反向迭代器即可去掉物化。
+- **桶内顺序不随方向翻转**:`iter_desc_by` 只把**键**降序,同一个键内的槽位仍升序(`iter_by` 的
+  既定语义)。因此 `desc` **不是** `asc` 的逐元素反转;测试按「键序列 + 桶内升序」两条分别断言,
+  而不是简单 `reverse(asc)`(第一版测试正是这么写错的,已改成更强的方向断言)。
+- **`abort` 的取证方式**:MoonBit 的 panic 不是 `Error`,`try`/`catch` 抓不住(MOONBIT_REF §0),
+  所以 §7.1 的两类编程错误以**谓词测试**取证(`Index::is_ordered` 白盒、`Table::has_index` 黑盒),
+  `abort` 行本身保持一行、由代码审阅覆盖。
+- **`iter_asc_by` / `iter_desc_by` 的 `K : Compare` 被编译器判为「未使用」**(2 条
+  `unused_trait_bound` 警告):这两个方法只走 `SortedMap` 的迭代器,并不需要比较。保留该约束是因为
+  SPEC §3.3 把它们标注为「需 `Compare`」,且任何注册了有序索引的表其 `K` 必然实现 `Compare`;
+  若 SPEC 去掉这个标注,删掉约束即可清零这 2 条警告。
+- **`range_by` 跟随平台语义**(§3.3.1):双闭区间直接转发 core 的 `SortedMap::range`;半开区间
+  另立名字明确的 `range_half_open_by`,不制造语义重叠。
+
 #### 与参考实现 `multi_index_map` 的取舍(`docs/SPEC.md` §0.3)
 
 | 取舍点 | 参考实现 `multi_index_map` 0.15.1 | 本库 | 理由 |
