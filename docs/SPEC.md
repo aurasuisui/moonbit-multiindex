@@ -185,11 +185,19 @@ const GEN_MAX : Int = 1073741824   // 2^30
 
 ```moonbit
 pub enum Conflict[K] {
-  UniqueViolation(String, K, RowId)
+  UniqueViolation(String, K, RowId)   // 该键已被一条**活记录**占用
+  DuplicateInBatch(String, K, Int)    // 批次**内部**重复:更早那个成员在批次中的下标
 } derive(Debug, Eq)
 ```
 
-- `UniqueViolation(index_name, key, holder)`:唯一索引 `index_name` 已把 `key` 映射到活记录 `holder`。
+- `UniqueViolation(index_name, key, holder)`:唯一索引 `index_name` 已把 `key` 映射到**活记录** `holder`。
+- `DuplicateInBatch(index_name, key, earlier)`:冲突来自**同一批次内部**的两个成员 —— `earlier` 是
+  **更早那个成员在批次数组中的下标**。
+  **为什么不复用 `UniqueViolation`**:那个分支的 `holder` 契约是"活记录",而批内冲突时**根本没有活记录**
+  (整批被原子拒绝)。M5 曾用"该成员**将会获得**的预测句柄"填充 —— 但那是**让类型的文档契约变成假的**:
+  一个从未存在过的句柄不该冒充 `holder`。用 `Int` 直接指向批次里的位置,**更准确也更可操作**。
+  > 这与"不给 `Conflict` 加无意义的空变体"的初衷**不冲突** —— 那一条反对的是**冗余的 `None` 变体**,
+  > 而这是一个**真实且语义不同**的失败类别。
 - **故意没有「无冲突」变体**:无冲突用 `Option::None` 表达。
   加变体会 ① 与 `Option::None` 在 match 位置混淆;② 迫使调用方匹配一个不可能出现的 `Err`。
   > 两条均由探针实测(见 §9)。
@@ -397,9 +405,17 @@ core 的 `SortedMap::range` / `SortedSet::range` 本身就是**双闭区间 `[lo
 | 方法 | 说明 |
 |---|---|
 | `verify_invariants() -> Result[Unit, String]` | **公开**的白盒自检:校验 I1–I9 + 索引不变量。**首个违反者即返回**,消息里指明**违反了哪一条 + 出问题的槽位/键**(例如 `"I5: unique index \"email\" holds 2 slots under key \"a@b.c\""`) |
-| `index_stats(name : String) -> ...` | 桶数 / 最长桶 / 平均桶长 |
+| `index_stats(name : String) -> IndexStats` | 诊断统计。`IndexStats { buckets, entries, longest_bucket, average_bucket }`(**空索引全 0,含 `0.0`,不除零**) |
 
 > `verify_invariants` 是**公开 API**而非仅测试辅助:调用方可在自己的断言里使用它。
+> **约束**:公开入口是 `verify_invariants[K : Eq + Debug, V]` —— `Eq` 用于比较键,`Debug` 用于把键渲染进消息。
+> 内部拆成零约束的 `verify_storage`(I1/I2/I6/I9)与需要键能力的 `verify_indexes`(I3/I4/I5/I7)。
+>
+> **消息格式**统一为 `"<不变量编号>: <定位信息>"`(如 `I4: bucket 999 of index "lo" holds slot 0, whose record projects to 1`);
+> 注册表记账类问题无编号,前缀写作 `registry:`。
+>
+> **复杂度**:O(桶数 × len) —— 对**诊断 API** 足够;若将来要在热路径调用,可先建反向索引(目前不做,避免为诊断路径增加分配)。
+>
 > **返回 `Result` 而不是 `Bool` 的理由**:一个只会说"false"的校验器,对它的目标用户(需要定位一致性问题的调用方)
 > 几乎没有价值 —— 而"公开自检"的全部意义就是**可诊断**。`Result` 的 `Err` 携带首个违反点的描述。
 >
@@ -464,6 +480,26 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 ```
 
 **I5 与 I7 必须成对校验**:I7 防"漏",I5 防"多"。
+
+#### §4.1 I3 / I5 是**结构性保证**,不是可破坏状态(M5 实测结论)
+
+| 不变量 | 为什么构造不出违反 | 校验器的价值 |
+|---|---|---|
+| **I3**(桶内槽位无重复) | 非唯一桶是 `SortedSet[Int]`,`add` 幂等 —— 重复槽位**不可表达** | 防御:一旦有人把桶换成数组/多重集,立刻拦住 |
+| **I5**(唯一桶 ≤ 1) | 唯一象限存 `Map[K, Int]` / `SortedMap[K, Int]`,`Index::buckets` 对唯一变体**必然**返回 `(key, [slot])`(长度 1) | 同上 |
+| **I7 的"覆盖"半** | I3 + I4 都通过后,"每条活记录恰好出现一次"只剩**计数**这一个自由度 | 计数半可触发,覆盖半是防御 |
+
+**裁定:M5 提出的"I5 与 I7 各一条可定位测试"这一要求基于错误前提** —— 它们无法被白盒手段破坏。
+落地方式改为:
+
+1. I3 / I5 **保留为防御性交叉校验**(它们防的是**未来的表示层变更**,不是当前代码的 bug);
+2. 用一条**结构钉子**测试钉死"唯一象限每桶恒 1 槽",并**同时**断言非唯一象限**确实存在 2 槽桶**
+   —— 防止这条断言因夹具巧合而空转;
+3. 消息定位测试覆盖**可达**的 I4 / I6 / I7(计数半)。
+
+> **原则:不为"可测性"付真实代价。** 让 I5 可被破坏的唯一办法是把唯一象限也换成集合类型,
+> 代价是 `holder` 查询从 O(1) 退化为 O(log k)(或需额外辅助映射) —— **明确不做**。
+> 一个**不可表达**的错误状态,不需要为了让测试能构造它而变得可表达。
 > I5 是探针实测漏洞反推出来的:最初的校验只查 I3/I4,`update` 又漏了冲突检查,
 > 结果一次"更新成已占用的唯一键"让唯一桶出现两个持有人,而校验仍返回 true。
 
