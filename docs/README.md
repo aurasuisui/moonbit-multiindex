@@ -29,7 +29,7 @@
 | [`SPEC.md`](SPEC.md) | **API 唯一真源**:签名/返回类型/语义,行为拿不准时以此为准 | 动公开 API |
 | [`DEVPLAN.md`](DEVPLAN.md) | 立项设计稿:数据布局、不变量、**四条高危路径**、探针验证记录 | 想理解为什么这么设计 |
 | [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) | **发布门禁**:每次 bump 版本前必须逐项全绿的 Tier 0–4 | 准备发版 |
-| [`MOONBIT_REF.md`](MOONBIT_REF.md) | MoonBit 语法/惯用法速查(移植自 moonbit-bimap,非本库专属) | 写 MoonBit 卡壳 |
+| [`MOONBIT_REF.md`](MOONBIT_REF.md) | MoonBit 语法/惯用法速查 **实测版**:三级可信度标记(已实测 41 / 源码 23 / 文档 14 / 未核实 1),含 20 条错误码对照与「最容易踩的十条」 | 写 MoonBit 卡壳;**动 API 前先查** |
 | [`SESSION_PLAYBOOK.md`](SESSION_PLAYBOOK.md) | **任务会话手册**:讨论方案→执行→卡住决策→看门狗→知识回写 | 开新任务会话 |
 | [`plans/v0.1.0.md`](plans/v0.1.0.md) | v0.1.0 **范围与里程碑**(含出口条件)+ **进度看板**;**§一 说明为何不是移植** | 想知道做到哪了、下一步做什么 |
 | [`plans/execution-brief.md`](plans/execution-brief.md) | **执行/审核分工契约**:执行纪律、当前任务范围、出口条件、审核验收清单 | 执行会话开工前 / 审核会话验收时 |
