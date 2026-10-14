@@ -140,3 +140,16 @@ pub enum UpdateRejected[K, V] {
   StaleHandle(RowId, V?)
   Conflict(Conflict[K], V)
 } derive(Debug, Eq)
+
+///|
+/// How the buckets of one index are distributed (docs/SPEC.md §3.4).
+///
+/// A degenerating projection shows up here: `longest_bucket` climbing while
+/// `average_bucket` stays near 1 means many records pile into one bucket. An index
+/// with no entries reports zero for everything (including the average).
+pub struct IndexStats {
+  buckets : Int
+  entries : Int
+  longest_bucket : Int
+  average_bucket : Double
+} derive(Debug, Eq)

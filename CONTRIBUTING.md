@@ -43,15 +43,16 @@ moon fmt     # format
 
 ## Style Guide
 
+> **通用约定的唯一真源是 [`docs/STYLE.md`](docs/STYLE.md)** —— 命名、代码组织、文档注释、测试风格、
+> CI、license header 的官方依据都在那里(实测自 `moonbitlang/core` 仓库与官方 CI)。**本节只列本项目需要强调的几条**,
+> 不重复其内容。
+
 | Rule | Example |
 |---|---|
-| Functions | `snake_case`: `get_by`, `bucket_add` |
-| Types | `PascalCase`: `Table`, `RowId`, `Conflict` |
-| Constants | `UPPER_CASE`: `MIN_CAPACITY` |
-| Public API docs | `///|` doc comment block |
-| Tests | `@aurasuisui/multiindex.` prefix for black-box access |
-| Qualified trait calls | `Hash::hash(x)`, `Show::to_string(x)` |
-| Length | `array.length()` (not `.size()`); effects as `raise` (not `!`) |
+| 黑盒测试前缀 | `@aurasuisui/multiindex.` —— **本库硬性约定**(见 §H.6:`+unnecessary_annotation` 会与它冲突,故不启用该 lint) |
+| 限定 trait 调用 | `Hash::hash(x)`, `Show::to_string(x)` —— 避免多约束类型参数上的点调用(`[0083]`) |
+| 长度与效果 | `array.length()` 而非 `.size()`;效果标 `raise` 而非已废弃的 `!` |
+| **MoonBit 语法坑** | 结构体/枚举泛型**不能**带 trait 约束(`struct T[K : Hash + Eq]` 是语法错误),约束写在方法上 |
 
 ---
 

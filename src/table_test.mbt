@@ -779,3 +779,205 @@ test "failure classification: the abort decisions are pinned by their predicates
   @test.assert_eq(t.get_by("hi", 999), None)
   @test.assert_eq(t.range_by("hi", 999, 1000).to_array().length(), 0)
 }
+
+// ---------------------------------------------------------------------------
+// M5: insert_many
+// ---------------------------------------------------------------------------
+
+///|
+test "insert_many hands out exactly the handles per-record inserts would" {
+  let batch = triple_table()
+  let stepwise = triple_table()
+  let records : Array[(Int, Int, Int)] = [(1, 10, 1), (2, 20, 2), (3, 30, 1)]
+  let ids = match batch.insert_many(records) {
+    Ok(ids) => ids
+    Err(_) => @test.fail("the batch has no conflicts")
+  }
+  @test.assert_eq(ids.length(), 3)
+  let mut i = 0
+  while i < records.length() {
+    let expected = insert_ok(stepwise, records[i])
+    // same handles, same contents, same index answers as one-at-a-time inserts
+    @test.assert_eq(ids[i], expected)
+    @test.assert_eq(batch.get(ids[i]), Some(records[i]))
+    @test.assert_eq(
+      batch.get_by("lo", records[i].0),
+      Some((ids[i], records[i])),
+    )
+    @test.assert_eq(
+      batch.get_by("hi", records[i].1),
+      Some((ids[i], records[i])),
+    )
+    i = i + 1
+  }
+  @test.assert_eq(batch.len(), 3)
+  @test.assert_eq(batch.iter_by("shared_sorted", 1).to_array().length(), 2)
+  match batch.verify_invariants() {
+    Ok(_) => ()
+    Err(message) => @test.fail(message)
+  }
+}
+
+///|
+test "insert_many fails the whole batch when two of its own records collide" {
+  let t = triple_table()
+  let a = insert_ok(t, (9, 90, 9))
+  // both members project to 10 on the unique "hi" index
+  let records : Array[(Int, Int, Int)] = [(1, 10, 1), (2, 10, 2)]
+  match t.insert_many(records) {
+    Ok(_) =>
+      @test.fail("a duplicate inside the batch must fail the whole batch")
+    Err(rejected) => {
+      // the *second* member is the offender and comes back untouched
+      @test.assert_eq(rejected.record, (2, 10, 2))
+      match rejected.conflict {
+        @aurasuisui/multiindex.UniqueViolation(name, key, holder) => {
+          @test.assert_eq(name, "hi")
+          @test.assert_eq(key, 10)
+          // no record is live at that key, so the holder is the handle the first
+          // member *would* have received (slot 1, right after the live `a`)
+          @test.assert_eq(holder.slot, 1)
+          @test.assert_eq(t.contains(holder), false)
+        }
+      }
+    }
+  }
+  // zero change: nothing from the batch landed
+  @test.assert_eq(t.len(), 1)
+  @test.assert_eq(t.get(a), Some((9, 90, 9)))
+  @test.assert_eq(t.get_by("lo", 1), None)
+  @test.assert_eq(t.get_by("lo", 2), None)
+  @test.assert_eq(t.iter_by("shared_sorted", 1).to_array().length(), 0)
+  @test.assert_eq(t.range_by("hi", 0, 100).to_array().length(), 1)
+  match t.verify_invariants() {
+    Ok(_) => ()
+    Err(message) => @test.fail(message)
+  }
+}
+
+///|
+test "insert_many fails the whole batch when it clashes with a live record" {
+  let t = triple_table()
+  let a = insert_ok(t, (1, 10, 1))
+  // the second member would take a key that `a` already holds on the unique "hi" index
+  let records : Array[(Int, Int, Int)] = [(2, 20, 2), (3, 10, 3)]
+  match t.insert_many(records) {
+    Ok(_) => @test.fail("the clash must fail the whole batch")
+    Err(rejected) => {
+      @test.assert_eq(rejected.record, (3, 10, 3))
+      match rejected.conflict {
+        @aurasuisui/multiindex.UniqueViolation(name, key, holder) => {
+          @test.assert_eq(name, "hi")
+          @test.assert_eq(key, 10)
+          // here the holder is a *live* record, so the caller can go and look
+          @test.assert_eq(holder, a)
+          @test.assert_eq(t.contains(holder), true)
+        }
+      }
+    }
+  }
+  @test.assert_eq(t.len(), 1)
+  @test.assert_eq(t.get_by("lo", 2), None)
+  @test.assert_eq(t.get_by("lo", 3), None)
+  @test.assert_eq(t.get(a), Some((1, 10, 1)))
+}
+
+///|
+test "insert_many handles the degenerate batch sizes" {
+  let t = triple_table()
+  let empty : Array[(Int, Int, Int)] = []
+  match t.insert_many(empty) {
+    Ok(ids) => @test.assert_eq(ids.length(), 0)
+    Err(_) => @test.fail("an empty batch cannot conflict")
+  }
+  @test.assert_eq(t.len(), 0)
+  let single : Array[(Int, Int, Int)] = [(1, 10, 1)]
+  match t.insert_many(single) {
+    Ok(ids) => @test.assert_eq(ids.length(), 1)
+    Err(_) => @test.fail("a single record cannot conflict here")
+  }
+  @test.assert_eq(t.len(), 1)
+  // with no unique index registered there is nothing a batch could collide on
+  let plain : @aurasuisui/multiindex.Table[Int, Int] = @aurasuisui/multiindex.Table::new()
+  match plain.insert_many([1, 1, 1]) {
+    Ok(ids) => @test.assert_eq(ids.length(), 3)
+    Err(_) => @test.fail("no unique index is registered")
+  }
+  @test.assert_eq(plain.len(), 3)
+}
+
+// ---------------------------------------------------------------------------
+// M5: public diagnostics
+// ---------------------------------------------------------------------------
+
+///|
+test "verify_invariants accepts a healthy table through every operation" {
+  let t = triple_table()
+  let a = insert_ok(t, (1, 10, 1))
+  let b = insert_ok(t, (2, 20, 2))
+  match t.verify_invariants() {
+    Ok(_) => ()
+    Err(message) => @test.fail(message)
+  }
+  match t.insert_many([(3, 30, 3), (4, 40, 1)]) {
+    Ok(_) => ()
+    Err(_) => @test.fail("the batch has no conflicts")
+  }
+  match t.update(a, (1, 11, 1)) {
+    Ok(_) => ()
+    Err(_) => @test.fail("a legal update must succeed")
+  }
+  match t.modify(b, fn(record) { (record.0, record.1, 9) }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("a legal modify must succeed")
+  }
+  match t.verify_invariants() {
+    Ok(_) => ()
+    Err(message) => @test.fail(message)
+  }
+  t.remove(a) |> ignore
+  match t.verify_invariants() {
+    Ok(_) => ()
+    Err(message) => @test.fail(message)
+  }
+  t.clear()
+  match t.verify_invariants() {
+    Ok(_) => ()
+    Err(message) => @test.fail(message)
+  }
+}
+
+///|
+test "index_stats reports the bucket shape" {
+  let t = triple_table()
+  insert_ok(t, (1, 10, 7)) |> ignore
+  let b = insert_ok(t, (2, 20, 7))
+  insert_ok(t, (3, 30, 8)) |> ignore
+  // the unique quadrants hold one entry per key
+  let unique = t.index_stats("lo")
+  @test.assert_eq(unique.buckets, 3)
+  @test.assert_eq(unique.entries, 3)
+  @test.assert_eq(unique.longest_bucket, 1)
+  @test.assert_eq(unique.average_bucket, 1.0)
+  // the non-unique quadrant groups by `.2`: key 7 twice, key 8 once
+  let multi = t.index_stats("shared_sorted")
+  @test.assert_eq(multi.buckets, 2)
+  @test.assert_eq(multi.entries, 3)
+  @test.assert_eq(multi.longest_bucket, 2)
+  @test.assert_eq(multi.average_bucket, 1.5)
+  // an index with no entries reports zeros, not a division by zero
+  let empty = triple_table()
+  let zero = empty.index_stats("shared")
+  @test.assert_eq(zero.buckets, 0)
+  @test.assert_eq(zero.entries, 0)
+  @test.assert_eq(zero.longest_bucket, 0)
+  @test.assert_eq(zero.average_bucket, 0.0)
+  // and the numbers follow removals
+  t.remove(b) |> ignore
+  let after = t.index_stats("shared_sorted")
+  @test.assert_eq(after.buckets, 2)
+  @test.assert_eq(after.entries, 2)
+  @test.assert_eq(after.longest_bucket, 1)
+  @test.assert_eq(after.average_bucket, 1.0)
+  @test.assert_eq(t.index_stats("lo").entries, 2)
+}

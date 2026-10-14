@@ -14,162 +14,20 @@
 // CHANGELOG Notes/Deviations). `property_test.mbt` holds the black-box half.
 
 ///|
-/// Every bucket of `index` as `(key, slots)`, in the index's own iteration order.
+/// Assert every invariant of `t` by **delegating to the public checker**.
 ///
-/// The library itself does not enumerate buckets (M5's `index_stats` will); the
-/// white-box tests need the raw view to assert I3 / I4 / I5 / I7, and being
-/// in-package lets them open the private enum directly.
-fn[K, V] index_buckets(index : Index[K, V]) -> Array[(K, Array[Int])] {
-  let out : Array[(K, Array[Int])] = []
-  match index {
-    HashUnique(_, buckets) =>
-      for key, slot in buckets {
-        out.push((key, [slot]))
-      }
-    SortedUnique(_, buckets) =>
-      for key, slot in buckets {
-        out.push((key, [slot]))
-      }
-    HashMulti(_, buckets) =>
-      for key, set in buckets {
-        out.push((key, set.to_array()))
-      }
-    SortedMulti(_, buckets) =>
-      for key, set in buckets {
-        out.push((key, set.to_array()))
-      }
-  }
-  out
-}
-
-///|
-/// Assert every invariant of `t` directly on its private fields:
+/// docs/SPEC.md §3.4 makes `Table::verify_invariants` the single implementation of
+/// the invariant checks (I1–I9 plus the index invariants). A second copy here would
+/// be free to drift away from the shipped one, so this wrapper does nothing but turn
+/// the returned message into a test failure.
 ///
-///   I1  every slot in `order` is live, and no slot appears twice
-///   I2  live rows == `len` == `order.length()`
-///   I6  `free` has no duplicates and is disjoint from the live set
-///
-/// and, for every registered index,
-///
-///   I3  no slot appears twice inside one bucket
-///   I4  every bucket slot holds a record whose projection is that bucket's key
-///   I5  a unique index never holds two records under one key
-///   I7  every live record appears exactly once, under its own key (and no
-///       bucket points at a slot that holds nothing)
-///
-/// plus the bookkeeping that makes I9 observable: `rows` and `gens` stay parallel
-/// arrays, every dead slot is either on `free` or **retired** (generation at
-/// `GEN_MAX`), and a registry key always equals the name inside the index.
-fn[K : Hash + Eq + Compare + Debug, V] check_invariants(
-  t : Table[K, V],
-) -> Unit raise {
-  @test.assert_eq(t.rows.length(), t.gens.length())
-  @test.assert_eq(t.len >= 0, true)
-  // I2, internal form: counter, insertion order and live rows all agree
-  @test.assert_eq(t.order.length(), t.len)
-  let n = t.rows.length()
-  let live : Array[Bool] = Array::make(n, false)
-  let mut live_count = 0
-  let mut i = 0
-  while i < n {
-    match t.rows[i] {
-      Some(_) => {
-        live[i] = true
-        live_count = live_count + 1
-      }
-      None => ()
-    }
-    i = i + 1
-  }
-  @test.assert_eq(live_count, t.len)
-  // I1
-  let in_order : Array[Bool] = Array::make(n, false)
-  let mut j = 0
-  while j < t.order.length() {
-    let slot = t.order[j]
-    @test.assert_eq(slot >= 0 && slot < n, true)
-    @test.assert_eq(live[slot], true)
-    @test.assert_eq(in_order[slot], false)
-    in_order[slot] = true
-    j = j + 1
-  }
-  @test.assert_eq(t.order.length(), live_count)
-  // I6
-  let in_free : Array[Bool] = Array::make(n, false)
-  let mut k = 0
-  while k < t.free.length() {
-    let slot = t.free[k]
-    @test.assert_eq(slot >= 0 && slot < n, true)
-    @test.assert_eq(in_free[slot], false)
-    @test.assert_eq(live[slot], false)
-    in_free[slot] = true
-    k = k + 1
-  }
-  // I9, observable form: dead and not free means retired for good
-  let mut m = 0
-  while m < n {
-    if !live[m] && !in_free[m] {
-      @test.assert_eq(t.gens[m], GEN_MAX)
-    }
-    m = m + 1
-  }
-  // ---- index invariants ----------------------------------------------------
-  for name, index in t.indexes {
-    @test.assert_eq(index.name(), name)
-    let buckets = index_buckets(index)
-    let mut entries = 0
-    let mut b = 0
-    while b < buckets.length() {
-      let (key, slots) = buckets[b]
-      // I5
-      if index.is_unique() {
-        @test.assert_eq(slots.length() <= 1, true)
-      }
-      let seen : Array[Bool] = Array::make(n, false)
-      let mut s = 0
-      while s < slots.length() {
-        let slot = slots[s]
-        @test.assert_eq(slot >= 0 && slot < n, true)
-        // I3
-        @test.assert_eq(seen[slot], false)
-        seen[slot] = true
-        // I4 (and, in the `None` arm, the no-dangling-bucket half of I7)
-        match t.rows[slot] {
-          Some(record) => @test.assert_eq(index.project()(record), key)
-          None =>
-            @test.fail("an index bucket names a slot that holds no record")
-        }
-        s = s + 1
-      }
-      entries = entries + slots.length()
-      b = b + 1
-    }
-    // I7, counting half: nothing missing, nothing extra
-    @test.assert_eq(entries, t.len)
-    // I7, coverage half: every live record sits in the bucket for its own key
-    let mut c = 0
-    while c < t.order.length() {
-      let slot = t.order[c]
-      match t.rows[slot] {
-        Some(record) => {
-          let key = index.project()(record)
-          let slots = index.slots(key)
-          let mut found = false
-          let mut f = 0
-          while f < slots.length() {
-            if slots[f] == slot {
-              found = true
-            }
-            f = f + 1
-          }
-          if !found {
-            @test.fail("a live record is missing from one of its index buckets")
-          }
-        }
-        None => ()
-      }
-      c = c + 1
-    }
+/// The "the guard is not vacuous" tests below matter **more** after this change, not
+/// less: the checker under test is now the code the library ships, and only they can
+/// show that it really rejects a corrupted table.
+fn[K : Eq + Debug, V] check_invariants(t : Table[K, V]) -> Unit raise {
+  match t.verify_invariants() {
+    Ok(_) => ()
+    Err(message) => @test.fail(message)
   }
 }
 

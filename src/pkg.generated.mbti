@@ -16,6 +16,13 @@ pub enum Conflict[K] {
 } derive(Eq, @debug.Debug)
 pub impl[K : Show] Show for Conflict[K]
 
+pub struct IndexStats {
+  buckets : Int
+  entries : Int
+  longest_bucket : Int
+  average_bucket : Double
+} derive(Eq, @debug.Debug)
+
 pub enum RegisterError[K] {
   DuplicateName(String)
   UniqueViolation(String, K)
@@ -42,12 +49,14 @@ pub fn[K, V] Table::get(Self[K, V], RowId) -> V?
 pub fn[K : Hash + Eq + Compare, V] Table::get_by(Self[K, V], String, K) -> (RowId, V)?
 pub fn[K, V] Table::has_index(Self[K, V], String) -> Bool
 pub fn[K, V] Table::index_names(Self[K, V]) -> Array[String]
+pub fn[K, V] Table::index_stats(Self[K, V], String) -> IndexStats
 pub fn[K : Hash + Eq + Compare, V] Table::insert(Self[K, V], V) -> Result[RowId, Rejected[K, V]]
+pub fn[K : Hash + Eq + Compare, V] Table::insert_many(Self[K, V], Array[V]) -> Result[Array[RowId], Rejected[K, V]]
 pub fn[K, V] Table::is_empty(Self[K, V]) -> Bool
 pub fn[K, V] Table::iter(Self[K, V]) -> Iter2[RowId, V]
-pub fn[K : Compare, V] Table::iter_asc_by(Self[K, V], String) -> Iter2[RowId, V]
+pub fn[K, V] Table::iter_asc_by(Self[K, V], String) -> Iter2[RowId, V]
 pub fn[K : Hash + Eq + Compare, V] Table::iter_by(Self[K, V], String, K) -> Iter2[RowId, V]
-pub fn[K : Compare, V] Table::iter_desc_by(Self[K, V], String) -> Iter2[RowId, V]
+pub fn[K, V] Table::iter_desc_by(Self[K, V], String) -> Iter2[RowId, V]
 pub fn[K, V] Table::len(Self[K, V]) -> Int
 pub fn[K : Hash + Eq + Compare, V] Table::modify(Self[K, V], RowId, (V) -> V) -> Result[Unit, UpdateRejected[K, V]]
 pub fn[K, V] Table::new() -> Self[K, V]
@@ -59,6 +68,7 @@ pub fn[K : Hash + Eq, V] Table::register_unique(Self[K, V], String, (V) -> K) ->
 pub fn[K : Compare, V] Table::register_unique_ordered(Self[K, V], String, (V) -> K) -> Result[Unit, RegisterError[K]]
 pub fn[K : Hash + Eq + Compare, V] Table::remove(Self[K, V], RowId) -> V?
 pub fn[K : Hash + Eq + Compare, V] Table::update(Self[K, V], RowId, V) -> Result[Unit, UpdateRejected[K, V]]
+pub fn[K : Eq + @debug.Debug, V] Table::verify_invariants(Self[K, V]) -> Result[Unit, String]
 pub fn[K, V] Table::with_capacity(Int) -> Self[K, V]
 
 pub enum UpdateRejected[K, V] {

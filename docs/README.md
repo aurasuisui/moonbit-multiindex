@@ -14,6 +14,7 @@
 | 架构深挖 / 开发流程 / 测试约定 / **文档同步约定** | [`CONTRIBUTING.md`](../CONTRIBUTING.md) |
 | 每次改动与关键决策 | [`CHANGELOG.md`](../CHANGELOG.md) |
 | API 契约(每个签名、不变量、错误语义) | [`SPEC.md`](SPEC.md) |
+| **命名 / 代码组织 / 文档注释 / 测试风格 / CI / license 的官方约定** | [`STYLE.md`](STYLE.md) |
 | 会话入口(命令 + 架构速览 + 阅读顺序) | [`AGENTS.md`](../AGENTS.md)(**唯一**入口,面向所有编码 agent) |
 
 ## 文档地图
@@ -29,6 +30,7 @@
 | [`SPEC.md`](SPEC.md) | **API 唯一真源**:签名/返回类型/语义,行为拿不准时以此为准 | 动公开 API |
 | [`DEVPLAN.md`](DEVPLAN.md) | 立项设计稿:数据布局、不变量、**四条高危路径**、探针验证记录 | 想理解为什么这么设计 |
 | [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) | **发布门禁**:每次 bump 版本前必须逐项全绿的 Tier 0–4 | 准备发版 |
+| [`STYLE.md`](STYLE.md) | **官方代码约定与风格**(实测自 `moonbitlang/core` 仓库 + 官方 CI):命名、代码组织、`extend` 策略、文档注释、测试、包布局、license;**含 §H 可执行清单与 §I 未核实表** | 写代码前;**加 CI 门禁前** |
 | [`MOONBIT_REF.md`](MOONBIT_REF.md) | MoonBit 语法/惯用法速查 **实测版**:三级可信度标记(已实测 41 / 源码 23 / 文档 14 / 未核实 1),含 20 条错误码对照与「最容易踩的十条」 | 写 MoonBit 卡壳;**动 API 前先查** |
 | [`SESSION_PLAYBOOK.md`](SESSION_PLAYBOOK.md) | **任务会话手册**:讨论方案→执行→卡住决策→看门狗→知识回写 | 开新任务会话 |
 | [`plans/v0.1.0.md`](plans/v0.1.0.md) | v0.1.0 **范围与里程碑**(含出口条件)+ **进度看板**;**§一 说明为何不是移植** | 想知道做到哪了、下一步做什么 |

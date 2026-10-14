@@ -320,7 +320,11 @@ pub fn[K : Compare, V] Table::range_half_open_by(
 
 ///|
 /// Every record in the index, ordered by key **ascending**.
-pub fn[K : Compare, V] Table::iter_asc_by(
+///
+/// Deliberately **unconstrained**: the walk never compares keys, and the runtime
+/// `abort` ("this index has no key order") tells a caller far more than a compile
+/// error demanding `Compare` for what is merely a hash index (docs/SPEC.md §3.3).
+pub fn[K, V] Table::iter_asc_by(
   self : Table[K, V],
   name : String,
 ) -> Iter2[RowId, V] {
@@ -330,8 +334,9 @@ pub fn[K : Compare, V] Table::iter_asc_by(
 
 ///|
 /// Every record in the index, ordered by key **descending** (within one key the
-/// slots still come out ascending — only the key order flips).
-pub fn[K : Compare, V] Table::iter_desc_by(
+/// slots still come out ascending — only the key order flips). Unconstrained for
+/// the same reason as `iter_asc_by`.
+pub fn[K, V] Table::iter_desc_by(
   self : Table[K, V],
   name : String,
 ) -> Iter2[RowId, V] {
@@ -356,4 +361,295 @@ pub fn[K, V] Table::index_names(self : Table[K, V]) -> Array[String] {
 /// Whether an index is registered under `name`.
 pub fn[K, V] Table::has_index(self : Table[K, V], name : String) -> Bool {
   self.indexes.contains(name)
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostics (docs/SPEC.md §3.4)
+// ---------------------------------------------------------------------------
+
+///|
+/// Check every invariant on the *inside* of the table and report the **first**
+/// violation, with enough context to locate it (docs/SPEC.md §3.4).
+///
+/// The message names the invariant (I1–I9) and the slot or key involved. A checker
+/// that could only answer "false" would be of little use to its caller, which is why
+/// this returns `Result[Unit, String]` rather than `Bool`. `K : Eq + Debug` is what
+/// comparing keys and rendering them in messages costs — nothing more.
+pub fn[K : Eq + Debug, V] Table::verify_invariants(
+  self : Table[K, V],
+) -> Result[Unit, String] {
+  match self.verify_storage() {
+    Err(message) => Err(message)
+    Ok(_) => self.verify_indexes()
+  }
+}
+
+///|
+/// I1 / I2 / I6 / I9 — the storage half of `verify_invariants`.
+fn[K, V] Table::verify_storage(self : Table[K, V]) -> Result[Unit, String] {
+  let n = self.rows.length()
+  if self.gens.length() != n {
+    return Err(
+      "I2: `rows` holds " +
+      n.to_string() +
+      " slots but `gens` holds " +
+      self.gens.length().to_string(),
+    )
+  }
+  if self.len < 0 {
+    return Err("I2: len is negative (" + self.len.to_string() + ")")
+  }
+  let live : Array[Bool] = Array::make(n, false)
+  let mut live_count = 0
+  let mut i = 0
+  while i < n {
+    match self.rows[i] {
+      Some(_) => {
+        live[i] = true
+        live_count = live_count + 1
+      }
+      None => ()
+    }
+    i = i + 1
+  }
+  if live_count != self.len {
+    return Err(
+      "I2: len is " +
+      self.len.to_string() +
+      " but " +
+      live_count.to_string() +
+      " rows hold a record",
+    )
+  }
+  if self.order.length() != self.len {
+    return Err(
+      "I2: len is " +
+      self.len.to_string() +
+      " but `order` holds " +
+      self.order.length().to_string() +
+      " slots",
+    )
+  }
+  // I1: `order` is exactly the live slots, each once
+  let in_order : Array[Bool] = Array::make(n, false)
+  let mut j = 0
+  while j < self.order.length() {
+    let slot = self.order[j]
+    if slot < 0 || slot >= n {
+      return Err(
+        "I1: `order` names slot " + slot.to_string() + ", which is out of range",
+      )
+    }
+    if !live[slot] {
+      return Err(
+        "I1: `order` names slot " + slot.to_string() + ", which holds no record",
+      )
+    }
+    if in_order[slot] {
+      return Err("I1: slot " + slot.to_string() + " appears twice in `order`")
+    }
+    in_order[slot] = true
+    j = j + 1
+  }
+  // I6: `free` is clean and disjoint from the live set
+  let in_free : Array[Bool] = Array::make(n, false)
+  let mut f = 0
+  while f < self.free.length() {
+    let slot = self.free[f]
+    if slot < 0 || slot >= n {
+      return Err(
+        "I6: `free` names slot " + slot.to_string() + ", which is out of range",
+      )
+    }
+    if in_free[slot] {
+      return Err("I6: slot " + slot.to_string() + " appears twice on `free`")
+    }
+    if live[slot] {
+      return Err("I6: slot " + slot.to_string() + " is both free and live")
+    }
+    in_free[slot] = true
+    f = f + 1
+  }
+  // I9: a dead slot is free or retired for good
+  let mut m = 0
+  while m < n {
+    if !live[m] && !in_free[m] && self.gens[m] != GEN_MAX {
+      return Err(
+        "I9: slot " +
+        m.to_string() +
+        " is dead and not free, but its generation " +
+        self.gens[m].to_string() +
+        " is below GEN_MAX",
+      )
+    }
+    m = m + 1
+  }
+  Ok(())
+}
+
+///|
+/// I3 / I4 / I5 / I7 — the index half of `verify_invariants`.
+fn[K : Eq + Debug, V] Table::verify_indexes(
+  self : Table[K, V],
+) -> Result[Unit, String] {
+  for name, index in self.indexes {
+    // Registry bookkeeping: the key an index is stored under is the name it carries.
+    if index.name() != name {
+      return Err(
+        "registry: an index is stored under " +
+        @debug.to_string(name) +
+        " but carries the name " +
+        @debug.to_string(index.name()),
+      )
+    }
+    let buckets = index.buckets()
+    let mut entries = 0
+    let mut b = 0
+    while b < buckets.length() {
+      let (key, slots) = buckets[b]
+      if index.is_unique() && slots.length() > 1 {
+        return Err(
+          "I5: unique index " +
+          @debug.to_string(name) +
+          " holds " +
+          slots.length().to_string() +
+          " slots under key " +
+          @debug.to_string(key),
+        )
+      }
+      let seen : Array[Bool] = Array::make(self.rows.length(), false)
+      let mut s = 0
+      while s < slots.length() {
+        let slot = slots[s]
+        if slot < 0 || slot >= self.rows.length() {
+          return Err(
+            "I3: index " +
+            @debug.to_string(name) +
+            " holds out-of-range slot " +
+            slot.to_string(),
+          )
+        }
+        if seen[slot] {
+          return Err(
+            "I3: slot " +
+            slot.to_string() +
+            " appears twice in one bucket of index " +
+            @debug.to_string(name),
+          )
+        }
+        seen[slot] = true
+        match self.rows[slot] {
+          Some(record) => {
+            let projected = index.project()(record)
+            if projected != key {
+              return Err(
+                "I4: bucket " +
+                @debug.to_string(key) +
+                " of index " +
+                @debug.to_string(name) +
+                " holds slot " +
+                slot.to_string() +
+                ", whose record projects to " +
+                @debug.to_string(projected),
+              )
+            }
+          }
+          None =>
+            return Err(
+              "I4: bucket " +
+              @debug.to_string(key) +
+              " of index " +
+              @debug.to_string(name) +
+              " holds slot " +
+              slot.to_string() +
+              ", which holds no record",
+            )
+        }
+        s = s + 1
+      }
+      entries = entries + slots.length()
+      b = b + 1
+    }
+    // I7, counting half: no entry missing, none extra
+    if entries != self.len {
+      return Err(
+        "I7: index " +
+        @debug.to_string(name) +
+        " holds " +
+        entries.to_string() +
+        " entries but the table has " +
+        self.len.to_string() +
+        " live records",
+      )
+    }
+    // I7, coverage half: every live record sits in the bucket for its own key
+    let mut c = 0
+    while c < self.order.length() {
+      let slot = self.order[c]
+      match self.rows[slot] {
+        Some(record) => {
+          let key = index.project()(record)
+          let mut found = false
+          let mut x = 0
+          while x < buckets.length() {
+            let (bucket_key, slots) = buckets[x]
+            if bucket_key == key {
+              let mut y = 0
+              while y < slots.length() {
+                if slots[y] == slot {
+                  found = true
+                }
+                y = y + 1
+              }
+            }
+            x = x + 1
+          }
+          if !found {
+            return Err(
+              "I7: the record in slot " +
+              slot.to_string() +
+              " is missing from index " +
+              @debug.to_string(name) +
+              " under key " +
+              @debug.to_string(key),
+            )
+          }
+        }
+        None => ()
+      }
+      c = c + 1
+    }
+  }
+  Ok(())
+}
+
+///|
+/// Bucket-shape statistics of the index registered under `name` (docs/SPEC.md §3.4).
+///
+/// Works for every quadrant: "how concentrated is this index" is a question about
+/// buckets, not about key order. An unknown name aborts (docs/SPEC.md §7.1).
+pub fn[K, V] Table::index_stats(
+  self : Table[K, V],
+  name : String,
+) -> IndexStats {
+  let index = self.require_index(name)
+  let buckets = index.buckets()
+  let mut entries = 0
+  let mut longest = 0
+  let mut i = 0
+  while i < buckets.length() {
+    let slots = buckets[i].1
+    entries = entries + slots.length()
+    if slots.length() > longest {
+      longest = slots.length()
+    }
+    i = i + 1
+  }
+  let count = buckets.length()
+  let average = if count == 0 {
+    0.0
+  } else {
+    entries.to_double() / count.to_double()
+  }
+  { buckets: count, entries, longest_bucket: longest, average_bucket: average, }
 }

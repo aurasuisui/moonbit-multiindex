@@ -431,6 +431,34 @@ fn reversed_cursor(all : Array[Array[Int]]) -> BucketCursor {
 }
 
 ///|
+/// Every bucket of the index as `(key, slots)`, in the index's own iteration order.
+///
+/// The enumeration primitive behind `Table::verify_invariants` and
+/// `Table::index_stats`. It materializes, so it does not belong on a query path.
+fn[K, V] Index::buckets(self : Index[K, V]) -> Array[(K, Array[Int])] {
+  let out : Array[(K, Array[Int])] = []
+  match self {
+    HashUnique(_, buckets) =>
+      for key, slot in buckets {
+        out.push((key, [slot]))
+      }
+    SortedUnique(_, buckets) =>
+      for key, slot in buckets {
+        out.push((key, [slot]))
+      }
+    HashMulti(_, buckets) =>
+      for key, set in buckets {
+        out.push((key, set.to_array()))
+      }
+    SortedMulti(_, buckets) =>
+      for key, set in buckets {
+        out.push((key, set.to_array()))
+      }
+  }
+  out
+}
+
+///|
 /// Drop every bucket. The registration itself survives — `Table::clear` drops
 /// records and index entries, it does not unregister the schema.
 fn[K, V] Index::clear(self : Index[K, V]) -> Unit {

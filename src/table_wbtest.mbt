@@ -194,7 +194,7 @@ test "index buckets store slot numbers and drop a bucket once it empties" {
     Some(index) => {
       assert_ints(index.slots(7), [a.slot, b.slot])
       assert_ints(index.slots(5), [])
-      @test.assert_eq(index_buckets(index).length(), 1)
+      @test.assert_eq(index.buckets().length(), 1)
     }
     None => @test.fail("the index vanished")
   }
@@ -203,7 +203,7 @@ test "index buckets store slot numbers and drop a bucket once it empties" {
   match t.indexes.get("shared") {
     Some(index) => {
       assert_ints(index.slots(7), [b.slot])
-      @test.assert_eq(index_buckets(index).length(), 1)
+      @test.assert_eq(index.buckets().length(), 1)
     }
     None => @test.fail("the index vanished")
   }
@@ -215,7 +215,7 @@ test "index buckets store slot numbers and drop a bucket once it empties" {
   // removing the last record leaves no bucket behind at all
   t.remove(b) |> ignore
   match t.indexes.get("shared") {
-    Some(index) => @test.assert_eq(index_buckets(index).length(), 0)
+    Some(index) => @test.assert_eq(index.buckets().length(), 0)
     None => @test.fail("the index vanished")
   }
   check_invariants(t)
@@ -230,7 +230,7 @@ test "clear drops every bucket but keeps the registrations" {
   @test.assert_eq(t.indexes.length(), 4) // the schema survives a clear
   match t.indexes.get("lo") {
     Some(index) => {
-      @test.assert_eq(index_buckets(index).length(), 0)
+      @test.assert_eq(index.buckets().length(), 0)
       assert_ints(index.slots(1), [])
     }
     None => @test.fail("the registration was dropped")
@@ -504,4 +504,146 @@ test "is_ordered is true only for the two sorted quadrants" {
     Some(index) => @test.assert_eq(index.is_ordered(), true)
     None => @test.fail("the index vanished")
   }
+}
+
+// ---------------------------------------------------------------------------
+// M5: planned handles, and what the public checker actually says
+// ---------------------------------------------------------------------------
+
+///|
+/// The slot numbers of a handle list, for `assert_ints`.
+fn handle_slots(handles : Array[RowId]) -> Array[Int] {
+  let out : Array[Int] = []
+  let mut i = 0
+  while i < handles.length() {
+    out.push(handles[i].slot)
+    i = i + 1
+  }
+  out
+}
+
+///|
+test "planned_handles predicts the slots inserts really take" {
+  let t = wb_indexed_table()
+  assert_ints(handle_slots(t.planned_handles(3)), [0, 1, 2])
+  let a = wb_insert_indexed(t, (1, 10, 7))
+  assert_ints(handle_slots(t.planned_handles(2)), [1, 2])
+  t.remove(a) |> ignore
+  // the freed slot comes back first (LIFO), with a bumped generation
+  assert_ints(handle_slots(t.planned_handles(2)), [0, 1])
+  let b = wb_insert_indexed(t, (2, 20, 8))
+  @test.assert_eq(b.slot, 0)
+  @test.assert_eq(b.gen, 1)
+  check_invariants(t)
+}
+
+///|
+test "planned_handles matches what insert_many really hands out" {
+  let t = wb_indexed_table()
+  let a = wb_insert_indexed(t, (1, 10, 7))
+  t.remove(a) |> ignore
+  let planned = t.planned_handles(3)
+  let records : Array[(Int, Int, Int)] = [(2, 20, 8), (3, 30, 9), (4, 40, 1)]
+  match t.insert_many(records) {
+    Ok(ids) => {
+      @test.assert_eq(ids.length(), planned.length())
+      let mut i = 0
+      while i < ids.length() {
+        @test.assert_eq(ids[i], planned[i])
+        i = i + 1
+      }
+    }
+    Err(_) => @test.fail("the batch has no conflicts")
+  }
+  check_invariants(t)
+}
+
+///|
+test "verify_invariants names I6 and the offending slot" {
+  let t = wb_indexed_table()
+  let a = wb_insert_indexed(t, (1, 10, 7))
+  let b = wb_insert_indexed(t, (2, 20, 7))
+  t.remove(b) |> ignore
+  t.free.push(b.slot) // corrupt I6: the same slot twice on `free`
+  match t.verify_invariants() {
+    Ok(_) => @test.fail("a duplicated free slot must be reported")
+    Err(message) => {
+      @test.assert_eq(message.contains("I6"), true)
+      @test.assert_eq(message.contains(b.slot.to_string()), true)
+    }
+  }
+  ignore(a)
+}
+
+///|
+test "verify_invariants names I7 when an index loses an entry" {
+  let t = wb_indexed_table()
+  let a = wb_insert_indexed(t, (1, 10, 7))
+  // drop the record's bucket from the unique "lo" index behind the table's back
+  match t.indexes.get("lo") {
+    Some(HashUnique(_, buckets)) => buckets.remove(1)
+    _ => @test.fail("the index vanished")
+  }
+  match t.verify_invariants() {
+    Ok(_) => @test.fail("a missing index entry must be reported")
+    Err(message) => {
+      @test.assert_eq(message.contains("I7"), true)
+      @test.assert_eq(message.contains("lo"), true)
+    }
+  }
+  ignore(a)
+}
+
+///|
+test "verify_invariants names I4, the bucket key and the real projection" {
+  let t = wb_indexed_table()
+  let a = wb_insert_indexed(t, (1, 10, 7))
+  // move the slot into a bucket for a key it does not project to. The entry count
+  // stays equal, so the I7 counting check cannot fire first and I4 is what reports.
+  match t.indexes.get("lo") {
+    Some(HashUnique(_, buckets)) => {
+      buckets.remove(1)
+      buckets.set(999, a.slot)
+    }
+    _ => @test.fail("the index vanished")
+  }
+  match t.verify_invariants() {
+    Ok(_) => @test.fail("a mis-keyed bucket must be reported")
+    Err(message) => {
+      @test.assert_eq(message.contains("I4"), true)
+      @test.assert_eq(message.contains("999"), true)
+      @test.assert_eq(message.contains("lo"), true)
+    }
+  }
+}
+
+///|
+/// I5 (a unique bucket never holds two slots) and I3 (no slot twice in one bucket)
+/// are **structural** in this representation: a unique quadrant stores `Map[K, Int]`
+/// and a bucket of a non-unique one is a `SortedSet[Int]`, so neither corruption can
+/// be constructed from the inside. The checker keeps both as defensive cross-checks
+/// (docs/SPEC.md §4 says so for I3); this test pins the structure that makes them
+/// unreachable, so a future representation change cannot silently drop the guard.
+test "the unique quadrants cannot expose a bucket with two slots (I5 holds by construction)" {
+  let t = wb_indexed_table()
+  wb_insert_indexed(t, (1, 10, 7)) |> ignore
+  wb_insert_indexed(t, (2, 20, 7)) |> ignore
+  wb_insert_indexed(t, (3, 30, 8)) |> ignore
+  let mut unique_checked = 0
+  for _, index in t.indexes {
+    if index.is_unique() {
+      let buckets = index.buckets()
+      let mut i = 0
+      while i < buckets.length() {
+        @test.assert_eq(buckets[i].1.length(), 1)
+        i = i + 1
+      }
+      unique_checked = unique_checked + 1
+    }
+  }
+  @test.assert_eq(unique_checked, 2)
+  // ... while the non-unique quadrant really does hold a two-slot bucket, so the
+  // assertion above is not vacuous by accident of the fixture
+  @test.assert_eq(t.index_stats("shared").longest_bucket, 2)
+  @test.assert_eq(t.index_stats("shared_sorted").longest_bucket, 2)
 }

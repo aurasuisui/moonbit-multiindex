@@ -107,11 +107,15 @@ looping `remove_impl` would be O(n²) through the `order` compaction.)
 
 ## Style
 
-- `snake_case` functions, `PascalCase` types, `UPPER_CASE` constants.
-- Public API gets a `///|` doc block; internal helpers documented too.
-- Qualified trait calls: `Hash::hash(x)`, `Show::to_string(x)`.
+**The single source of truth for conventions is [`docs/STYLE.md`](docs/STYLE.md)** (naming, code
+organisation, `extend` policy, doc comments, testing, package layout, license header — all traced to
+the official `moonbitlang/core` repository). Language-level facts live in
+[`docs/MOONBIT_REF.md`](docs/MOONBIT_REF.md). Project-specific must-knows:
+
+- Black-box tests use the `@aurasuisui/multiindex.` prefix — a hard convention here.
+- Qualified trait calls: `Hash::hash(x)`, `Show::to_string(x)` (avoids `[0083]`).
 - `.length()` not `.size()`; `raise` effect annotation not `!`.
-- **MoonBit gotcha**: struct type parameters cannot carry trait bounds
+- **MoonBit gotcha**: struct/enum type parameters cannot carry trait bounds
   (`struct Index[K : Hash + Eq, V]` is a syntax error) — put bounds on methods.
 
 ## Source map

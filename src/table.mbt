@@ -399,6 +399,106 @@ pub fn[K : Hash + Eq + Compare, V] Table::insert(
 }
 
 ///|
+/// The handles the next `count` inserts would receive, computed **without touching**
+/// the table: the free stack pops LIFO, then fresh slots are appended — exactly what
+/// `alloc_slot` does, in the same order.
+///
+/// `insert_many` needs this to name the batch member a duplicate clashes with
+/// *before* anything is written (docs/SPEC.md §11).
+fn[K, V] Table::planned_handles(
+  self : Table[K, V],
+  count : Int,
+) -> Array[RowId] {
+  let handles : Array[RowId] = []
+  let mut free_pos = self.free.length() - 1
+  let mut fresh = self.rows.length()
+  let mut i = 0
+  while i < count {
+    if free_pos >= 0 {
+      let slot = self.free[free_pos]
+      free_pos = free_pos - 1
+      handles.push({ slot, gen: self.gens[slot], })
+    } else {
+      handles.push({ slot: fresh, gen: 0, })
+      fresh = fresh + 1
+    }
+    i = i + 1
+  }
+  handles
+}
+
+///|
+/// Store every record of `values`, or none of them.
+///
+/// The whole batch is checked **before anything is written** (docs/SPEC.md §11):
+/// each record is probed against the live table *and* against the earlier members of
+/// the same batch, so a duplicate **inside** the batch fails exactly like one that
+/// clashes with an existing record. On `Err` the table is what it was, and the
+/// offending record comes back inside `Rejected` (the caller keeps its array too —
+/// MoonBit arrays are references).
+///
+/// The reference implementation's `FromIterator` is **first-wins**; this library
+/// deliberately does not copy that, because a silent winning rule contradicts
+/// "a conflict is never silently overwritten" (the deviation is registered in
+/// `tools/diffgen/README.md`).
+///
+/// `holder` in the conflict: against a live record it is that record's handle; for a
+/// clash **inside the batch** it is the handle the earlier member would receive once
+/// the batch is accepted, since no record is live there yet (see CHANGELOG Notes).
+pub fn[K : Hash + Eq + Compare, V] Table::insert_many(
+  self : Table[K, V],
+  values : Array[V],
+) -> Result[Array[RowId], Rejected[K, V]] {
+  let planned = self.planned_handles(values.length())
+  // Per unique index: the keys this batch has already claimed, and by which member.
+  let claimed : Map[String, Map[K, Int]] = Map([])
+  let mut i = 0
+  while i < values.length() {
+    let value = values[i]
+    for name, index in self.indexes {
+      if index.is_unique() {
+        let key = index.project()(value)
+        match index.holder(key) {
+          Some(slot) =>
+            return Err({
+              conflict: UniqueViolation(name, key, {
+                slot,
+                gen: self.gens[slot],
+              }),
+              record: value,
+            })
+          None => ()
+        }
+        match claimed.get(name) {
+          Some(seen) =>
+            match seen.get(key) {
+              Some(at) =>
+                return Err({
+                  conflict: UniqueViolation(name, key, planned[at]),
+                  record: value,
+                })
+              None => seen.set(key, i)
+            }
+          None => {
+            let seen : Map[K, Int] = Map([])
+            seen.set(key, i)
+            claimed.set(name, seen)
+          }
+        }
+      }
+    }
+    i = i + 1
+  }
+  let ids : Array[RowId] = []
+  let mut j = 0
+  while j < values.length() {
+    ids.push(self.insert_impl(values[j]))
+    j = j + 1
+  }
+  Ok(ids)
+}
+
+///|
 /// Replace the record named by `id` with `value`.
 ///
 /// The **excluding-self** check runs first (docs/SPEC.md §5 rule 1): writing a
