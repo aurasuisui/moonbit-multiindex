@@ -44,6 +44,48 @@ fn[K, V] values_of(t : @aurasuisui/multiindex.Table[K, V]) -> Array[V] {
 }
 
 ///|
+/// A `(lo, hi, shared)` table with all four quadrants registered: `lo` and `hi`
+/// are unique keys, `shared` is not — so records can collide on `shared` (which
+/// is what makes a multi-record bucket testable) while the unique keys stay free.
+fn triple_table() -> @aurasuisui/multiindex.Table[Int, (Int, Int, Int)] raise {
+  let t : @aurasuisui/multiindex.Table[Int, (Int, Int, Int)] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("lo", fn(p) { p.0 }))
+  assert_registered(t.register_unique_ordered("hi", fn(p) { p.1 }))
+  assert_registered(t.register_non_unique("shared", fn(p) { p.2 }))
+  assert_registered(
+    t.register_non_unique_ordered("shared_sorted", fn(p) { p.2 }),
+  )
+  t
+}
+
+///|
+/// The whole observable state of the three-record fixture, so a refused write can
+/// be checked for **zero change** across iteration and every index.
+fn assert_three_records(
+  t : @aurasuisui/multiindex.Table[Int, (Int, Int, Int)],
+  a : @aurasuisui/multiindex.RowId,
+  b : @aurasuisui/multiindex.RowId,
+  c : @aurasuisui/multiindex.RowId,
+) -> Unit raise {
+  @test.assert_eq(t.len(), 3)
+  let entries = t.iter().to_array()
+  @test.assert_eq(entries.length(), 3)
+  @test.assert_eq(entries[0], (a, (1, 10, 7)))
+  @test.assert_eq(entries[1], (b, (2, 20, 7)))
+  @test.assert_eq(entries[2], (c, (3, 30, 8)))
+  @test.assert_eq(t.get_by("lo", 1), Some((a, (1, 10, 7))))
+  @test.assert_eq(t.get_by("lo", 2), Some((b, (2, 20, 7))))
+  @test.assert_eq(t.get_by("lo", 3), Some((c, (3, 30, 8))))
+  @test.assert_eq(t.get_by("hi", 10), Some((a, (1, 10, 7))))
+  @test.assert_eq(t.get_by("hi", 20), Some((b, (2, 20, 7))))
+  @test.assert_eq(t.get_by("hi", 30), Some((c, (3, 30, 8))))
+  @test.assert_eq(t.iter_by("shared", 7).to_array().length(), 2)
+  @test.assert_eq(t.iter_by("shared", 8).to_array().length(), 1)
+  @test.assert_eq(t.iter_by("shared_sorted", 7).to_array().length(), 2)
+  @test.assert_eq(t.get_by("lo", 99), None)
+}
+
+///|
 /// Element-wise array equality (no `Eq`/`Debug` instance for arrays needed).
 fn[V : Eq + Debug] assert_values(
   actual : Array[V],
@@ -395,4 +437,161 @@ test "clear empties the index entries but keeps the registrations" {
   let a = insert_ok(t, (1, 10))
   @test.assert_eq(t.get_by("u_hash", 1), Some((a, (1, 10))))
   @test.assert_eq(t.iter_by("m_sorted", 10).to_array().length(), 1)
+}
+
+// ---------------------------------------------------------------------------
+// M3 update path
+// ---------------------------------------------------------------------------
+
+///|
+test "regression: updating into an occupied unique key changes nothing" {
+  let t = triple_table()
+  let a = insert_ok(t, (1, 10, 7))
+  let b = insert_ok(t, (2, 20, 7))
+  let c = insert_ok(t, (3, 30, 8))
+  assert_three_records(t, a, b, c)
+  // `a` tries to take a key that `b` already holds on the unique "lo" index — the
+  // probe-found bug: without an excluding-self conflict check the bucket ends up
+  // with two holders.
+  match t.update(a, (2, 11, 9)) {
+    Ok(_) => @test.fail("a duplicate unique key must not be accepted")
+    Err(rejected) =>
+      match rejected {
+        @aurasuisui/multiindex.Conflict(conflict, value) => {
+          @test.assert_eq(value, (2, 11, 9)) // the record came back untouched
+          match conflict {
+            @aurasuisui/multiindex.UniqueViolation(name, key, holder) => {
+              @test.assert_eq(name, "lo")
+              @test.assert_eq(key, 2)
+              @test.assert_eq(holder, b)
+            }
+          }
+        }
+        @aurasuisui/multiindex.StaleHandle(_, _) =>
+          @test.fail("the handle was live")
+      }
+  }
+  // zero change: length, iteration (identity + value) and every index answer
+  assert_three_records(t, a, b, c)
+}
+
+///|
+test "update excludes self: rewriting a record with its own keys is legal" {
+  let t = triple_table()
+  let a = insert_ok(t, (1, 10, 7))
+  insert_ok(t, (2, 20, 7)) |> ignore
+  match t.update(a, (1, 10, 9)) {
+    Ok(_) => ()
+    Err(_) => @test.fail("a record keeps its own unique keys")
+  }
+  @test.assert_eq(t.get(a), Some((1, 10, 9)))
+  @test.assert_eq(t.get_by("lo", 1), Some((a, (1, 10, 9))))
+  @test.assert_eq(t.get_by("hi", 10), Some((a, (1, 10, 9))))
+  // only the shared key moved: 7 -> 9
+  @test.assert_eq(t.iter_by("shared", 9).to_array().length(), 1)
+  @test.assert_eq(t.iter_by("shared", 7).to_array().length(), 1)
+  @test.assert_eq(t.iter_by("shared_sorted", 9).to_array().length(), 1)
+}
+
+///|
+test "modify is atomic even when two unique indexes would both break" {
+  let t = triple_table()
+  let a = insert_ok(t, (1, 10, 7))
+  let b = insert_ok(t, (2, 20, 7))
+  let c = insert_ok(t, (3, 30, 8))
+  assert_three_records(t, a, b, c)
+  // the new record collides on "lo" (2 belongs to `b`) AND on "hi" (20 belongs to
+  // `b`): a half-committing implementation would fix one index and then notice the
+  // other one.
+  match t.modify(a, fn(_) { (2, 20, 9) }) {
+    Ok(_) => @test.fail("a double conflict must not be accepted")
+    Err(rejected) =>
+      match rejected {
+        @aurasuisui/multiindex.Conflict(_, value) =>
+          @test.assert_eq(value, (2, 20, 9))
+        @aurasuisui/multiindex.StaleHandle(_, _) =>
+          @test.fail("the handle was live")
+      }
+  }
+  // neither index was touched
+  assert_three_records(t, a, b, c)
+}
+
+///|
+test "stale handles never touch the new occupant of the slot" {
+  let t = triple_table()
+  let old = insert_ok(t, (1, 10, 7))
+  @test.assert_eq(t.remove(old), Some((1, 10, 7)))
+  let fresh = insert_ok(t, (1, 20, 8))
+  @test.assert_eq(fresh.slot, old.slot) // the slot was recycled under a new handle
+  match t.update(old, (5, 50, 5)) {
+    Ok(_) => @test.fail("a stale handle must not update anything")
+    Err(rejected) =>
+      match rejected {
+        @aurasuisui/multiindex.StaleHandle(id, pending) => {
+          @test.assert_eq(id, old)
+          @test.assert_eq(pending, Some((5, 50, 5))) // the record came back
+        }
+        @aurasuisui/multiindex.Conflict(_, _) =>
+          @test.fail("expected StaleHandle")
+      }
+  }
+  match t.modify(old, fn(_) { (5, 50, 5) }) {
+    Ok(_) => @test.fail("a stale handle must not modify anything")
+    Err(rejected) =>
+      match rejected {
+        @aurasuisui/multiindex.StaleHandle(id, pending) => {
+          @test.assert_eq(id, old)
+          @test.assert_eq(pending, None) // nothing to transform, nothing to give back
+        }
+        @aurasuisui/multiindex.Conflict(_, _) =>
+          @test.fail("expected StaleHandle")
+      }
+  }
+  // the live record in that slot is untouched, in every index
+  @test.assert_eq(t.len(), 1)
+  @test.assert_eq(t.get(fresh), Some((1, 20, 8)))
+  @test.assert_eq(t.get_by("lo", 1), Some((fresh, (1, 20, 8))))
+  @test.assert_eq(t.get_by("hi", 20), Some((fresh, (1, 20, 8))))
+  @test.assert_eq(t.iter_by("shared", 8).to_array().length(), 1)
+  @test.assert_eq(t.iter_by("shared", 7).to_array().length(), 0)
+  @test.assert_eq(t.get_by("lo", 5), None)
+}
+
+///|
+test "modify runs its transformation exactly once and reindexes afterwards" {
+  let t = triple_table()
+  let a = insert_ok(t, (1, 10, 7))
+  let calls : Array[Int] = [0]
+  match
+    t.modify(a, fn(record) {
+      calls[0] = calls[0] + 1
+      (record.0 + 1, record.1, record.2)
+    }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("the transformation is legal")
+  }
+  @test.assert_eq(calls[0], 1)
+  @test.assert_eq(t.get(a), Some((2, 10, 7)))
+  @test.assert_eq(t.get_by("lo", 2), Some((a, (2, 10, 7))))
+  @test.assert_eq(t.get_by("lo", 1), None) // the old unique key is gone
+  @test.assert_eq(t.get_by("hi", 10), Some((a, (2, 10, 7)))) // unchanged key stays
+  @test.assert_eq(t.iter_by("shared", 7).to_array().length(), 1)
+  // a refused modify still ran the transformation exactly once (it had to, to learn
+  // what the new record would be) and changed nothing
+  let holder = insert_ok(t, (3, 30, 8))
+  let calls2 : Array[Int] = [0]
+  match
+    t.modify(a, fn(_) {
+      calls2[0] = calls2[0] + 1
+      (3, 10, 7)
+    }) {
+    Ok(_) => @test.fail("3 is taken by another record")
+    Err(_) => ()
+  }
+  @test.assert_eq(calls2[0], 1)
+  @test.assert_eq(t.get(a), Some((2, 10, 7)))
+  @test.assert_eq(t.get(holder), Some((3, 30, 8)))
+  @test.assert_eq(t.get_by("lo", 2), Some((a, (2, 10, 7))))
+  @test.assert_eq(t.get_by("lo", 3), Some((holder, (3, 30, 8))))
 }

@@ -435,3 +435,104 @@ test "the invariant guard is not vacuous: it rejects a bucket entry under the wr
   @test.assert_eq(caught, true)
   @test.assert_eq(t.get(a), Some((1, 10, 7)))
 }
+
+// ---------------------------------------------------------------------------
+// M3: update / modify under the invariant guard
+// ---------------------------------------------------------------------------
+
+///|
+/// Whether `candidate` collides with any live model record other than `skip`.
+fn wb_model_conflicts(
+  model : Array[(RowId, (Int, Int, Int))],
+  skip : Int,
+  candidate : (Int, Int, Int),
+) -> Bool {
+  let mut i = 0
+  let mut conflict = false
+  while i < model.length() {
+    if i != skip && (model[i].1.0 == candidate.0 || model[i].1.1 == candidate.1) {
+      conflict = true
+    }
+    i = i + 1
+  }
+  conflict
+}
+
+///|
+/// Where `id` sits in the model, or `-1`.
+fn wb_model_index(model : Array[(RowId, (Int, Int, Int))], id : RowId) -> Int {
+  let mut i = 0
+  let mut found = -1
+  while i < model.length() {
+    if model[i].0 == id {
+      found = i
+    }
+    i = i + 1
+  }
+  found
+}
+
+///|
+test "qc: update / modify keep the invariants intact after every step" {
+  let r = @random.Rand::new()
+  let mut round = 0
+  while round < 20 {
+    let t = wb_indexed_table()
+    let model : Array[(RowId, (Int, Int, Int))] = []
+    let issued : Array[RowId] = []
+    let alive : Array[Bool] = []
+    let mut seed = 0
+    while seed < 6 {
+      let record = (seed, seed + 10, seed % 3)
+      let id = wb_insert_indexed(t, record)
+      issued.push(id)
+      alive.push(true)
+      model.push((id, record))
+      seed = seed + 1
+    }
+    let mut step = 0
+    while step < 60 {
+      let pick = r.int(limit=issued.length())
+      let id = issued[pick]
+      // a small key space, so both unique indexes really do collide
+      let candidate = (r.int(limit=8), r.int(limit=5) + 10, r.int(limit=3))
+      if alive[pick] {
+        let at = wb_model_index(model, id)
+        @test.assert_eq(at >= 0, true)
+        let conflicted = wb_model_conflicts(model, at, candidate)
+        let outcome = if r.int(limit=2) == 0 {
+          t.modify(id, fn(_) { candidate })
+        } else {
+          t.update(id, candidate)
+        }
+        match outcome {
+          Ok(_) => {
+            @test.assert_eq(conflicted, false)
+            model[at] = (id, candidate)
+          }
+          Err(rejected) =>
+            match rejected {
+              Conflict(_, value) => {
+                @test.assert_eq(conflicted, true)
+                @test.assert_eq(value, candidate)
+              }
+              StaleHandle(_, _) => @test.fail("the handle was live")
+            }
+        }
+      } else {
+        // a stale handle: both paths report it and change nothing
+        match t.update(id, candidate) {
+          Ok(_) => @test.fail("a stale handle must not update")
+          Err(_) => ()
+        }
+        match t.modify(id, fn(_) { candidate }) {
+          Ok(_) => @test.fail("a stale handle must not modify")
+          Err(_) => ()
+        }
+      }
+      check_invariants(t)
+      step = step + 1
+    }
+    round = round + 1
+  }
+}

@@ -298,3 +298,146 @@ test "qc: indexed tables keep every bucket consistent after each step" {
     round = round + 1
   }
 }
+
+///|
+/// Whether `candidate` collides with any live model record other than `skip`.
+fn model_conflicts(
+  model : Array[(@aurasuisui/multiindex.RowId, (Int, Int, Int))],
+  skip : Int,
+  candidate : (Int, Int, Int),
+) -> Bool {
+  let mut i = 0
+  let mut conflict = false
+  while i < model.length() {
+    if i != skip && (model[i].1.0 == candidate.0 || model[i].1.1 == candidate.1) {
+      conflict = true
+    }
+    i = i + 1
+  }
+  conflict
+}
+
+///|
+/// Where `id` sits in the model, or `-1`.
+fn model_index(
+  model : Array[(@aurasuisui/multiindex.RowId, (Int, Int, Int))],
+  id : @aurasuisui/multiindex.RowId,
+) -> Int {
+  let mut i = 0
+  let mut found = -1
+  while i < model.length() {
+    if model[i].0 == id {
+      found = i
+    }
+    i = i + 1
+  }
+  found
+}
+
+///|
+test "qc: update and modify keep every bucket consistent after each step" {
+  let r = @random.Rand::new()
+  let mut round = 0
+  while round < 20 {
+    let t = indexed_table()
+    let model : Array[(@aurasuisui/multiindex.RowId, (Int, Int, Int))] = []
+    let issued : Array[@aurasuisui/multiindex.RowId] = []
+    let alive : Array[Bool] = []
+    let mut seed = 0
+    while seed < 6 {
+      let record = (seed, seed + 10, seed % 3)
+      let id = match t.insert(record) {
+        Ok(id) => id
+        Err(_) => @test.fail("the seeded records have distinct unique keys")
+      }
+      issued.push(id)
+      alive.push(true)
+      model.push((id, record))
+      seed = seed + 1
+    }
+    let mut step = 0
+    while step < 80 {
+      let op = r.int(limit=10)
+      let pick = r.int(limit=issued.length())
+      let id = issued[pick]
+      // a small key space, so both unique indexes really do collide
+      let candidate = (r.int(limit=8), r.int(limit=5) + 10, r.int(limit=3))
+      if alive[pick] {
+        let at = model_index(model, id)
+        @test.assert_eq(at >= 0, true)
+        let conflicted = model_conflicts(model, at, candidate)
+        if op % 3 == 0 {
+          match t.modify(id, fn(_) { candidate }) {
+            Ok(_) => {
+              @test.assert_eq(conflicted, false)
+              model[at] = (id, candidate)
+            }
+            Err(rejected) =>
+              match rejected {
+                @aurasuisui/multiindex.Conflict(_, value) => {
+                  @test.assert_eq(conflicted, true)
+                  @test.assert_eq(value, candidate)
+                }
+                @aurasuisui/multiindex.StaleHandle(_, _) =>
+                  @test.fail("the handle was live")
+              }
+          }
+        } else if op < 8 {
+          match t.update(id, candidate) {
+            Ok(_) => {
+              @test.assert_eq(conflicted, false)
+              model[at] = (id, candidate)
+            }
+            Err(rejected) =>
+              match rejected {
+                @aurasuisui/multiindex.Conflict(_, value) => {
+                  @test.assert_eq(conflicted, true)
+                  @test.assert_eq(value, candidate)
+                }
+                @aurasuisui/multiindex.StaleHandle(_, _) =>
+                  @test.fail("the handle was live")
+              }
+          }
+        } else {
+          match t.remove(id) {
+            Some(value) => {
+              model_remove(model, id, value)
+              alive[pick] = false
+            }
+            None => @test.fail("remove rejected a handle that was still live")
+          }
+        }
+      } else {
+        // a stale handle: both paths must report it and change nothing
+        match t.update(id, candidate) {
+          Ok(_) => @test.fail("a stale handle must not update")
+          Err(rejected) =>
+            match rejected {
+              @aurasuisui/multiindex.StaleHandle(back, pending) => {
+                @test.assert_eq(back, id)
+                @test.assert_eq(pending, Some(candidate))
+              }
+              @aurasuisui/multiindex.Conflict(_, _) =>
+                @test.fail("expected StaleHandle")
+            }
+        }
+        match t.modify(id, fn(_) { candidate }) {
+          Ok(_) => @test.fail("a stale handle must not modify")
+          Err(rejected) =>
+            match rejected {
+              @aurasuisui/multiindex.StaleHandle(back, pending) => {
+                @test.assert_eq(back, id)
+                @test.assert_eq(pending, None)
+              }
+              @aurasuisui/multiindex.Conflict(_, _) =>
+                @test.fail("expected StaleHandle")
+            }
+        }
+      }
+      check_observable(t, model)
+      check_indexes(t, model)
+      step = step + 1
+    }
+    round = round + 1
+  }
+}
