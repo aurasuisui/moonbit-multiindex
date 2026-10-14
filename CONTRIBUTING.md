@@ -11,6 +11,25 @@ moon test    # run all tests
 moon fmt     # format
 ```
 
+## Branch model
+
+| Branch | Role |
+|---|---|
+| **`dev`** | The working branch. **Every commit lands here first** — the full, granular history (one commit per node, message says what it did and why). |
+| **`main`** | The **milestone view**. A stage is squash-merged here once its exit criteria are met, so `main` reads as one commit per milestone instead of hundreds of nodes. |
+
+```bash
+# land a finished stage on main (squash-merge keeps main one-commit-per-stage)
+git checkout main
+git merge --squash dev
+git commit -m "feat: M<n> <stage> —— <one-line summary>"
+git push origin main
+```
+
+> **Why both branches are public**: `main` is the readable overview, `dev` is the evidence.
+> Squashing for `main` must never be used to hide work — the detailed record stays in `dev`,
+> and **commit dates are never rewritten**: a milestone is merged on the day it actually finished.
+
 ## Project Layout
 
 ```
