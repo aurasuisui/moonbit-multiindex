@@ -54,8 +54,14 @@ pub impl Show for RowId with fn output(self : RowId, logger : &Logger) {
 ///
 /// - `UniqueViolation(index, key, holder)` — the unique index named `index`
 ///   already maps `key` to the live record `holder`.
+/// - `DuplicateInBatch(index, key, at)` — one `insert_many` batch contains two
+///   records that project to the same `key` on the unique index `index`; `at` is
+///   the position of the **earlier** member in that batch. No record is live at
+///   `key`: the whole batch is rejected atomically (docs/SPEC.md §11), so a handle
+///   would have been a lie — the batch position is the honest answer.
 pub enum Conflict[K] {
   UniqueViolation(String, K, RowId)
+  DuplicateInBatch(String, K, Int)
 } derive(Debug, Eq)
 
 ///|
@@ -72,6 +78,15 @@ pub impl[K : Show] Show for Conflict[K] with fn output(
       Show::output(key, logger)
       logger.write_string(", ")
       Show::output(holder, logger)
+      logger.write_string(")")
+    }
+    DuplicateInBatch(index, key, at) => {
+      logger.write_string("DuplicateInBatch(")
+      logger.write_string(index)
+      logger.write_string(", ")
+      Show::output(key, logger)
+      logger.write_string(", ")
+      logger.write_string(at.to_string())
       logger.write_string(")")
     }
   }

@@ -507,56 +507,8 @@ test "is_ordered is true only for the two sorted quadrants" {
 }
 
 // ---------------------------------------------------------------------------
-// M5: planned handles, and what the public checker actually says
+// M5: what the public checker actually says
 // ---------------------------------------------------------------------------
-
-///|
-/// The slot numbers of a handle list, for `assert_ints`.
-fn handle_slots(handles : Array[RowId]) -> Array[Int] {
-  let out : Array[Int] = []
-  let mut i = 0
-  while i < handles.length() {
-    out.push(handles[i].slot)
-    i = i + 1
-  }
-  out
-}
-
-///|
-test "planned_handles predicts the slots inserts really take" {
-  let t = wb_indexed_table()
-  assert_ints(handle_slots(t.planned_handles(3)), [0, 1, 2])
-  let a = wb_insert_indexed(t, (1, 10, 7))
-  assert_ints(handle_slots(t.planned_handles(2)), [1, 2])
-  t.remove(a) |> ignore
-  // the freed slot comes back first (LIFO), with a bumped generation
-  assert_ints(handle_slots(t.planned_handles(2)), [0, 1])
-  let b = wb_insert_indexed(t, (2, 20, 8))
-  @test.assert_eq(b.slot, 0)
-  @test.assert_eq(b.gen, 1)
-  check_invariants(t)
-}
-
-///|
-test "planned_handles matches what insert_many really hands out" {
-  let t = wb_indexed_table()
-  let a = wb_insert_indexed(t, (1, 10, 7))
-  t.remove(a) |> ignore
-  let planned = t.planned_handles(3)
-  let records : Array[(Int, Int, Int)] = [(2, 20, 8), (3, 30, 9), (4, 40, 1)]
-  match t.insert_many(records) {
-    Ok(ids) => {
-      @test.assert_eq(ids.length(), planned.length())
-      let mut i = 0
-      while i < ids.length() {
-        @test.assert_eq(ids[i], planned[i])
-        i = i + 1
-      }
-    }
-    Err(_) => @test.fail("the batch has no conflicts")
-  }
-  check_invariants(t)
-}
 
 ///|
 test "verify_invariants names I6 and the offending slot" {

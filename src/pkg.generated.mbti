@@ -13,6 +13,7 @@ pub const VERSION : String = "0.1.0"
 // Types and methods
 pub enum Conflict[K] {
   UniqueViolation(String, K, RowId)
+  DuplicateInBatch(String, K, Int)
 } derive(Eq, @debug.Debug)
 pub impl[K : Show] Show for Conflict[K]
 
