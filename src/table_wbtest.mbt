@@ -475,3 +475,33 @@ test "update and modify keep the storage invariants intact" {
     None => @test.fail("b vanished")
   }
 }
+
+// ---------------------------------------------------------------------------
+// M4: the testable half of the failure classification
+// ---------------------------------------------------------------------------
+
+///|
+/// docs/SPEC.md §7.1 turns two caller mistakes into `abort`s: an unknown index name
+/// and a range query on a hash index. A MoonBit `abort` cannot be caught in-process
+/// (it is a panic, not an `Error`), so the *decisions* are pinned here — `is_ordered`
+/// is the white-box half, `Table::has_index` (see `table_test.mbt`) the public one —
+/// while the `abort` lines themselves stay one-liners justified by code review.
+test "is_ordered is true only for the two sorted quadrants" {
+  let t = wb_indexed_table()
+  match t.indexes.get("lo") {
+    Some(index) => @test.assert_eq(index.is_ordered(), false)
+    None => @test.fail("the index vanished")
+  }
+  match t.indexes.get("hi") {
+    Some(index) => @test.assert_eq(index.is_ordered(), true)
+    None => @test.fail("the index vanished")
+  }
+  match t.indexes.get("shared") {
+    Some(index) => @test.assert_eq(index.is_ordered(), false)
+    None => @test.fail("the index vanished")
+  }
+  match t.indexes.get("shared_sorted") {
+    Some(index) => @test.assert_eq(index.is_ordered(), true)
+    None => @test.fail("the index vanished")
+  }
+}

@@ -601,3 +601,181 @@ test "modify runs its transformation exactly once and reindexes afterwards" {
   @test.assert_eq(t.get_by("lo", 2), Some((a, (2, 10, 7))))
   @test.assert_eq(t.get_by("lo", 3), Some((holder, (3, 30, 8))))
 }
+
+// ---------------------------------------------------------------------------
+// M4 ordered queries
+// ---------------------------------------------------------------------------
+
+///|
+test "iter_asc_by walks both ordered quadrants by key" {
+  let t = triple_table()
+  let a = insert_ok(t, (1, 10, 1))
+  let b = insert_ok(t, (2, 20, 2))
+  let c = insert_ok(t, (3, 30, 1))
+  let d = insert_ok(t, (4, 40, 3))
+  // unique + ordered: one entry per key
+  let unique = t.iter_asc_by("hi").to_array()
+  @test.assert_eq(unique.length(), 4)
+  @test.assert_eq(unique[0], (a, (1, 10, 1)))
+  @test.assert_eq(unique[1], (b, (2, 20, 2)))
+  @test.assert_eq(unique[2], (c, (3, 30, 1)))
+  @test.assert_eq(unique[3], (d, (4, 40, 3)))
+  // non-unique + ordered: keys ascending, and inside one key the slots ascending
+  let multi = t.iter_asc_by("shared_sorted").to_array()
+  @test.assert_eq(multi.length(), 4)
+  @test.assert_eq(multi[0], (a, (1, 10, 1))) // key 1, slot 0
+  @test.assert_eq(multi[1], (c, (3, 30, 1))) // key 1, slot 2
+  @test.assert_eq(multi[2], (b, (2, 20, 2))) // key 2
+  @test.assert_eq(multi[3], (d, (4, 40, 3))) // key 3
+}
+
+///|
+test "iter_desc_by walks keys downwards, keeping slots ascending inside a bucket" {
+  let t = triple_table()
+  let a = insert_ok(t, (1, 10, 1))
+  let b = insert_ok(t, (2, 20, 2))
+  let c = insert_ok(t, (3, 30, 1))
+  let d = insert_ok(t, (4, 40, 3))
+  let asc = t.iter_asc_by("shared_sorted").to_array()
+  let desc = t.iter_desc_by("shared_sorted").to_array()
+  @test.assert_eq(asc.length(), 4)
+  @test.assert_eq(desc.length(), 4)
+  // the direction proof, key by key: ascending walks 1,1,2,3 and descending walks
+  // 3,2,1,1 — this cannot pass if the walk ignores the key order
+  @test.assert_eq(asc[0].1.2, 1)
+  @test.assert_eq(asc[1].1.2, 1)
+  @test.assert_eq(asc[2].1.2, 2)
+  @test.assert_eq(asc[3].1.2, 3)
+  @test.assert_eq(desc[0].1.2, 3)
+  @test.assert_eq(desc[1].1.2, 2)
+  @test.assert_eq(desc[2].1.2, 1)
+  @test.assert_eq(desc[3].1.2, 1)
+  // inside the shared key 1, both directions hand the slots out ascending
+  // (docs/SPEC.md: 桶内按槽位号升序) — so `desc` is a reverse at the *key* level,
+  // not a byte-reverse of `asc`
+  @test.assert_eq(asc[0], (a, (1, 10, 1)))
+  @test.assert_eq(asc[1], (c, (3, 30, 1)))
+  @test.assert_eq(desc[1], (b, (2, 20, 2)))
+  @test.assert_eq(desc[2], (a, (1, 10, 1)))
+  @test.assert_eq(desc[3], (c, (3, 30, 1)))
+  // the unique quadrant is strictly ordered either way
+  let unique_asc = t.iter_asc_by("hi").to_array()
+  let unique_desc = t.iter_desc_by("hi").to_array()
+  @test.assert_eq(unique_asc[0], (a, (1, 10, 1)))
+  @test.assert_eq(unique_asc[3], (d, (4, 40, 3)))
+  @test.assert_eq(unique_desc[0], (d, (4, 40, 3)))
+  @test.assert_eq(unique_desc[3], (a, (1, 10, 1)))
+}
+
+///|
+test "range_by is closed on both ends" {
+  let t = triple_table()
+  let a = insert_ok(t, (1, 10, 1))
+  let b = insert_ok(t, (2, 20, 2))
+  let c = insert_ok(t, (3, 30, 1))
+  let d = insert_ok(t, (4, 40, 3))
+  // [10, 30] takes both endpoints (that is what "closed" means here)
+  let mid = t.range_by("hi", 10, 30).to_array()
+  @test.assert_eq(mid.length(), 3)
+  @test.assert_eq(mid[0], (a, (1, 10, 1)))
+  @test.assert_eq(mid[2], (c, (3, 30, 1)))
+  // single point, full range, range with no match
+  @test.assert_eq(t.range_by("hi", 20, 20).to_array().length(), 1)
+  @test.assert_eq(t.range_by("hi", 10, 40).to_array().length(), 4)
+  @test.assert_eq(t.range_by("hi", 0, 100).to_array().length(), 4)
+  @test.assert_eq(t.range_by("hi", 11, 19).to_array().length(), 0)
+  // lo > hi is an empty interval, not an error (docs/SPEC.md §7.1)
+  @test.assert_eq(t.range_by("hi", 30, 10).to_array().length(), 0)
+  // the non-unique quadrant returns whole buckets, slots ascending inside them
+  let shared = t.range_by("shared_sorted", 1, 2).to_array()
+  @test.assert_eq(shared.length(), 3)
+  @test.assert_eq(shared[0], (a, (1, 10, 1)))
+  @test.assert_eq(shared[1], (c, (3, 30, 1)))
+  @test.assert_eq(shared[2], (b, (2, 20, 2)))
+  @test.assert_eq(t.range_by("shared_sorted", 0, 0).to_array().length(), 0)
+  ignore(d)
+}
+
+///|
+test "range_half_open_by excludes hi and is empty when lo == hi" {
+  let t = triple_table()
+  let a = insert_ok(t, (1, 10, 1))
+  let b = insert_ok(t, (2, 20, 2))
+  let c = insert_ok(t, (3, 30, 1))
+  let d = insert_ok(t, (4, 40, 3))
+  // [10, 30) drops the 30 record that the closed range kept
+  let half = t.range_half_open_by("hi", 10, 30).to_array()
+  @test.assert_eq(half.length(), 2)
+  @test.assert_eq(half[0], (a, (1, 10, 1)))
+  @test.assert_eq(half[1], (b, (2, 20, 2)))
+  @test.assert_eq(t.range_half_open_by("hi", 10, 20).to_array().length(), 1)
+  // lo == hi is empty by definition, on every quadrant
+  @test.assert_eq(t.range_half_open_by("hi", 20, 20).to_array().length(), 0)
+  @test.assert_eq(t.range_half_open_by("hi", 10, 10).to_array().length(), 0)
+  @test.assert_eq(t.range_half_open_by("hi", 40, 40).to_array().length(), 0)
+  @test.assert_eq(
+    t.range_half_open_by("shared_sorted", 1, 1).to_array().length(),
+    0,
+  )
+  // full and inverted ranges
+  @test.assert_eq(t.range_half_open_by("hi", 0, 100).to_array().length(), 4)
+  @test.assert_eq(t.range_half_open_by("hi", 30, 10).to_array().length(), 0)
+  // the non-unique quadrant drops the whole `hi` bucket
+  @test.assert_eq(
+    t.range_half_open_by("shared_sorted", 1, 3).to_array().length(),
+    3,
+  )
+  ignore(c)
+  ignore(d)
+}
+
+///|
+test "ordered queries on an empty table are empty" {
+  let t = triple_table()
+  @test.assert_eq(t.iter_asc_by("hi").to_array().length(), 0)
+  @test.assert_eq(t.iter_desc_by("hi").to_array().length(), 0)
+  @test.assert_eq(t.range_by("hi", 0, 100).to_array().length(), 0)
+  @test.assert_eq(t.range_by("hi", 100, 0).to_array().length(), 0)
+  @test.assert_eq(t.range_half_open_by("hi", 0, 100).to_array().length(), 0)
+  @test.assert_eq(t.iter_asc_by("shared_sorted").to_array().length(), 0)
+}
+
+///|
+test "ordered queries follow removals, updates and clear" {
+  let t = triple_table()
+  let a = insert_ok(t, (1, 10, 1))
+  let b = insert_ok(t, (2, 20, 2))
+  @test.assert_eq(t.iter_asc_by("hi").to_array().length(), 2)
+  t.remove(a) |> ignore
+  @test.assert_eq(t.iter_asc_by("hi").to_array().length(), 1)
+  @test.assert_eq(t.range_by("hi", 0, 100).to_array()[0], (b, (2, 20, 2)))
+  // moving an ordered key re-sorts the walk
+  match t.update(b, (2, 5, 2)) {
+    Ok(_) => ()
+    Err(_) => @test.fail("a legal update must succeed")
+  }
+  @test.assert_eq(t.iter_asc_by("hi").to_array()[0], (b, (2, 5, 2)))
+  @test.assert_eq(t.range_by("hi", 0, 9).to_array().length(), 1)
+  @test.assert_eq(t.range_by("hi", 10, 100).to_array().length(), 0)
+  @test.assert_eq(t.iter_desc_by("shared_sorted").to_array().length(), 1)
+  t.clear()
+  @test.assert_eq(t.iter_asc_by("hi").to_array().length(), 0)
+  @test.assert_eq(t.range_by("shared_sorted", 0, 100).to_array().length(), 0)
+}
+
+///|
+test "failure classification: the abort decisions are pinned by their predicates" {
+  let t = triple_table()
+  // 「名字写错」→ abort: `has_index` is the public, testable half of that decision.
+  @test.assert_eq(t.has_index("hi"), true)
+  @test.assert_eq(t.has_index("shared_sorted"), true)
+  @test.assert_eq(t.has_index("never_registered"), false)
+  @test.assert_eq(t.has_index(""), false)
+  // 「问题问错了」→ abort: `Index::is_ordered` is the white-box half (see
+  // table_wbtest.mbt). The two aborts themselves cannot be caught in-process —
+  // a MoonBit panic is not an `Error` (MOONBIT_REF §0) — so predicates + code
+  // review are the evidence, by design.
+  // An *absent key* on an index that does exist is still just an empty answer:
+  @test.assert_eq(t.get_by("hi", 999), None)
+  @test.assert_eq(t.range_by("hi", 999, 1000).to_array().length(), 0)
+}
