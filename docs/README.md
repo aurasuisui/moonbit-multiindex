@@ -27,11 +27,12 @@
 | [`../CHANGELOG.md`](../CHANGELOG.md) | 发布历史 + 每次决策的 Notes/Deviations | 想知道改过什么 |
 | [`../AGENTS.md`](../AGENTS.md) | **唯一会话入口**:命令、架构速览、不变量、测试约定、阅读顺序 | 每个会话开头 |
 | [`SPEC.md`](SPEC.md) | **API 唯一真源**:签名/返回类型/语义,行为拿不准时以此为准 | 动公开 API |
-| [`DEVPLAN.md`](DEVPLAN.md) | 立项设计稿:数据布局、不变量、三条高危路径、**探针验证记录** | 想理解为什么这么设计 |
+| [`DEVPLAN.md`](DEVPLAN.md) | 立项设计稿:数据布局、不变量、**四条高危路径**、探针验证记录 | 想理解为什么这么设计 |
 | [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) | **发布门禁**:每次 bump 版本前必须逐项全绿的 Tier 0–4 | 准备发版 |
 | [`MOONBIT_REF.md`](MOONBIT_REF.md) | MoonBit 语法/惯用法速查(移植自 moonbit-bimap,非本库专属) | 写 MoonBit 卡壳 |
 | [`SESSION_PLAYBOOK.md`](SESSION_PLAYBOOK.md) | **任务会话手册**:讨论方案→执行→卡住决策→看门狗→知识回写 | 开新任务会话 |
-| [`plans/v0.1.0.md`](plans/v0.1.0.md) | v0.1.0 详细设计方案 | 执行 v0.1.0 里程碑时 |
+| [`plans/v0.1.0.md`](plans/v0.1.0.md) | v0.1.0 **范围与里程碑**(含出口条件)+ **进度看板**;**§一 说明为何不是移植** | 想知道做到哪了、下一步做什么 |
+| [`plans/execution-brief.md`](plans/execution-brief.md) | **执行/审核分工契约**:执行纪律、当前任务范围、出口条件、审核验收清单 | 执行会话开工前 / 审核会话验收时 |
 | [`research/rust-ecosystem-2026-10-14.md`](research/rust-ecosystem-2026-10-14.md) | **Rust 生态调研报告**(逐行读 `generators.rs` 的源码级核对:许可证/API/实现/缺口) | 想核对"为什么这么设计"的依据时 |
 | [`../NOTICE`](../NOTICE) | 第三方来源与许可证归属(移植/参考合规) | 发版前、被问来源时 |
 | [`../tools/diffgen/README.md`](../tools/diffgen/README.md) | 差分夹具生成器(参考实现:Rust `multi_index_map` v0.15.1;开发工具,非包内容) | 重新生成差分夹具时 |
