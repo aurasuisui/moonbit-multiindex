@@ -274,6 +274,163 @@ fn[K : Hash + Eq + Compare, V] Index::slots(
 }
 
 ///|
+/// Whether this index is one of the two **ordered** quadrants.
+///
+/// This is the predicate behind the docs/SPEC.md §7.1 rule that asking a hash
+/// index for a range is a programming error: the *decision* is testable here,
+/// while the `abort` that acts on it cannot be caught in-process (a MoonBit panic
+/// is not an `Error`).
+fn[K, V] Index::is_ordered(self : Index[K, V]) -> Bool {
+  match self {
+    HashUnique(_, _) => false
+    SortedUnique(_, _) => true
+    HashMulti(_, _) => false
+    SortedMulti(_, _) => true
+  }
+}
+
+///|
+/// A cursor over the buckets of an ordered index: each call hands out one bucket/
+/// slots (already ascending, the way buckets keep them), or `None` at the end.
+///
+/// Only one bucket is materialized per step, so a walk over a huge range never
+/// builds the whole result at once (docs/SPEC.md §3.3 asks range queries to stay
+/// lazy).
+priv struct BucketCursor {
+  next : () -> Array[Int]?
+}
+
+///|
+/// Cursor over the buckets of an **ordered** index whose key lies in `[lo, hi]`,
+/// ascending by key; `include_hi = false` narrows it to the half-open `[lo, hi)`.
+///
+/// `lo > hi` is legal and simply yields nothing — an empty interval is a value,
+/// not an error (docs/SPEC.md §7.1).
+fn[K : Compare, V] Index::range_cursor(
+  self : Index[K, V],
+  lo : K,
+  hi : K,
+  include_hi : Bool,
+) -> BucketCursor {
+  match self {
+    SortedUnique(_, buckets) => {
+      let source = buckets.range(lo, hi)
+      {
+        next: fn() -> Array[Int]? {
+          let mut found : Array[Int]? = None
+          let mut scanning = true
+          while scanning {
+            match source.next() {
+              Some((key, slot)) =>
+                if include_hi || key != hi {
+                  found = Some([slot])
+                  scanning = false
+                }
+              None => scanning = false
+            }
+          }
+          found
+        },
+      }
+    }
+    SortedMulti(_, buckets) => {
+      let source = buckets.range(lo, hi)
+      {
+        next: fn() -> Array[Int]? {
+          let mut found : Array[Int]? = None
+          let mut scanning = true
+          while scanning {
+            match source.next() {
+              Some((key, set)) =>
+                if include_hi || key != hi {
+                  found = Some(set.to_array())
+                  scanning = false
+                }
+              None => scanning = false
+            }
+          }
+          found
+        },
+      }
+    }
+    _ =>
+      abort("Index::range_cursor: the index has no key order (hash quadrant)")
+  }
+}
+
+///|
+/// Cursor over **every** bucket of an ordered index, ascending — or, with
+/// `descending`, in reverse key order.
+///
+/// Ascending walks the `SortedMap` iterator lazily. Descending has to collect the
+/// buckets first, because core has no reverse iterator for `SortedMap`; that cost
+/// is documented rather than hidden (the *range* queries stay lazy in both
+/// directions). Bucket contents still come out slot-ascending either way — only
+/// the key order flips.
+fn[K, V] Index::ordered_cursor(
+  self : Index[K, V],
+  descending : Bool,
+) -> BucketCursor {
+  match self {
+    SortedUnique(_, buckets) =>
+      if descending {
+        let all : Array[Array[Int]] = []
+        for _, slot in buckets {
+          all.push([slot])
+        }
+        reversed_cursor(all)
+      } else {
+        let source = buckets.iter2()
+        {
+          next: fn() -> Array[Int]? {
+            match source.next() {
+              Some((_, slot)) => Some([slot])
+              None => None
+            }
+          },
+        }
+      }
+    SortedMulti(_, buckets) =>
+      if descending {
+        let all : Array[Array[Int]] = []
+        for _, set in buckets {
+          all.push(set.to_array())
+        }
+        reversed_cursor(all)
+      } else {
+        let source = buckets.iter2()
+        {
+          next: fn() -> Array[Int]? {
+            match source.next() {
+              Some((_, set)) => Some(set.to_array())
+              None => None
+            }
+          },
+        }
+      }
+    _ =>
+      abort("Index::ordered_cursor: the index has no key order (hash quadrant)")
+  }
+}
+
+///|
+/// Walk a collected bucket list from the back: the descending half of
+/// `ordered_cursor`.
+fn reversed_cursor(all : Array[Array[Int]]) -> BucketCursor {
+  let mut pos = all.length() - 1
+  {
+    next: fn() -> Array[Int]? {
+      if pos < 0 {
+        return None
+      }
+      let bucket = all[pos]
+      pos = pos - 1
+      Some(bucket)
+    },
+  }
+}
+
+///|
 /// Drop every bucket. The registration itself survives — `Table::clear` drops
 /// records and index entries, it does not unregister the schema.
 fn[K, V] Index::clear(self : Index[K, V]) -> Unit {

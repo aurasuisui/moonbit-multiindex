@@ -32,6 +32,7 @@ length changes, uniqueness-conflict outcomes, non-unique membership sets.
 | Atomic `modify` | The reference **panics mid-way and leaves dirty indexes**; its outcome is not a defined behaviour to match |
 | Bucket iteration order | Reference uses `BTreeSet<usize>`, ours `SortedSet[Int]` — same ordering, but the reference exposes no stable cross-check for it |
 | `range_by` family | The reference exposes **no range API** |
+| `insert_many` batch semantics | The reference's `FromIterator` is **first-wins**; ours fails the **whole batch atomically** (see `docs/SPEC.md` §11) |
 
 ## Regenerating the fixture
 
