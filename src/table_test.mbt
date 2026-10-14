@@ -991,3 +991,109 @@ test "index_stats reports the bucket shape" {
   @test.assert_eq(after.average_bucket, 1.0)
   @test.assert_eq(t.index_stats("lo").entries, 2)
 }
+
+// ---------------------------------------------------------------------------
+// M7: multi-index conflicts report the name-ascending first index
+// ---------------------------------------------------------------------------
+
+///|
+/// The same table as `triple_table`, but registered in the **opposite** order — used
+/// to show the reported conflict does not depend on registration order.
+fn reversed_triple_table() -> @aurasuisui/multiindex.Table[Int, (Int, Int, Int)] raise {
+  let t : @aurasuisui/multiindex.Table[Int, (Int, Int, Int)] = @aurasuisui/multiindex.Table::new()
+  assert_registered(
+    t.register_non_unique_ordered("shared_sorted", fn(p) { p.2 }),
+  )
+  assert_registered(t.register_non_unique("shared", fn(p) { p.2 }))
+  assert_registered(t.register_unique_ordered("hi", fn(p) { p.1 }))
+  assert_registered(t.register_unique("lo", fn(p) { p.0 }))
+  t
+}
+
+///|
+test "a record violating two unique indexes reports the name-ascending first one" {
+  // the fixture holds (1, 10, ·) and (2, 20, ·); the candidate (1, 20, ·) violates
+  // BOTH `hi` (20 belongs to the second record) and `lo` (1 belongs to the first).
+  // "hi" sorts before "lo", so that is the one that must be reported — whether the
+  // indexes were registered lo-first or hi-first (docs/SPEC.md §7).
+  let t = triple_table()
+  let a = insert_ok(t, (1, 10, 1))
+  let b = insert_ok(t, (2, 20, 2))
+  match t.insert((1, 20, 3)) {
+    Ok(_) => @test.fail("both unique indexes are taken")
+    Err(rejected) =>
+      match rejected.conflict {
+        @aurasuisui/multiindex.UniqueViolation(name, key, holder) => {
+          @test.assert_eq(name, "hi")
+          @test.assert_eq(key, 20)
+          @test.assert_eq(holder, b)
+        }
+        @aurasuisui/multiindex.DuplicateInBatch(_, _, _) =>
+          @test.fail("a single insert cannot report a batch duplicate")
+      }
+  }
+  @test.assert_eq(t.get(a), Some((1, 10, 1)))
+  // the mirror-image registration order answers identically
+  let r = reversed_triple_table()
+  let ra = insert_ok(r, (1, 10, 1))
+  let rb = insert_ok(r, (2, 20, 2))
+  match r.insert((1, 20, 3)) {
+    Ok(_) => @test.fail("both unique indexes are taken")
+    Err(rejected) =>
+      match rejected.conflict {
+        @aurasuisui/multiindex.UniqueViolation(name, key, holder) => {
+          @test.assert_eq(name, "hi")
+          @test.assert_eq(key, 20)
+          @test.assert_eq(holder, rb)
+        }
+        @aurasuisui/multiindex.DuplicateInBatch(_, _, _) =>
+          @test.fail("a single insert cannot report a batch duplicate")
+      }
+  }
+  @test.assert_eq(r.get(ra), Some((1, 10, 1)))
+}
+
+///|
+test "update and insert_many report the same name-ascending conflict" {
+  let t = triple_table()
+  let a = insert_ok(t, (1, 10, 1))
+  let b = insert_ok(t, (2, 20, 2))
+  // update `a` so that it would take *both* of `b` keys
+  match t.update(a, (2, 20, 9)) {
+    Ok(_) => @test.fail("both unique indexes are taken")
+    Err(rejected) =>
+      match rejected {
+        @aurasuisui/multiindex.Conflict(conflict, value) => {
+          @test.assert_eq(value, (2, 20, 9))
+          match conflict {
+            @aurasuisui/multiindex.UniqueViolation(name, key, holder) => {
+              @test.assert_eq(name, "hi")
+              @test.assert_eq(key, 20)
+              @test.assert_eq(holder, b)
+            }
+            @aurasuisui/multiindex.DuplicateInBatch(_, _, _) =>
+              @test.fail("an update cannot report a batch duplicate")
+          }
+        }
+        @aurasuisui/multiindex.StaleHandle(_, _) =>
+          @test.fail("the handle is live")
+      }
+  }
+  // and a one-member batch hitting the same two indexes
+  match t.insert_many([(1, 20, 9)]) {
+    Ok(_) => @test.fail("both unique indexes are taken")
+    Err(rejected) => {
+      @test.assert_eq(rejected.record, (1, 20, 9))
+      match rejected.conflict {
+        @aurasuisui/multiindex.UniqueViolation(name, _, _) =>
+          @test.assert_eq(name, "hi")
+        @aurasuisui/multiindex.DuplicateInBatch(_, _, _) =>
+          @test.fail("nothing is in the batch twice")
+      }
+    }
+  }
+  // neither refusal moved anything
+  @test.assert_eq(t.get(a), Some((1, 10, 1)))
+  @test.assert_eq(t.get(b), Some((2, 20, 2)))
+  @test.assert_eq(t.len(), 2)
+}

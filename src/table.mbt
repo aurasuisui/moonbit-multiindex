@@ -191,32 +191,47 @@ fn[K : Hash + Eq + Compare, V] Table::find_conflict(
 }
 
 ///|
-/// The first unique-index collision `value` would cause **against some record
-/// other than `exclude_slot`**, or `None` (pass `-1` to exclude nothing).
+/// The unique-index collision `value` would cause **against some record other than
+/// `exclude_slot`** (pass `-1` to exclude nothing), or `None`.
 ///
-/// Excluding self is what makes "write a record back under a key it already
-/// holds" a no-op instead of a conflict — docs/SPEC.md §5 rule 1, the bug the
-/// original probe caught. Like `find_conflict`, this mutates nothing.
+/// Excluding self is what makes "write a record back under a key it already holds" a
+/// no-op instead of a conflict — docs/SPEC.md §5 rule 1, the bug the original probe
+/// caught. Like `find_conflict`, this mutates nothing.
+///
+/// When several indexes would be violated at once, the one whose **name sorts first**
+/// is reported (docs/SPEC.md §7): the registry is a hash map, so returning whichever
+/// index the iteration happened to reach first would make the error depend on internal
+/// ordering. Collecting the violations costs nothing on the happy path — this function
+/// only runs it when it has already found a conflict.
 fn[K : Hash + Eq + Compare, V] Table::find_conflict_excluding(
   self : Table[K, V],
   value : V,
   exclude_slot : Int,
 ) -> Conflict[K]? {
+  let mut best_name : String? = None
+  let mut best : Conflict[K]? = None
   for name, index in self.indexes {
     if index.is_unique() {
       let key = index.project()(value)
       match index.holder(key) {
         Some(slot) =>
           if slot != exclude_slot {
-            return Some(
-              UniqueViolation(name, key, { slot, gen: self.gens[slot], }),
-            )
+            let better = match best_name {
+              None => true
+              Some(current) => name < current
+            }
+            if better {
+              best_name = Some(name)
+              best = Some(
+                UniqueViolation(name, key, { slot, gen: self.gens[slot], }),
+              )
+            }
           }
         None => ()
       }
     }
   }
-  None
+  best
 }
 
 // ---------------------------------------------------------------------------
@@ -425,32 +440,58 @@ pub fn[K : Hash + Eq + Compare, V] Table::insert_many(
   let mut i = 0
   while i < values.length() {
     let value = values[i]
+    // (a) Collect every violation this member hits — against a live record or against
+    //     an earlier member — and report the one whose index name sorts first
+    //     (docs/SPEC.md §7).
+    let mut best_name : String? = None
+    let mut best : Conflict[K]? = None
     for name, index in self.indexes {
       if index.is_unique() {
         let key = index.project()(value)
+        let mut candidate : Conflict[K]? = None
         match index.holder(key) {
           Some(slot) =>
-            return Err({
-              conflict: UniqueViolation(name, key, {
-                slot,
-                gen: self.gens[slot],
-              }),
-              record: value,
-            })
-          None => ()
-        }
-        match claimed.get(name) {
-          Some(seen) =>
-            match seen.get(key) {
-              Some(at) =>
-                return Err({
+            candidate = Some(
+              UniqueViolation(name, key, { slot, gen: self.gens[slot], }),
+            )
+          None =>
+            match claimed.get(name) {
+              Some(seen) =>
+                match seen.get(key) {
                   // Not UniqueViolation: nothing is live at that key, and the batch
                   // position says exactly which member got there first.
-                  conflict: DuplicateInBatch(name, key, at),
-                  record: value,
-                })
-              None => seen.set(key, i)
+                  Some(at) => candidate = Some(DuplicateInBatch(name, key, at))
+                  None => ()
+                }
+              None => ()
             }
+        }
+        match candidate {
+          Some(conflict) => {
+            let better = match best_name {
+              None => true
+              Some(current) => name < current
+            }
+            if better {
+              best_name = Some(name)
+              best = Some(conflict)
+            }
+          }
+          None => ()
+        }
+      }
+    }
+    match best {
+      Some(conflict) => return Err({ conflict, record: value, })
+      None => ()
+    }
+    // (b) No violation: claim this member's keys, in a second pass so that a refused
+    //     member leaves no trace in `claimed`.
+    for name, index in self.indexes {
+      if index.is_unique() {
+        let key = index.project()(value)
+        match claimed.get(name) {
+          Some(seen) => seen.set(key, i)
           None => {
             let seen : Map[K, Int] = Map([])
             seen.set(key, i)
