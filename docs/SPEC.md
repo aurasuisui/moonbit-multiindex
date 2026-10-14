@@ -363,7 +363,7 @@ pub struct Table[K, V] {
 | `iter_by(name : String, key : K) -> Iter2[RowId, V]` | 该键下所有记录 | 唯一索引上产出 0 或 1 条(API 统一);**顺序 = 槽位号升序**(桶为 `SortedSet[Int]`) |
 | `range_by(name, lo, hi)` (需 `Compare`) | **双闭区间 `[lo, hi]`** 内的记录 | 有序索引;**本库增量**(主蓝本无 range API) |
 | `range_half_open_by(name, lo, hi)` (需 `Compare`) | **半开区间 `[lo, hi)`** 内的记录 | 同上 |
-| `iter_asc_by(name)` / `iter_desc_by(name)` (需 `Compare`) | 按索引键升/降序遍历全部记录 | 同上 |
+| `iter_asc_by(name)` / `iter_desc_by(name)` | 按索引键升/降序遍历全部记录 | 同上。**不需要 `K : Compare`** —— 实现只走 `SortedMap` 的迭代器;索引是否有序由 §7.1 的运行时检查负责 |
 
 > **范围查询返回惰性迭代器**,不预先收集成数组(避免大区间一次性物化)。
 
@@ -396,10 +396,15 @@ core 的 `SortedMap::range` / `SortedSet::range` 本身就是**双闭区间 `[lo
 
 | 方法 | 说明 |
 |---|---|
-| `verify_invariants() -> Bool` | **公开**的白盒自检:校验 I1–I8 |
+| `verify_invariants() -> Result[Unit, String]` | **公开**的白盒自检:校验 I1–I9 + 索引不变量。**首个违反者即返回**,消息里指明**违反了哪一条 + 出问题的槽位/键**(例如 `"I5: unique index \"email\" holds 2 slots under key \"a@b.c\""`) |
 | `index_stats(name : String) -> ...` | 桶数 / 最长桶 / 平均桶长 |
 
 > `verify_invariants` 是**公开 API**而非仅测试辅助:调用方可在自己的断言里使用它。
+> **返回 `Result` 而不是 `Bool` 的理由**:一个只会说"false"的校验器,对它的目标用户(需要定位一致性问题的调用方)
+> 几乎没有价值 —— 而"公开自检"的全部意义就是**可诊断**。`Result` 的 `Err` 携带首个违反点的描述。
+>
+> **与测试侧校验器的关系**:`property_wbtest.mbt` 的 `check_invariants` 应**委托**给这个公开实现(避免两份实现漂移),
+> 但**"非空转"元测试必须保留** —— 它们是对校验器本身的独立检验,委托之后反而更重要。
 > 这与 bimap 的 `check_bijection`(仅测试内)不同 —— 多索引的一致性更难自查,值得公开。
 
 ### §3.5 索引表示(2×2 四象限)
@@ -576,6 +581,24 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
   `K : Hash + Eq`。代价见 §2.5.1 —— 需要先解决"擦除后如何继续逐步校验 I3/I4/I5/I7"。
 - 查询的 id-only 变体(若 profiling 证明 `(RowId, V)` 的取值拷贝在热循环里有代价)。
 
+### 上游能力跟踪(不是我们的债,但影响我们的实现)
+
+| 缺口 | 影响 | 消除条件 |
+|---|---|---|
+| core 的 `SortedMap` **没有反向迭代器** | `iter_desc_by` 必须**先物化键序**再倒着走(内存 O(#桶));`range_by` / `range_half_open_by` / `iter_asc_by` 都是惰性的,不受影响 | core 为 `SortedMap`(或 `Iter2`)提供 `rev` / 反向迭代器后即可改为惰性。已记入 `CHANGELOG.md` Notes |
+
+#### `insert_many` 重复唯一键的裁定(M5 落地)
+
+**整批原子失败**:`insert_many(vs) -> Result[Array[RowId], Rejected[K, V]]`。
+
+- **先**对全部记录做唯一性预检(**含批量内部互相冲突**),**全部通过后**才逐条插入;
+- 任一条冲突 → `Err(Rejected{..})`,**整批零变更**,并把**冲突的那条记录**原样归还;
+- **不采用"第一个胜出"**(参考实现的行为)——那是一种**静默的胜出规则**,与本库"冲突不静默覆盖"的整体风格冲突;
+- **调用方不会丢数据**:MoonBit 的 `Array` 是引用类型,传入的数组仍在调用方手里。
+
+> ⚠️ **这是与参考实现的一处语义偏离**(它 `FromIterator` 是"第一个胜出")。因此这条**不可差分**,
+> 已在 `tools/diffgen/README.md` 的"不可差分清单"里登记,由本库自己的测试钉死。
+
 ---
 
 ## §12 实现与契约的已知偏差(待收敛)
@@ -591,7 +614,9 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 | 3 | §3.1 `Table::with_capacity(cap : Int)` | 已实现(语义见 §3.1) | M3 | ✅ 已关闭(`7199afa`) |
 | 4 | §3.3 `contains(id : RowId) -> Bool` | 已实现 | M3 | ✅ 已关闭(`7199afa`) |
 
-| 5 | §7.1 未知索引名 → `abort` | `get_by` / `iter_by` 对未知索引名返回空(静默) | M4 | ⬜ 未关闭 |
+| 5 | §7.1 未知索引名 → `abort` | 已收敛:`get_by` / `iter_by` 及四个有序查询对**未知索引名**与**在哈希索引上做有序查询**一律 `abort`;判定抽成可测谓词(`has_index` 黑盒 / `Index::is_ordered` 白盒) | M4 | ✅ 已关闭(`d9590f6`) |
+
+> **台账当前为空。**
 
 > 下次出现契约与实现的差距时在此追加,不要另开一处记录。
 
