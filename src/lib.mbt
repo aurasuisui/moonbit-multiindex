@@ -32,7 +32,17 @@ pub const VERSION : String = "0.1.0"
 pub struct RowId {
   slot : Int
   gen : Int
-} derive(Eq, Hash, Debug, Show)
+} derive(Eq, Hash, Debug)
+
+///|
+/// Display form: `RowId(slot, gen)`.
+pub impl Show for RowId with fn output(self : RowId, logger : &Logger) {
+  logger.write_string("RowId(")
+  logger.write_string(self.slot.to_string())
+  logger.write_string(", ")
+  logger.write_string(self.gen.to_string())
+  logger.write_string(")")
+}
 
 ///|
 /// A uniqueness violation reported *before* any mutation happens.
