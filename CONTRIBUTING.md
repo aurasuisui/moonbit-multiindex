@@ -19,20 +19,28 @@ moon fmt     # format
 | **`main`** | The **milestone view**. A stage is squash-merged here once its exit criteria are met, so `main` reads as one commit per milestone instead of hundreds of nodes. |
 
 ```bash
-# land a finished stage on main (squash-merge keeps main one-commit-per-stage)
+# land a finished stage on main (main is a generated milestone *view*)
 git checkout main
-git merge --squash --allow-unrelated-histories dev
+git read-tree --reset -u dev      # make main's tree exactly dev's, in one step
 git commit -m "feat: M<n> <stage> —— <one-line summary>"
 git push origin main
 git checkout dev
 ```
 
-> **Why `--allow-unrelated-histories`**: `main` was squashed at project start, so it shares **no
-> common ancestor** with `dev`. Without the flag git refuses the merge ("refusing to merge
-> unrelated histories"). With `--squash` the result is still exactly one new commit on `main`
-> whose tree equals `dev`'s — the flag only tells git not to require shared history.
-> Do **not** "fix" this by merging `dev` into `main` without `--squash`: that would drag all of
-> `dev`'s node commits onto `main` and destroy the milestone view.
+> **Why not `git merge`** — all three variants fail or backfire, which is why the recipe above
+> uses plumbing instead:
+>
+> | Attempt | Result |
+> |---|---|
+> | `git merge dev` | `fatal: refusing to merge unrelated histories` (`main` was squashed at project start and shares no ancestor with `dev`) |
+> | `git merge --squash --allow-unrelated-histories dev` | git treats **every file as add/add** and conflicts on each one that differs |
+> | `git merge dev` (no `--squash`) | drags all of `dev`'s node commits onto `main`, destroying the milestone view |
+>
+> `git read-tree --reset -u dev` sidesteps all three: it sets `main`'s index **and** worktree to
+> `dev`'s tree, so the next commit has exactly the end state a squash-merge would have produced.
+>
+> Consequence to be aware of: **`main` is a view, not an ancestry.** `git log --graph` will never
+> show `dev` merging into `main`, and that is intended — the evidence lives in `dev`.
 
 > **Why both branches are public**: `main` is the readable overview, `dev` is the evidence.
 > Squashing for `main` must never be used to hide work — the detailed record stays in `dev`,
