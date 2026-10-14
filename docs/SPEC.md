@@ -209,7 +209,18 @@ pub struct Rejected[K, V] {
   `Err` 里还给调用者(§0.4-3)。
 - `Rejected` 实现 `Debug` / `Show`,并在文档中给出"取出记录重试"的惯用写法。
 
-### §2.4 `Table[K, V]` — 记录表
+### §2.4 `RegisterError` — 索引注册失败
+
+```moonbit
+pub enum RegisterError {
+  DuplicateName(String)              // 同名索引已存在
+  UniqueViolation(String, String)    // (索引名, 冲突键的 Show 形式):回填唯一索引时发现已有冲突
+} derive(Debug, Eq)
+```
+
+- **不静默覆盖、不部分注册**:失败时注册表与数据**完全不变**(§5 规则 2 的推广)。
+
+### §2.5 `Table[K, V]` — 记录表
 
 ```moonbit
 pub struct Table[K, V] {
@@ -261,11 +272,19 @@ pub struct Table[K, V] {
 `ordered_non_unique` 一一对应):两个正交维度 —— **唯一性**(unique / non-unique)与
 **有序性**(hashed / ordered)。四类各有一个注册方法,不做"含糊的三合一"。
 
-**注册语义(待锁定)**:重名注册应报错还是覆盖?**倾向**:返回 `Result[Unit, ...]`,
-重名报错(与"冲突不静默覆盖"的整体风格一致)。
+#### 注册语义(已裁定)
 
-**对已有数据注册索引**:注册时表非空则必须回填扫描(`insert` 全部活记录),复杂度 O(len)。
-须在 SPEC 中明确,并由测试钉死。
+所有 `register_*` 返回 `Result[Unit, RegisterError]`:
+
+| 情形 | 行为 |
+|---|---|
+| 索引名重复 | `Err(DuplicateName(name))`,**不覆盖** |
+| 对**非空表**注册 | **回填扫描**全部活记录,O(len);注册后立即可查 |
+| 回填**唯一**索引时发现已有记录键冲突 | `Err(UniqueViolation(name, key))`,且**完全不注册**(原子,无半成品索引) |
+| `index_names()` | 按名称**升序**返回(确定性,便于测试) |
+
+> 裁定理由:"冲突不静默覆盖"是本库的整体风格,注册路径不应例外;
+> 半注册状态(索引存在但只回填了一半)是最难排查的一类 bug,必须堵死。
 
 ### §3.2 写入
 
@@ -282,8 +301,8 @@ pub struct Table[K, V] {
 
 | 方法 | 返回 | 说明 |
 |---|---|---|
-| `get_by(name : String, key : K) -> RowId?` | 唯一索引命中 | 非唯一索引上的语义待定(倾向返回首个,`iter_by` 才是正解) |
-| `iter_by(name : String, key : K)` | 该键下所有记录 | 非唯一索引;**返回顺序 = 槽位号升序**(桶为 `SortedSet[Int]`) |
+| `get_by(name : String, key : K) -> (RowId, V)?` | 命中记录的身份 + 值 | 非唯一索引上返回**桶内槽位号最小**的一条;该选择**确定但不跨操作稳定**,要全部命中请用 `iter_by` |
+| `iter_by(name : String, key : K) -> Iter2[RowId, V]` | 该键下所有记录 | 唯一索引上产出 0 或 1 条(API 统一);**顺序 = 槽位号升序**(桶为 `SortedSet[Int]`) |
 | `range_by(name, lo, hi)` (需 `Compare`) | **双闭区间 `[lo, hi]`** 内的记录 | 有序索引;**本库增量**(主蓝本无 range API) |
 | `range_half_open_by(name, lo, hi)` (需 `Compare`) | **半开区间 `[lo, hi)`** 内的记录 | 同上 |
 | `iter_asc_by(name)` / `iter_desc_by(name)` (需 `Compare`) | 按索引键升/降序遍历全部记录 | 同上 |
@@ -307,7 +326,12 @@ core 的 `SortedMap::range` / `SortedSet::range` 本身就是**双闭区间 `[lo
 | `get(id : RowId) -> V?` | 按句柄取记录 | 陈旧 id → `None` |
 | `contains(id : RowId) -> Bool` | — | |
 | `len() -> Int` / `is_empty() -> Bool` | — | |
-| `iter()` | 插入序遍历 | fail-fast(比照 `version`) |
+| `iter() -> Iter2[RowId, V]` | 插入序遍历 | fail-fast(比照 `version`) |
+
+> **查询统一返回 `(RowId, V)` 二元组**,理由:一次调用同时给出**身份**与**值**,不丢信息、
+> 不需要调用方决定"要不要再取一次",也避免为"只要值"和"只要身份"各开一套方法把 API 面积翻倍。
+> **代价**:MoonBit 不能返回元素内部的引用,取 `V` 是一次拷贝(记录内的容器是共享引用,通常不贵);
+> 若将来 profiling 证明热循环里这次拷贝有代价,再加 id-only 变体(v0.2 候选)。
 | `index_names() -> Array[String]` | 已注册索引名 | |
 
 ### §3.4 诊断(拿分点,也是自测手段)
