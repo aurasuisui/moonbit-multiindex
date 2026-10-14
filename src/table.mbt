@@ -19,10 +19,15 @@
 ///|
 /// Largest generation a slot may hold before it is retired for good (I9).
 ///
-/// `1 << 62`: far beyond any recycle count reachable in practice, and one past
-/// it still fits in a 64-bit signed `Int`, so the `gens[slot] < GEN_MAX` test
-/// that decides retirement can never overflow.
-const GEN_MAX : Int = 1 << 62
+/// **MoonBit's `Int` is 32-bit signed** (`@int.max_value == 2147483647`) on every
+/// target we ship — do not reason about it as 64-bit. `2^30` is the largest power
+/// of two for which `GEN_MAX + 1` still fits, and it is far beyond any recycle
+/// count reachable in practice.
+///
+/// Spelled as an explicit literal on purpose: `1 << 62` is *silently* reduced
+/// modulo the 32-bit width to `1 << 30` — no error, no warning — so a shift would
+/// change meaning without notice if `Int` ever widened.
+const GEN_MAX : Int = 1073741824
 
 ///|
 /// Registry entry of one secondary index: its name plus the projection that
