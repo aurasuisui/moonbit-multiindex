@@ -27,9 +27,12 @@ struct Row {
 }
 
 ///|
-/// `n` rows whose first four fields are distinct (so the unique indexes never
-/// collide) and whose last four cycle through a small value space (so the
-/// non-unique buckets actually hold several records each).
+/// `n` rows whose first four fields are distinct (so the unique indexes never collide).
+///
+/// The last four fields span both bucket regimes on purpose, because the interesting
+/// question is *where the index stops winning*: `e` is nearly unique (≈2 records per
+/// bucket — a selective key), while `f`/`g`/`h` cycle through tiny key spaces (up to
+/// n/8 records per bucket — fat buckets).
 fn make_rows(n : Int) -> Array[Row] {
   let rows : Array[Row] = []
   for i in 0..<n {
@@ -38,7 +41,7 @@ fn make_rows(n : Int) -> Array[Row] {
       b: i,
       c: i,
       d: i,
-      e: i % 64,
+      e: i / 2,
       f: i % 32,
       g: i % 16,
       h: i % 8,
@@ -100,7 +103,9 @@ fn main {
   let n = 20_000
   let rows = make_rows(n)
   let bench = @bench.Bench()
-  println("# records per table: \{n}; reported microseconds are per ITERATION (n ops)")
+  println(
+    "# records per table: \{n}; reported microseconds are per ITERATION (n ops)",
+  )
 
   let full = build(rows, 8)
 
@@ -135,25 +140,27 @@ fn main {
     }
     bench.keep(acc)
   })
-  println("# [bench] iter_by-non-unique.index")
-  bench.bench(name="iter_by-non-unique.index", count=5, fn() {
+  // probes the FAT bucket: `g` cycles through 16 values, so each key holds n/16
+  // records — the regime where the index stops paying for itself
+  println("# [bench] iter_by-non-unique.fat-bucket.index")
+  bench.bench(name="iter_by-non-unique.fat-bucket.index", count=5, fn() {
     let mut acc = 0
     for j in 0..<n {
-      for _, row in full.iter_by("e", j % 64) {
-        acc = acc + row.e
+      for _, row in full.iter_by("g", j % 16) {
+        acc = acc + row.g
       }
     }
     bench.keep(acc)
   })
-  println("# [bench] iter_by-non-unique.linear-scan")
-  bench.bench(name="iter_by-non-unique.linear-scan", count=5, fn() {
+  println("# [bench] iter_by-non-unique.fat-bucket.linear-scan")
+  bench.bench(name="iter_by-non-unique.fat-bucket.linear-scan", count=5, fn() {
     let mut acc = 0
     for j in 0..<n {
-      let wanted = j % 64
+      let wanted = j % 16
       let mut i = 0
       while i < rows.length() {
-        if rows[i].e == wanted {
-          acc = acc + rows[i].e
+        if rows[i].g == wanted {
+          acc = acc + rows[i].g
         }
         i = i + 1
       }
@@ -183,6 +190,66 @@ fn main {
     bench.keep(acc)
   })
 
+  // ---- selectivity: where the index stops winning -------------------------
+  println("# [bench] iter_by-non-unique.selective.index")
+  bench.bench(name="iter_by-non-unique.selective.index", count=5, fn() {
+    let mut state = 0x2468_1357
+    let mut acc = 0
+    for _ in 0..<n {
+      state = next_state(state)
+      for _, row in full.iter_by("e", state % (n / 2)) {
+        acc = acc + row.e
+      }
+    }
+    bench.keep(acc)
+  })
+  println("# [bench] iter_by-non-unique.selective.linear-scan")
+  bench.bench(name="iter_by-non-unique.selective.linear-scan", count=5, fn() {
+    let mut state = 0x2468_1357
+    let mut acc = 0
+    for _ in 0..<n {
+      state = next_state(state)
+      let wanted = state % (n / 2)
+      let mut i = 0
+      while i < rows.length() {
+        if rows[i].e == wanted {
+          acc = acc + rows[i].e
+        }
+        i = i + 1
+      }
+    }
+    bench.keep(acc)
+  })
+  println("# [bench] range_by-ordered.narrow.index")
+  bench.bench(name="range_by-ordered.narrow.index", count=5, fn() {
+    let mut state = 0x2468_1357
+    let mut acc = 0
+    for _ in 0..<n {
+      state = next_state(state)
+      let pivot = state % (n - 20)
+      for _, row in full.range_by("c", pivot, pivot + 10) {
+        acc = acc + row.c
+      }
+    }
+    bench.keep(acc)
+  })
+  println("# [bench] range_by-ordered.narrow.linear-scan")
+  bench.bench(name="range_by-ordered.narrow.linear-scan", count=5, fn() {
+    let mut state = 0x2468_1357
+    let mut acc = 0
+    for _ in 0..<n {
+      state = next_state(state)
+      let pivot = state % (n - 20)
+      let mut i = 0
+      while i < rows.length() {
+        if rows[i].c >= pivot && rows[i].c <= pivot + 10 {
+          acc = acc + rows[i].c
+        }
+        i = i + 1
+      }
+    }
+    bench.keep(acc)
+  })
   // ---- writes as k grows -------------------------------------------------
   let ks = k_values()
   for ki in 0..<ks.length() {
@@ -216,7 +283,7 @@ fn main {
     while i < ids.length() {
       t.remove(ids[i].0) |> ignore
       let row = rows[i]
-      match t.insert({ ..row, a: n + i, b: n + i, c: n + i, d: n + i }) {
+      match t.insert({ ..row, a: n + i, b: n + i, c: n + i, d: n + i, }) {
         Ok(_) => churn = churn + 1
         Err(_) => ()
       }

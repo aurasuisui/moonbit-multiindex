@@ -189,28 +189,44 @@ fn Model::ordered(
 
 ///|
 /// The unique index `record` would clash with, ignoring the record named by `skip`.
+///
+/// When both unique indexes clash, the reported one is the index whose **name sorts
+/// first** — the contract docs/SPEC.md §7 fixes so that the answer cannot depend on the
+/// registry's internal iteration order.
 fn Model::clash(
   self : Model,
   record : (Int, Int, Int),
   skip : @aurasuisui/multiindex.RowId?,
 ) -> (String, Int, @aurasuisui/multiindex.RowId)? {
+  let mut best_name : String? = None
+  let mut best : (String, Int, @aurasuisui/multiindex.RowId)? = None
   let mut field = 0
   while field <= 1 {
     let key = field_of(record, field)
     match self.unique_by(field, key) {
-      Some((holder, _)) =>
+      Some((holder, _)) => {
+        let mut hit = true
         match skip {
-          Some(id) =>
-            if holder != id {
-              return Some((unique_name(field), key, holder))
-            }
-          None => return Some((unique_name(field), key, holder))
+          Some(id) => if holder == id { hit = false }
+          None => ()
         }
+        if hit {
+          let name = unique_name(field)
+          let better = match best_name {
+            None => true
+            Some(current) => name < current
+          }
+          if better {
+            best_name = Some(name)
+            best = Some((name, key, holder))
+          }
+        }
+      }
       None => ()
     }
     field = field + 1
   }
-  None
+  best
 }
 
 ///|

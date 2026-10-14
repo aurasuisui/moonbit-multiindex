@@ -3,6 +3,7 @@ package "aurasuisui/multiindex"
 
 import {
   "moonbitlang/core/debug",
+  "moonbitlang/core/json",
 }
 
 // Values
@@ -50,6 +51,7 @@ pub struct Table[K, V] {
 }
 pub fn[K, V] Table::clear(Self[K, V]) -> Unit
 pub fn[K, V] Table::contains(Self[K, V], RowId) -> Bool
+pub fn[K : Hash + Eq + Compare, V : @json.FromJson] Table::from_json(Json) -> Self[K, V] raise
 pub fn[K, V] Table::get(Self[K, V], RowId) -> V?
 pub fn[K : Hash + Eq + Compare, V] Table::get_by(Self[K, V], String, K) -> (RowId, V)?
 pub fn[K, V] Table::has_index(Self[K, V], String) -> Bool
@@ -72,6 +74,7 @@ pub fn[K : Compare, V] Table::register_non_unique_ordered(Self[K, V], String, (V
 pub fn[K : Hash + Eq, V] Table::register_unique(Self[K, V], String, (V) -> K) -> Result[Unit, RegisterError[K]]
 pub fn[K : Compare, V] Table::register_unique_ordered(Self[K, V], String, (V) -> K) -> Result[Unit, RegisterError[K]]
 pub fn[K : Hash + Eq + Compare, V] Table::remove(Self[K, V], RowId) -> V?
+pub fn[K, V : ToJson] Table::to_json(Self[K, V]) -> Json
 pub fn[K : Hash + Eq + Compare, V] Table::update(Self[K, V], RowId, V) -> Result[Unit, UpdateRejected[K, V]]
 pub fn[K : Eq + @debug.Debug, V] Table::verify_invariants(Self[K, V]) -> Result[Unit, String]
 pub fn[K, V] Table::with_capacity(Int) -> Self[K, V]

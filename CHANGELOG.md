@@ -122,6 +122,22 @@ All notable changes to `aurasuisui/multiindex` are documented here.
   第二条 LCG 随机流**有意不实现**(理由与逐项覆盖面表写进 `tools/diffgen/README.md`)
 - 测试 72 条(**M1–M5 的 69 条一条未削弱**;另 2 条随 `planned_handles` 死代码一并删除)
 
+#### M7 — 发布准备与补漏(2026-10-14)
+
+- **冲突报告顺序钉死**(SPEC §7):同一记录同时违反多条唯一索引时,报**索引名升序的第一个**,
+  与注册顺序无关;实现只在**失败路径**收集全部违反者,成功路径零成本
+- **JSON 往返**(SPEC §8,补计划漏项):`to_json` / `from_json`,线格式 `{"records": [...]}` 按插入序;
+  **索引不参与序列化**,载入后重新 `register_*` 即由回填扫描重建;畸形输入报 `JsonDecodeError`
+- **压力用例 `bench_test.mbt`**(补 RELEASE_CHECKLIST Tier 3):>10k 操作、单桶 1250 条的长桶、
+  槽位复用风暴,每阶段复查不变量
+- **基准补选择性数据点**:`bench/README.md` 现在给出**交叉点**(选择性遍历 ~58× 快、胖桶 ~5× 慢;
+  窄区间 ~12× 快、宽区间 ~21× 慢),而不是只报一个不利数字
+- **README 定稿**:API 三表(与 SPEC §3 逐项对齐)、实测得来的 Gotchas 8 条,并修正原文把 `range_by`
+  写成半开的**错误表述**;偏离清单补 `insert_many` 整批原子、`index_stats`、JSON 往返
+- **申报书 / 发布清单定稿**:`docs/申报书.md` 按实际交付更新;`docs/RELEASE_CHECKLIST.md` 增
+  「最近一次执行」证据表(Tier 0/1/2/4 全绿,发布三条留空)
+- 测试 78 条;`moon check --deny-warn --target all` 保持 0 warnings 0 errors
+
 ### Notes / Deviations
 - **`Conflict` 故意没有「无冲突」变体**:无冲突用 `Option::None` 表达。加变体会与
   `Option::None` 在 match 位置混淆,并迫使调用方匹配一个不可能出现的 `Err`。
@@ -251,6 +267,22 @@ All notable changes to `aurasuisui/multiindex` are documented here.
   **提请裁定**:是否把冲突索引顺序钉死(例如按索引名升序)—— 代价是每次写入多一次排序。
 - **示例与基准的运行前提**:`cmd/`、`bench/` 与差分夹具生成物都 **import 已发布的包**,发布前只能靠
   本地临时 workspace 运行(M6 已实测通过);M7 发布后按各文件头命令即可直接跑。
+#### M7 发布准备(2026-10-14)
+
+- **`moon publish` 未执行**(按派发要求:发布是不可逆的外部动作,等用户确认)。已做的是
+  `moon publish --dry-run` + 产物清单核对。
+- **`--dry-run` 的观察**:服务端返回 `202 Accepted / Dry run completed successfully`,打包 + 解包后
+  重跑 `moon check` 也通过;但进程**以 1 退出**并打印 `moon publish failed`(两次一致)。原因未确认,
+  记录在此以免后人误读「dry-run 全绿」—— **真正的发布形态只能在用户执行实际发布时确认**。
+- **产物清单(实测,47 项)**:`moon.work` **已不在产物中**(gitignore 生效,命中数 0);仍会打包
+  `bench/` `cmd/` `tools/` `docs/` `AGENTS.md` `CONTRIBUTING.md` `CHANGELOG.md` `third_party/`。
+  `moon.mod` **没有排除字段**(官方字段只有 name/version/readme/repository/license/keywords/
+  description/source/preferred_target/warnings),所以「不打包开发态目录」只能靠**把目录移出模块目录**
+  达成,代价是一次仓库重排。**建议:按现状发布**(解包后 check 通过,非包目录对使用方是惰性的),
+  这条留给用户拍板。
+- **命名空间**:`aurasuisui/multiindex` 与作者已发布的 `aurasuisui/bimap`、`aurasuisui/indexmap` 同命名空间 ✓
+- **仍未改动**:`docs/SPEC.md`(审核方所有)与 `docs/README.md` 的地图(新增的 `src/json_test.mbt`、
+  `src/bench_test.mbt` 是测试文件,不入地图)。
 #### 与参考实现 `multi_index_map` 的取舍(`docs/SPEC.md` §0.3)
 
 | 取舍点 | 参考实现 `multi_index_map` 0.15.1 | 本库 | 理由 |
