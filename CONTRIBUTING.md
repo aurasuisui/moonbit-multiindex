@@ -21,10 +21,18 @@ moon fmt     # format
 ```bash
 # land a finished stage on main (squash-merge keeps main one-commit-per-stage)
 git checkout main
-git merge --squash dev
+git merge --squash --allow-unrelated-histories dev
 git commit -m "feat: M<n> <stage> —— <one-line summary>"
 git push origin main
+git checkout dev
 ```
+
+> **Why `--allow-unrelated-histories`**: `main` was squashed at project start, so it shares **no
+> common ancestor** with `dev`. Without the flag git refuses the merge ("refusing to merge
+> unrelated histories"). With `--squash` the result is still exactly one new commit on `main`
+> whose tree equals `dev`'s — the flag only tells git not to require shared history.
+> Do **not** "fix" this by merging `dev` into `main` without `--squash`: that would drag all of
+> `dev`'s node commits onto `main` and destroy the milestone view.
 
 > **Why both branches are public**: `main` is the readable overview, `dev` is the evidence.
 > Squashing for `main` must never be used to hide work — the detailed record stays in `dev`,
