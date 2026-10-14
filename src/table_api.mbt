@@ -386,9 +386,7 @@ pub fn[K : Eq + Debug, V] Table::verify_invariants(
 
 ///|
 /// I1 / I2 / I6 / I9 — the storage half of `verify_invariants`.
-fn[K : Eq + Debug, V] Table::verify_storage(
-  self : Table[K, V],
-) -> Result[Unit, String] {
+fn[K, V] Table::verify_storage(self : Table[K, V]) -> Result[Unit, String] {
   let n = self.rows.length()
   if self.gens.length() != n {
     return Err(
@@ -495,6 +493,15 @@ fn[K : Eq + Debug, V] Table::verify_indexes(
   self : Table[K, V],
 ) -> Result[Unit, String] {
   for name, index in self.indexes {
+    // Registry bookkeeping: the key an index is stored under is the name it carries.
+    if index.name() != name {
+      return Err(
+        "registry: an index is stored under " +
+        @debug.to_string(name) +
+        " but carries the name " +
+        @debug.to_string(index.name()),
+      )
+    }
     let buckets = index.buckets()
     let mut entries = 0
     let mut b = 0
