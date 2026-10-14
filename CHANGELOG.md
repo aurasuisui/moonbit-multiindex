@@ -49,6 +49,23 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 - M1 遗留的 **6 条声明式死代码警告**(未构造的 `Index` 变体 / `IndexMeta`)随 M2 落地**全部消失**;
   当前 `moon check` 为 13 warnings / 0 errors(其余为 `derive` 的 `[0079]` 与 `moon.pkg` 的
   `unused_package`,与 M1 同源)。
+#### M3 — 更新与冲突 + 偏差收敛(2026-10-14)
+
+- **`update` / `modify`**(`src/table.mbt`):顺序固定为「算新投影 → 对每个唯一索引预检
+  (**排除自身**)→ 全部通过后统一落地」;`f` 恰好调用一次。
+- **新公开类型 `UpdateRejected[K, V]`**(SPEC §2.5):`StaleHandle(RowId, V?)` /
+  `Conflict(Conflict[K], V)` —— 陈旧句柄与唯一冲突分开表达,失败**绝不吞掉调用方的数据**
+  (`update` 归还待写入记录,`modify` 无从算起故为 `None`)。
+- **逐索引键对比快路径**(`Index::retarget`):键未变的索引**不删不加**,无可观察中间态
+  (SPEC §5 规则 3)。
+- **新汇聚点 `modify_impl`**:先重定位索引桶、再覆盖行、最后 `version += 1`。
+- **关闭 SPEC §12 台账 4 条**:`RegisterError[K]`(键原样携带,两个唯一注册方法不再要求
+  `K : Show`)、`has_index(name)`、`Table::with_capacity(cap)`、`contains(id)`。
+- 测试 51 条(**M1/M2 的 36 条一条未削弱**):回归钉子(update 撞已占用唯一键 → 逐条零变更)、
+  excluding-self 合法改写、**双唯一索引冲突的 modify 原子性**、陈旧句柄、**快路径三重取证**、
+  两个随机序列驱动接入 update/modify 并**每一步**校验不变量。
+- `moon check` 现为 **15 warnings / 0 errors**(测试构建 16):比 M2 多 2 条,均为
+  `UpdateRejected` 的 `derive(Debug, Eq)` 触发的 `[0079]`。
 ### Notes / Deviations
 - **`Conflict` 故意没有「无冲突」变体**:无冲突用 `Option::None` 表达。加变体会与
   `Option::None` 在 match 位置混淆,并迫使调用方匹配一个不可能出现的 `Err`。
@@ -103,6 +120,21 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 - **`RegisterError` 暂无 `Show`**:SPEC §2.4 只要求 `derive(Debug, Eq)`;需要人读文案时再加。
 - **桶枚举辅助函数放在测试侧**:`index_buckets` 只在白盒测试里需要,放在 `property_wbtest.mbt`
   而非库里,避免发布代码里出现"仅测试使用"的死函数(M5 的 `index_stats` 会在库里重新实现它)。
+#### M3 更新与冲突(2026-10-14)
+
+- **快路径的取证方式**:"实现了快路径"不算证据,所以用三种互补的白盒观测 ——
+  ① **计数键** `CountedKey`(每次哈希自增)配**对照实验**(先证明"查一次必然哈希",否则探针
+  空转),再断言同键 update 的哈希增量**严格小于**改键 update 的增量(两者都付了同样的预检成本);
+  ② **破坏性探针**:白盒清空某个唯一桶后做同键 update —— 若走慢路径,`Index::remove` 会因为
+  "桶不存在"直接 abort;实测通过,证明快路径确实没有碰那个桶;
+  ③ `physical_equal`:update 前后注册表里的桶容器是**同一个对象**(没有被重建)。
+- **容器同一性不是充分证据**(两条路径都不重建容器),所以它只作 ① ② 的补充,不作主证。
+- **`update` 一定递增 `version`**:本库不要求 `V : Eq`,无法判断"写入的记录与原来相同",
+  按"记录被替换 = 真实变更"处理(I8)。
+- **`modify` 的 `f` 在预检之前调用**:新记录必须先算出来才能投影与预检;因此被拒绝的 modify 也
+  **恰好调用 `f` 一次**(测试钉死),但表零变更。
+- **`update` / `modify` 与 M2 同源的类型约束**:二者都要遍历异构注册表,故为
+  `K : Hash + Eq + Compare`(并集约束已在 M2 Notes 登记,仍待裁定)。
 #### 与参考实现 `multi_index_map` 的取舍(`docs/SPEC.md` §0.3)
 
 | 取舍点 | 参考实现 `multi_index_map` 0.15.1 | 本库 | 理由 |
