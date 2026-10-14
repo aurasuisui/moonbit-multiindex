@@ -320,7 +320,11 @@ pub fn[K : Compare, V] Table::range_half_open_by(
 
 ///|
 /// Every record in the index, ordered by key **ascending**.
-pub fn[K : Compare, V] Table::iter_asc_by(
+///
+/// Deliberately **unconstrained**: the walk never compares keys, and the runtime
+/// `abort` ("this index has no key order") tells a caller far more than a compile
+/// error demanding `Compare` for what is merely a hash index (docs/SPEC.md §3.3).
+pub fn[K, V] Table::iter_asc_by(
   self : Table[K, V],
   name : String,
 ) -> Iter2[RowId, V] {
@@ -330,8 +334,9 @@ pub fn[K : Compare, V] Table::iter_asc_by(
 
 ///|
 /// Every record in the index, ordered by key **descending** (within one key the
-/// slots still come out ascending — only the key order flips).
-pub fn[K : Compare, V] Table::iter_desc_by(
+/// slots still come out ascending — only the key order flips). Unconstrained for
+/// the same reason as `iter_asc_by`.
+pub fn[K, V] Table::iter_desc_by(
   self : Table[K, V],
   name : String,
 ) -> Iter2[RowId, V] {

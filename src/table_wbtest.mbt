@@ -194,7 +194,7 @@ test "index buckets store slot numbers and drop a bucket once it empties" {
     Some(index) => {
       assert_ints(index.slots(7), [a.slot, b.slot])
       assert_ints(index.slots(5), [])
-      @test.assert_eq(index_buckets(index).length(), 1)
+      @test.assert_eq(index.buckets().length(), 1)
     }
     None => @test.fail("the index vanished")
   }
@@ -203,7 +203,7 @@ test "index buckets store slot numbers and drop a bucket once it empties" {
   match t.indexes.get("shared") {
     Some(index) => {
       assert_ints(index.slots(7), [b.slot])
-      @test.assert_eq(index_buckets(index).length(), 1)
+      @test.assert_eq(index.buckets().length(), 1)
     }
     None => @test.fail("the index vanished")
   }
@@ -215,7 +215,7 @@ test "index buckets store slot numbers and drop a bucket once it empties" {
   // removing the last record leaves no bucket behind at all
   t.remove(b) |> ignore
   match t.indexes.get("shared") {
-    Some(index) => @test.assert_eq(index_buckets(index).length(), 0)
+    Some(index) => @test.assert_eq(index.buckets().length(), 0)
     None => @test.fail("the index vanished")
   }
   check_invariants(t)
@@ -230,7 +230,7 @@ test "clear drops every bucket but keeps the registrations" {
   @test.assert_eq(t.indexes.length(), 4) // the schema survives a clear
   match t.indexes.get("lo") {
     Some(index) => {
-      @test.assert_eq(index_buckets(index).length(), 0)
+      @test.assert_eq(index.buckets().length(), 0)
       assert_ints(index.slots(1), [])
     }
     None => @test.fail("the registration was dropped")

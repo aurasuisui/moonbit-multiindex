@@ -14,35 +14,6 @@
 // CHANGELOG Notes/Deviations). `property_test.mbt` holds the black-box half.
 
 ///|
-/// Every bucket of `index` as `(key, slots)`, in the index's own iteration order.
-///
-/// The library itself does not enumerate buckets (M5's `index_stats` will); the
-/// white-box tests need the raw view to assert I3 / I4 / I5 / I7, and being
-/// in-package lets them open the private enum directly.
-fn[K, V] index_buckets(index : Index[K, V]) -> Array[(K, Array[Int])] {
-  let out : Array[(K, Array[Int])] = []
-  match index {
-    HashUnique(_, buckets) =>
-      for key, slot in buckets {
-        out.push((key, [slot]))
-      }
-    SortedUnique(_, buckets) =>
-      for key, slot in buckets {
-        out.push((key, [slot]))
-      }
-    HashMulti(_, buckets) =>
-      for key, set in buckets {
-        out.push((key, set.to_array()))
-      }
-    SortedMulti(_, buckets) =>
-      for key, set in buckets {
-        out.push((key, set.to_array()))
-      }
-  }
-  out
-}
-
-///|
 /// Assert every invariant of `t` directly on its private fields:
 ///
 ///   I1  every slot in `order` is live, and no slot appears twice
@@ -116,7 +87,7 @@ fn[K : Hash + Eq + Compare + Debug, V] check_invariants(
   // ---- index invariants ----------------------------------------------------
   for name, index in t.indexes {
     @test.assert_eq(index.name(), name)
-    let buckets = index_buckets(index)
+    let buckets = index.buckets()
     let mut entries = 0
     let mut b = 0
     while b < buckets.length() {
