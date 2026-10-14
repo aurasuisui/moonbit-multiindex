@@ -71,12 +71,44 @@ struct MultiIndexOrderMap {
 
 | 取舍点 | 主蓝本 | 本库 | 理由 |
 |---|---|---|---|
-| 非唯一桶结构 | `BTreeSet<usize>`:删 O(log k)、自动去重、有序 | `Array[Int]`:删 O(k)、保持插入序 | 桶通常很短,常量更小;去重由不变量 I3 保证;保留插入序 |
-| 冲突语义 | `try_insert`→`Err`;`insert`→覆盖/panic | **一律 `Err`,绝不静默覆盖** | 与同作者 `bimap` 的显式冲突上报风格一致 |
+| 非唯一桶结构 | `BTreeSet<usize>` | **`SortedSet[Int]`(采纳同一路线)** | 初稿选 `Array[Int]`(保插入序、常量小),但**大桶下 O(k) 线性删除不可接受**;主蓝本 0.6.0 已因性能把 `Vec` 换成 `BTreeSet`(§0.4-4)。**代价:桶内顺序变为槽位号升序,不再保留插入序** |
+| 冲突语义 | `try_insert`→`Err`(归还元素);`insert`→**panic** | **只有 `Result` 版本,且归还记录**(`Rejected[K,V]`);绝不 panic | MoonBit 的 panic 等价 abort、不可恢复;记录按值传递,不归还则调用方**丢失数据**(§0.4-3/5) |
+| `modify` 原子性 | 半更新后 panic → **留下脏索引**(缺陷) | **先全量校验,再一次性提交** | §0.4-1 与 §5 规则 2 |
 | 索引定义方式 | derive 宏(编译期) | 运行时闭包注册 | MoonBit 无等价宏机制 |
 | 句柄 | `usize`(槽下标) | `RowId{slot, gen}` | ABA 防护 |
+| 代际号溢出 | 静默回绕(slotmap / thunderdome / hecs / bevy 一致) | **溢出即退役槽位** | 陈旧句柄永不复活(§0.4-8) |
+| 范围查询 | **无**(ordered 索引只暴露点查与全量遍历) | `range_by` / `range_inclusive_by` | 主蓝本 API 层缺口(§0.4-2) |
 
 ---
+
+### §0.4 源码级核对补强(第二轮调研,逐行读 `generators.rs`/`lib.rs`)
+
+完整报告存档见 [`research/rust-ecosystem-2026-10-14.md`](research/rust-ecosystem-2026-10-14.md)。以下条目**直接改变了本库的设计**:
+
+1. **主蓝本的 `modify_by_*` 在中途 panic 会留下脏索引**。源码顺序是「先 remove 旧 key → 再 insert 新 key →
+   若插入返回 `Some` 则 panic」,即 panic 时索引已处于半更新状态。
+   → **本库据此把"先校验后提交"写死为强制规则**(§5 规则 1/2),并把该场景做成回归测试钉子。
+2. **主蓝本缺少范围查询 API**。`ordered_*` 索引底层是 `BTreeMap`,但只生成 `get_by_*`(点查)与
+   `iter_by_*`(全量按序遍历),**没有 range** —— 存储层做到了,API 层没做。→ **这是本库的明确增量**(§3.3)。
+3. **冲突时应当把记录原样归还调用方**。主蓝本 `try_insert` 返回 `Err(UniquenessError(elem))`,
+   元素不丢;本库若只返回 `Conflict[K]`,`insert(v)` 消费掉 `v` 后调用方将**失去这条记录**
+   (MoonBit 是按值传递)。→ 新增 `Rejected[K, V]`(§2.2),冲突信息与记录一并归还。
+4. **主蓝本的非唯一索引在 0.6.0 从 `Vec` 换成了 `BTreeSet`**,release note 原文:
+   *"use BTreeSet to store equivalent elements in a non-unique index to improve insert/remove/modify performance"*。
+   → **推翻本库初稿的 `Array[Int]` 桶**,改用**有序集合**(见 §0.3 修订与 §3 索引表示)。
+5. **`insert` 与 `try_insert` 语义分裂**:`insert` 冲突直接 panic,`try_insert` 返回 `Err`。
+   → 本库**只提供 Result 版本,不提供 panic 版本**(MoonBit 的 panic 等价于 abort,不可恢复)。
+6. **`FromIterator` 遇重复键是"第一个胜出"**(与 `HashMap`/`BTreeMap` 的"后者胜"相反)。
+   → 本库批量插入需在 SPEC 明确语义并测试钉死(§3.2 `insert_many`)。
+7. **主蓝本的插入用 `slab::vacant_entry()` 预留槽位而不占用**,从而做到"唯一性检查失败时表完全未变"。
+   这是实现 §5 规则 2 的**具体机制**,本库照此办理(先探测空槽/预留,再逐索引校验,最后落库)。
+8. **代际号溢出:所有 Rust 参考实现都选择静默回绕**(slotmap 2³¹、thunderdome u32::MAX→1、
+   hecs/bevy `wrapping_add`;bevy 文档明写 "generations can (and do) wrap or alias")。
+   → 本库采取**溢出即退役槽位**(不再放回 free list),使陈旧句柄永不复活(§3.4、I9)。
+9. **许可证边界**:候选集中唯一有传染性的是 **MPL-2.0**(`generational-arena`,且**仓库已归档**;
+   `im` 亦为 MPL-2.0+ 且归档)——**只借鉴思路、不复制代码**。`slotmap` 是 **Zlib**(宽松);
+   `thunderdome` 的 GitHub 页面显示 Apache-2.0 但 **Cargo.toml 是 `MIT OR Apache-2.0`**(以 Cargo.toml 为准);
+   `bimap` 的 `Apache-2.0/MIT` 是**非标准 SPDX 写法**,实为双许可。
 
 **许可证纪律**:本库以 **Apache-2.0** 发布。参考 MPL 系实现
 (`generational-arena`)时**只借鉴思路、不复制代码**;采用某库语义时须在 `README.md` 致谢与
@@ -138,7 +170,22 @@ pub enum Conflict[K] {
   加变体会 ① 与 `Option::None` 在 match 位置混淆;② 迫使调用方匹配一个不可能出现的 `Err`。
   > 两条均由探针实测(见 §9)。
 
-### §2.3 `Table[K, V]` — 记录表
+### §2.3 `Rejected[K, V]` — 被拒绝的写入(冲突 + 记录归还)
+
+```moonbit
+pub struct Rejected[K, V] {
+  conflict : Conflict[K]
+  record   : V          // 记录原样归还,调用方不丢数据
+}
+```
+
+- `insert` / `update` 失败时返回 `Err(Rejected{..})`。
+- **为什么必须归还记录**:MoonBit 按值传递,`insert(v)` 消费掉 `v` 后若只返回 `Conflict[K]`,
+  调用方就永久失去了这条记录(只能靠调用前自己 `clone`)。参考实现 `try_insert` 同样把元素包在
+  `Err` 里还给调用者(§0.4-3)。
+- `Rejected` 实现 `Debug` / `Show`,并在文档中给出"取出记录重试"的惯用写法。
+
+### §2.4 `Table[K, V]` — 记录表
 
 ```moonbit
 pub struct Table[K, V] {
@@ -161,10 +208,15 @@ pub struct Table[K, V] {
 |---|---|
 | `Table::new() -> Table[K, V]` | 空表 |
 | `Table::with_capacity(cap : Int)` | 预留容量 |
-| `register_unique(name : String, project : (V) -> K) -> Unit` | 注册唯一索引 |
-| `register_non_unique(name : String, project : (V) -> K) -> Unit` | 注册非唯一索引 |
-| `register_sorted(name : String, project : (V) -> K)` (需 `K : Compare`) | 注册有序索引 |
-| `has_index(name : String) -> Bool` | 索引是否存在 |
+| `register_unique(name, project) -> Unit` | **哈希唯一**索引(`Map[K, Int]`) |
+| `register_unique_ordered(name, project)` (需 `K : Compare`) | **有序唯一**索引(`SortedMap[K, Int]`) |
+| `register_non_unique(name, project) -> Unit` | **哈希非唯一**索引(`Map[K, SortedSet[Int]]`) |
+| `register_non_unique_ordered(name, project)` (需 `K : Compare`) | **有序非唯一**索引(`SortedMap[K, SortedSet[Int]]`) |
+| `has_index(name) -> Bool` / `index_names() -> Array[String]` | 索引枚举 |
+
+**2×2 四象限**(与主蓝本的 `hashed_unique` / `ordered_unique` / `hashed_non_unique` /
+`ordered_non_unique` 一一对应):两个正交维度 —— **唯一性**(unique / non-unique)与
+**有序性**(hashed / ordered)。四类各有一个注册方法,不做"含糊的三合一"。
 
 **注册语义(待锁定)**:重名注册应报错还是覆盖?**倾向**:返回 `Result[Unit, ...]`,
 重名报错(与"冲突不静默覆盖"的整体风格一致)。
@@ -176,8 +228,10 @@ pub struct Table[K, V] {
 
 | 方法 | 返回 | 说明 |
 |---|---|---|
-| `insert(v : V) -> Result[RowId, Conflict[K]]` | 新记录句柄 | 冲突时**不做任何变更** |
-| `update(id : RowId, v : V) -> Result[Unit, Conflict[K]]` | 成功/冲突 | **排除自身**的冲突检查;陈旧 id → `Err` |
+| `insert(v : V) -> Result[RowId, Rejected[K, V]]` | 新记录句柄 | 冲突时**表零变更**,记录原样归还 |
+| `insert_many(vs : Array[V]) -> ...` | 批量 | 先全部落库,再**每索引一次性构建**(把 N×k 次索引插入降为 k 次批量构建);**遇重复键的胜出规则须在实现时明确并测试钉死**(主蓝本是"第一个胜出",§0.4-6) |
+| `update(id : RowId, v : V) -> Result[Unit, Rejected[K, V]]` | 成功/冲突 | **排除自身**的冲突检查;陈旧 id → `Err` |
+| `modify(id : RowId, f : (V) -> V) -> Result[Unit, Rejected[K, V]]` | 成功/冲突 | 用 `f` 变换记录后重索引;**逐索引对比新旧投影键,只动真正变化的桶**(见 §5 规则 4) |
 | `remove(id : RowId) -> V?` | 被删记录 | 陈旧 id → `None` |
 | `clear() -> Unit` | — | 清空所有记录与索引 |
 
@@ -186,8 +240,12 @@ pub struct Table[K, V] {
 | 方法 | 返回 | 说明 |
 |---|---|---|
 | `get_by(name : String, key : K) -> RowId?` | 唯一索引命中 | 非唯一索引上的语义待定(倾向返回首个,`iter_by` 才是正解) |
-| `iter_by(name : String, key : K)` | 该键下所有记录 | 非唯一索引 |
-| `range_by(name : String, lo : K, hi : K)` (需 `Compare`) | 区间内记录 | 有序索引 |
+| `iter_by(name : String, key : K)` | 该键下所有记录 | 非唯一索引;**返回顺序 = 槽位号升序**(桶为 `SortedSet[Int]`) |
+| `range_by(name, lo, hi)` (需 `Compare`) | `[lo, hi)` 区间内记录 | 有序索引;**本库增量**(主蓝本无 range API) |
+| `range_inclusive_by(name, lo, hi)` (需 `Compare`) | `[lo, hi]` 闭区间 | 同上 |
+| `iter_asc_by(name)` / `iter_desc_by(name)` (需 `Compare`) | 按索引键升/降序遍历全部记录 | 同上 |
+
+> **范围查询返回惰性迭代器**,不预先收集成数组(避免大区间一次性物化)。
 | `get(id : RowId) -> V?` | 按句柄取记录 | 陈旧 id → `None` |
 | `contains(id : RowId) -> Bool` | — | |
 | `len() -> Int` / `is_empty() -> Bool` | — | |
@@ -204,6 +262,46 @@ pub struct Table[K, V] {
 > `verify_invariants` 是**公开 API**而非仅测试辅助:调用方可在自己的断言里使用它。
 > 这与 bimap 的 `check_bijection`(仅测试内)不同 —— 多索引的一致性更难自查,值得公开。
 
+### §3.5 索引表示(2×2 四象限)
+
+| 唯一性 × 有序性 | 存储类型 | 说明 |
+|---|---|---|
+| 唯一 + 哈希 | `Map[K, Int]` | 键 → 槽位号 |
+| 唯一 + 有序 | `SortedMap[K, Int]` | 支持范围查询 |
+| 非唯一 + 哈希 | `Map[K, SortedSet[Int]]` | 桶为**有序集合** |
+| 非唯一 + 有序 | `SortedMap[K, SortedSet[Int]]` | 支持范围查询 |
+
+注册表形态(**待实现时用探针确认后再锁定**):
+
+```moonbit
+enum Index[K, V] {
+  HashUnique(IndexMeta[K, V], Map[K, Int])
+  SortedUnique(IndexMeta[K, V], SortedMap[K, Int])
+  HashMulti(IndexMeta[K, V], Map[K, SortedSet[Int]])
+  SortedMulti(IndexMeta[K, V], SortedMap[K, SortedSet[Int]])
+}
+```
+
+> **索引条目只存槽位号 `Int`,不存 `RowId`**。代际号只用于校验**外部传入**的句柄;桶内条目由本库在
+> 汇聚点内维护,按构造永远指向当前活记录,无需再存一份代际号(省内存,也避免"桶内代际"与
+> `gens` 两份真源不一致)。这是与"存全量 `RowId`"相比的关键简化。
+
+### §3.6 语义裁定:为什么没有 `update_unindexed`
+
+主蓝本把更新拆成两条路径:`update_by_*`(闭包只拿到**未索引字段**,O(1),不碰索引)与
+`modify_by_*`(闭包拿到整条记录,需重建索引)。这个拆分在 Rust 里是**类型级**的保证
+(`get_mut_by_*` 只返回未索引字段的 `&mut`)。
+
+**MoonBit 无法返回指向数组元素的 `&mut` 投影**,该拆分无法在类型层复现。本库的替代方案:
+
+- 只提供 `modify(id, f : (V) -> V)`;
+- 实现内**逐索引对比新旧投影键**:键未变的索引**完全不动**(不删桶、不加桶),即自动获得
+  `update_unindexed` 的 O(1) 效果;
+- 索引不变量由"新记录重新投影"保证,不存在"调用方拿到 `&mut` 后破坏不变量"的路径。
+
+> 代价:即使只改一个未索引字段,也要构造一条新记录(`f` 是纯变换 `(V) -> V`)。
+> 收益:API 只有一条更新路径,少一个能破坏不变量的入口。
+
 ---
 
 ## §4 核心不变量(属性测试的靶子)
@@ -211,12 +309,13 @@ pub struct Table[K, V] {
 ```
 I1  order 中每个槽位都是活记录,且无重复
 I2  活记录数 == len == order.length()
-I3  每条索引的每个桶内,槽位无重复
+I3  每条索引的每个桶内,槽位无重复(桶为 `SortedSet`,结构上已保证;仍作交叉校验)
 I4  桶内每个槽位 s 满足 (idx.project)(rows[s]) == 桶键
 I5  唯一索引的每个桶长度 <= 1
 I6  free 中无重复,且 free 与活记录集合不相交
 I7  每个活记录恰好出现在每条索引的对应桶中(无遗漏、无悬挂)
 I8  version 仅在真实变更时递增
+I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见 §3.4)
 ```
 
 **I5 与 I7 必须成对校验**:I7 防"漏",I5 防"多"。
@@ -233,6 +332,9 @@ I8  version 仅在真实变更时递增
 1. **`update` 必须做"排除自身"的冲突检查** —— 记录更新成自身已有的唯一键不算冲突。
 2. **冲突检查在任何变更之前完成** —— 返回 `Err` 时表必须与调用前等价。
 3. **删旧桶与加新桶之间不得有可观察中间态** —— 键不变时走快路径。
+4. **`modify` 必须先完成全部唯一性预检,再一次性提交索引变更** —— 主蓝本 `modify_by_*` 的顺序是
+   "先删旧键 → 再插新键 → 失败则 panic",**panic 时索引已半更新、容器脏掉**(§0.4-1)。
+   本库的顺序固定为:**算新投影 → 对每个唯一索引预检(排除自身)→ 全部通过后统一落地**。
 
 ---
 
@@ -297,3 +399,12 @@ I8  version 仅在真实变更时递增
 - **不提供**二级索引的磁盘落盘 / B+ 树页式存储:纯内存。
 - **不提供**索引的"部分索引 / 表达式索引 / 复合索引":投影是单字段到单键的函数。
 - **不依赖** `aurasuisui/bimap` 或 `aurasuisui/indexmap`(同作者作品,代码独立)。
+
+### v0.2 候选(本期明确不做,记录以免遗忘)
+
+- `insert_or_replace(rec) -> Overwritten`:覆盖式 upsert 并结构化返回被顶替的记录
+  (学同作者 `bimap` 的 `Overwritten`;主蓝本也把它列在 Future work)。
+- schema → MoonBit 源码生成器:把运行时闭包投影静态展开,获得等价 derive 的零开销
+  (主蓝本靠过程宏,我们靠代码生成)。
+- 密集整数键的 SparseSet 式加速(参照 bevy `ComponentSparseSet` 的 dense+sparse 双数组)。
+- 批量重建索引 `rebuild_index(name)` / 延迟建索引。

@@ -33,7 +33,9 @@
 | [`MOONBIT_REF.md`](MOONBIT_REF.md) | MoonBit 语法/惯用法速查(移植自 moonbit-bimap,非本库专属) | 写 MoonBit 卡壳 |
 | [`SESSION_PLAYBOOK.md`](SESSION_PLAYBOOK.md) | **任务会话手册**:讨论方案→执行→卡住决策→看门狗→知识回写 | 开新任务会话 |
 | [`plans/v0.1.0.md`](plans/v0.1.0.md) | v0.1.0 详细设计方案 | 执行 v0.1.0 里程碑时 |
-| [`../tools/diffgen/README.md`](../tools/diffgen/README.md) | 差分夹具生成器(参考实现:Rust `multi_index_map`;开发工具,非包内容) | 重新生成差分夹具时 |
+| [`research/rust-ecosystem-2026-10-14.md`](research/rust-ecosystem-2026-10-14.md) | **Rust 生态调研报告**(逐行读 `generators.rs` 的源码级核对:许可证/API/实现/缺口) | 想核对"为什么这么设计"的依据时 |
+| [`../NOTICE`](../NOTICE) | 第三方来源与许可证归属(移植/参考合规) | 发版前、被问来源时 |
+| [`../tools/diffgen/README.md`](../tools/diffgen/README.md) | 差分夹具生成器(参考实现:Rust `multi_index_map` v0.15.1;开发工具,非包内容) | 重新生成差分夹具时 |
 | [`../bench/README.md`](../bench/README.md) | 计时基准(官方 `@bench` 框架,native+release) | 跑/解读性能基准时 |
 | `README.md`(本文件) | 文档枢纽/全量地图 | 不知道读哪份 |
 

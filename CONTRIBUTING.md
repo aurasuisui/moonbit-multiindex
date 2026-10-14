@@ -60,31 +60,43 @@ moon fmt     # format
 
 ```
 Table[K, V]
-├── rows    : Array[V?]                      ← slot storage; None = free slot
-├── gens    : Array[Int]                     ← per-slot generation, +1 on recycle
-├── free    : Array[Int]                     ← free-slot stack (LIFO)
-├── order   : Array[Int]                     ← live slots in insertion order
-├── indexes : Map[String, Index[K, V]]       ← hash indexes (unique / non-unique)
-├── sorted  : Map[String, SortedIndex[K, V]] ← sorted indexes (range queries)
+├── rows    : Array[V?]                  ← slot storage; None = free slot
+├── gens    : Array[Int]                 ← per-slot generation, +1 on recycle
+├── free    : Array[Int]                 ← free-slot stack (LIFO); retired slots NEVER re-enter (I9)
+├── order   : Array[Int]                 ← live slots in insertion order
+├── indexes : Map[String, Index[K, V]]   ← the 2x2 index registry
 ├── mut len : Int
-└── mut version : Int                        ← mutation counter (fail-fast iterators)
+└── mut version : Int                    ← mutation counter (fail-fast iterators)
+
+Index quadrants (matches the reference's hashed/ordered x unique/non-unique):
+   unique + hashed   -> Map[K, Int]
+   unique + ordered  -> SortedMap[K, Int]
+   non-unique + hashed  -> Map[K, SortedSet[Int]]
+   non-unique + ordered -> SortedMap[K, SortedSet[Int]]
+
+Index entries store **slot numbers only, never RowId** — generations exist only to
+validate caller-supplied handles; bucket entries are maintained inside the chokepoints
+and always point at the current live record.
 ```
 
 **Indexes never store values** — they store slot numbers only. Values live in exactly one
 place (`rows`), which is what makes "one update touches all indexes and stays consistent"
-tractable. Bucket type is `Array[Int]`; removing from a bucket is a linear scan.
+tractable. Buckets are **sorted sets** (`SortedSet[Int]`), so removing one entry is O(log k)
+rather than the O(k) a plain array would cost on large buckets. The trade-off: **bucket
+iteration order is slot-number ascending, not insertion order.**
 
 ### The invariants (must ALWAYS hold — see docs/DEVPLAN.md §3)
 
 ```
 I1  every slot in `order` is live, and appears once
 I2  live record count == len == order.length()
-I3  no duplicate slots inside any bucket
+I3  no duplicate slots inside any bucket (structural for SortedSet; cross-checked anyway)
 I4  for every bucket entry s: (idx.project)(rows[s]) == bucket key
 I5  every UNIQUE index bucket has length <= 1
 I6  `free` has no duplicates and is disjoint from live slots
 I7  every live record appears in exactly the right bucket of every index
 I8  version only increments on a real change
+I9  retired slots never re-enter free (exhausted generation -> slot permanently removed)
 ```
 
 **I5 and I7 must be checked as a pair**: I7 catches "missing", I5 catches "extra". Skipping I5
@@ -102,7 +114,7 @@ Every mutation funnels through exactly three private helpers; **no other code ma
 | `remove_impl` | bucket-del in every index → `rows[slot]=None` → `gens[slot]+=1` → `free.push` → compact `order` |
 | `update_impl` | conflict check **excluding self** → bucket-del old in every index → write row → bucket-add new in every index |
 
-### Three high-risk paths (validated by the design probe)
+### Four high-risk paths (probe- and source-validated)
 
 1. **`update` must conflict-check *excluding itself*.** The probe showed that omitting this lets
    a record take a unique key already held by another record, silently breaking I5.
@@ -110,6 +122,10 @@ Every mutation funnels through exactly three private helpers; **no other code ma
    equivalent to before the call (mirrors bimap's `insert_no_overwrite`).
 3. **No observable intermediate state between old-bucket-removal and new-bucket-insertion.**
    When the key is unchanged, take a fast path instead of delete-then-add.
+4. **`modify` must finish all uniqueness pre-checks before committing any index change.**
+   The Rust reference removes the old key first and only then tries the new one, **panicking
+   mid-way and leaving dirty indexes** (`generators.rs:322-332`). Our order is fixed:
+   compute new projections → pre-check every unique index (excluding self) → commit together.
 
 ---
 

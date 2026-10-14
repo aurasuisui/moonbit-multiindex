@@ -34,26 +34,35 @@
 
 ```
 Table[K, V]
-├── rows    : Array[V?]                    # 槽位存储;None = 空槽
-├── gens    : Array[Int]                   # 每槽代际号,槽复用时 +1
-├── free    : Array[Int]                   # 空闲槽栈(LIFO)
-├── order   : Array[Int]                   # 插入序(活记录的槽位)
-├── indexes : Map[String, Index[K, V]]     # 哈希索引(唯一 / 非唯一)
-├── sorted  : Map[String, SortedIndex[K, V]] # 有序索引(可范围查询)
-├── mut len : Int                          # 活记录数
-└── mut version : Int                      # 变更计数器(fail-fast 迭代器)
+├── rows    : Array[V?]              # 槽位存储;None = 空槽
+├── gens    : Array[Int]             # 每槽代际号,槽复用时 +1
+├── free    : Array[Int]             # 空闲槽栈(LIFO);**退役槽位不入栈**(I9)
+├── order   : Array[Int]             # 插入序(活记录的槽位)
+├── indexes : Map[String, Index[K, V]]  # 2×2 四象限索引注册表
+├── mut len : Int                    # 活记录数
+└── mut version : Int                # 变更计数器(fail-fast 迭代器)
 ```
 
+**索引四象限**(与主蓝本 `hashed_unique` / `ordered_unique` / `hashed_non_unique` /
+`ordered_non_unique` 一一对应):
+
+| 唯一性 × 有序性 | 存储 |
+|---|---|
+| 唯一 + 哈希 | `Map[K, Int]` |
+| 唯一 + 有序 | `SortedMap[K, Int]` |
+| 非唯一 + 哈希 | `Map[K, SortedSet[Int]]` |
+| 非唯一 + 有序 | `SortedMap[K, SortedSet[Int]]` |
+
 ```
-Index[K, V]        { name : String, unique : Bool, project : (V) -> K,
-                     entries : Map[K, Array[Int]] }        # 键 → 槽位桶
-SortedIndex[K, V]  { name : String, project : (V) -> K,
-                     entries : SortedMap[K, Array[Int]] }
-RowId              { slot : Int, gen : Int }
+RowId  { slot : Int, gen : Int }     # 只作为**外部句柄**
 ```
 
-**关键点**:索引**不存值**,只存槽位号;值永远只住在 `rows` 里(单一真源)。
-桶内槽位用**尾部交换删除**或顺序删除,`Array[Int]` 不做哈希。
+**关键点**:
+1. 索引**不存值**,只存**槽位号**;值永远只住在 `rows` 里(单一真源)。
+2. 索引条目**只存槽位号 `Int`,不存 `RowId`** —— 代际号只用于校验外部传入的句柄;
+   桶内条目由汇聚点维护,按构造永远指向当前活记录。
+3. **桶用有序集合而非数组**:初稿曾选 `Array[Int]`(保插入序、常量小),但大桶下 O(k) 线性删除
+   不可接受;主蓝本 0.6.0 已因性能把 `Vec` 换成 `BTreeSet`。**代价:桶内顺序为槽位号升序**。
 
 ---
 
@@ -62,12 +71,13 @@ RowId              { slot : Int, gen : Int }
 ```
 I1  order 中每个槽位都是活记录,且无重复
 I2  活记录数 == len == order.length()
-I3  每条索引的每个桶内,槽位无重复
+I3  每条索引的每个桶内,槽位无重复(桶为 SortedSet,结构上已保证;仍作交叉校验)
 I4  桶内每个槽位 s 满足 (idx.project)(rows[s]) == 桶键        # 投影一致
 I5  唯一索引的每个桶长度 ≤ 1                                   # 唯一性
 I6  free 中无重复,且 free 与活记录集合不相交
 I7  每个活记录恰好出现在每条索引的对应桶中(无遗漏、无悬挂)     # 完备性
 I8  version 仅在真实变更时递增
+I9  退役槽位永不回到 free(代际号达上限的槽位永久移出自由链表)
 ```
 
 > **I5 是探针实测抓出来的漏洞**:最初版本的 `verify` 只查了 I3/I4,`update` 又漏了冲突检查,
@@ -96,6 +106,10 @@ I8  version 仅在真实变更时递增
    表必须与调用前**逐字节等价**(探针实测:冲突后 `verify=true`、`len` 不变)。
 3. **`update` 的删旧桶 / 加新桶之间不能有可观察的中间态**。若"旧键 == 新键"(记录只改了
    非索引字段),应走快路径:不做桶增删,或删后立即加回。
+4. **`modify` 必须先完成全部唯一性预检,再一次性提交**(第二轮调研新增)。
+   主蓝本 `modify_by_*` 的顺序是"先删旧键 → 再插新键 → 若插入返回 `Some` 则 panic"
+   (`generators.rs:322-332`),**panic 时索引已半更新,容器脏掉**。
+   本库固定顺序:**算新投影 → 逐唯一索引预检(排除自身) → 全部通过后统一落地**。
 
 ---
 
@@ -106,8 +120,8 @@ I8  version 仅在真实变更时递增
 | `insert` | O(I + Σ 桶代价) | I = 索引数;加桶是 O(1) 均摊 |
 | `get_by(index, key)` | O(1) 均摊 | 哈希索引直接查桶 |
 | `range_by(index, lo, hi)` | O(log n + k) | 有序索引 SortedMap |
-| `remove(id)` | O(I + Σ 桶长) | 每索引删桶;桶内线性查找 |
-| `update(id, v)` | O(I + Σ 桶长) | 删旧桶 + 加新桶 |
+| `remove(id)` | O(I + Σ log 桶) | 每索引删桶;非唯一桶为有序集合,O(log k) |
+| `modify(id, f)` | O(I) 预检 + Σ(变化索引的 log 桶) | **键未变的索引完全不动** |
 | `iter()` | O(len) | 沿 `order` 遍历 |
 | 空间 | O(len + Σ 索引条目) | 索引只存槽位号 |
 

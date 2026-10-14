@@ -45,14 +45,23 @@ so root `moon check`/`moon test` never touches them.
 
 ```
 Table[K, V]
-├── rows    : Array[V?]                      ← slot storage; None = free slot
-├── gens    : Array[Int]                     ← per-slot generation, +1 on recycle
-├── free    : Array[Int]                     ← free-slot stack (LIFO)
-├── order   : Array[Int]                     ← live slots in insertion order
-├── indexes : Map[String, Index[K, V]]       ← hash indexes (unique / non-unique)
-├── sorted  : Map[String, SortedIndex[K, V]] ← sorted indexes (range queries)
+├── rows    : Array[V?]                  ← slot storage; None = free slot
+├── gens    : Array[Int]                 ← per-slot generation, +1 on recycle
+├── free    : Array[Int]                 ← free-slot stack (LIFO); retired slots NEVER re-enter (I9)
+├── order   : Array[Int]                 ← live slots in insertion order
+├── indexes : Map[String, Index[K, V]]   ← the 2x2 index registry
 ├── mut len : Int
-└── mut version : Int                        ← mutation counter (fail-fast iterators)
+└── mut version : Int                    ← mutation counter (fail-fast iterators)
+
+Index quadrants (matches the reference's hashed/ordered x unique/non-unique):
+   unique + hashed   -> Map[K, Int]
+   unique + ordered  -> SortedMap[K, Int]
+   non-unique + hashed  -> Map[K, SortedSet[Int]]
+   non-unique + ordered -> SortedMap[K, SortedSet[Int]]
+
+Index entries store **slot numbers only, never RowId** — generations exist only to
+validate caller-supplied handles; bucket entries are maintained inside the chokepoints
+and always point at the current live record.
 ```
 
 Indexes store **slot numbers, never values**; values live only in `rows`. See
@@ -65,6 +74,7 @@ I1 order slots live & unique      I2 live count == len == order.length()
 I3 no duplicate slots in a bucket I4 bucket entry projects back to the bucket key
 I5 unique index bucket length <= 1  I6 free disjoint from live, no duplicates
 I7 every live record is in the right bucket of every index   I8 version only on real change
+I9 retired slots never re-enter free (generation exhausted -> slot permanently removed)
 ```
 
 **I5 + I7 must be checked as a pair** — I7 catches "missing", I5 catches "extra".
@@ -75,10 +85,13 @@ I7 every live record is in the right bucket of every index   I8 version only on 
 `insert_impl` / `remove_impl` / `update_impl` are the only places allowed to touch
 `rows` + `order` + `indexes` + `gens` + `free` together.
 
-**Three high-risk paths (probe-validated):**
+**Four high-risk paths (probe- and source-validated):**
 1. `update` must conflict-check **excluding self**.
 2. Conflict checks run **before any mutation** — on `Err` the table is unchanged.
 3. No observable intermediate state between bucket-del and bucket-add (fast-path equal keys).
+4. `modify` must finish **all** uniqueness pre-checks before committing any index change.
+   The reference implementation removes-then-inserts and **panics mid-way, leaving dirty indexes**
+   (`generators.rs:322-332`) — do not copy that ordering.
 
 ## Testing conventions
 

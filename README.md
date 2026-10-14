@@ -32,15 +32,19 @@ ECS 式实体索引;配置项多路检索。
 ```moonbit
 // 计划中的形态(以 SPEC.md 为准)
 let t : @aurasuisui/multiindex.Table[String, User] = @aurasuisui/multiindex.Table::new()
-t.register_unique("email", fn(u) { u.email })
-t.register_non_unique("city", fn(u) { u.city })
-t.register_sorted("age", fn(u) { u.age })
+t.register_unique("email", fn(u) { u.email })              // 哈希唯一
+t.register_non_unique("city", fn(u) { u.city })            // 哈希非唯一
+t.register_unique_ordered("age", fn(u) { u.age })          // 有序唯一
+t.register_non_unique_ordered("score", fn(u) { u.score })  // 有序非唯一
 
-let id = t.insert(user)              // -> RowId
+let id = t.insert(user)              // -> Result[RowId, Rejected]
 t.get_by("email", "a@b.c")           // -> 唯一命中
-t.iter_by("city", "beijing")         // -> 多条
-t.range_by("age", 18, 30)            // -> 范围
+t.iter_by("city", "beijing")         // -> 多条(槽位号升序)
+t.range_by("age", 18, 30)            // -> [18, 30) 范围内的记录
+t.modify(id, fn(u) { { ..u, age: u.age + 1 } })
 ```
+
+**四象限索引**:唯一性(unique / non-unique)× 有序性(hashed / ordered),四个注册方法,不做含糊的三合一。
 
 ## 与生态中已有项目的关系
 
@@ -74,9 +78,12 @@ t.range_by("age", 18, 30)            // -> 范围
 **本库的原创新增**(这些在主蓝本中不存在):
 
 1. **代际 `RowId`(ABA 防护)** —— 主蓝本的 `Slab` 槽位复用不带代际号,陈旧下标会静默命中复用该槽的**新**元素。
-2. **运行时注册索引**(闭包投影)—— 主蓝本依赖 derive 宏;MoonBit 无等价机制,故采用运行时注册,代价是索引名运行时校验,收益是可动态增删/枚举索引。
-3. **插入序语义** —— 主蓝本按槽位序遍历;本库额外维护 `order`。
-4. **公开 `verify_invariants()`** —— 主蓝本没有一致性自检 API。
+2. **范围查询** —— 主蓝本的 ordered 索引只暴露点查与全量遍历,**没有 range**;本库提供 `range_by` / `range_inclusive_by` / `iter_asc_by` / `iter_desc_by`。
+3. **绝不 panic、且冲突时归还记录** —— 主蓝本 `insert` 冲突直接 panic,`modify_by_*` 冲突时更是**先删旧键再 panic,留下脏索引**;本库只有 `Result`,且 `Rejected[K,V]` 把记录原样还给调用方。
+4. **代际号溢出即退役槽位** —— 所有 Rust 参考实现都选择静默回绕(bevy 文档明写 "generations can (and do) wrap or alias");本库让陈旧句柄永不复活。
+5. **运行时注册索引**(闭包投影)—— 主蓝本依赖 derive 宏;MoonBit 无等价机制,故采用运行时注册,代价是索引名运行时校验,收益是可动态增删/枚举索引。
+6. **插入序语义** —— 主蓝本按槽位序遍历;本库额外维护 `order`。
+7. **公开 `verify_invariants()`** —— 主蓝本没有一致性自检 API。
 
 **其他参考**:`slotmap`(Zlib)/ `thunderdome`(MIT OR Apache-2.0)/ `hecs`(MIT OR Apache-2.0)
 提供"槽位 + 代际号"稳定键方案的先例;`generational-arena`(**MPL-2.0**)仅借鉴思路、不复制代码。

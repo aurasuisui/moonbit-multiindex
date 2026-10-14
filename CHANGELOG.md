@@ -22,12 +22,16 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 
 #### 与参考实现 `multi_index_map` 的取舍(`docs/SPEC.md` §0.3)
 
-| 取舍点 | 参考实现 | 本库 | 理由 |
+| 取舍点 | 参考实现 `multi_index_map` 0.15.1 | 本库 | 理由 |
 |---|---|---|---|
 | 句柄 | `usize` 槽下标 | `RowId{slot, gen}` | **ABA 防护**(原创) |
-| 非唯一桶 | `BTreeSet<usize>` | `Array[Int]` | 桶通常很短、常量更小、保持插入序;去重由 I3 保证 |
-| 冲突语义 | `try_insert`→`Err`;`insert`→覆盖 | **一律 `Err`,绝不静默覆盖** | 与同作者 `bimap` 的显式冲突上报风格一致 |
+| 非唯一桶 | `BTreeSet<usize>` | **`SortedSet[Int]`(采纳同一路线)** | 初稿选 `Array[Int]` 以保插入序,但**大桶下 O(k) 线性删除不可接受**;参考实现 0.6.0 已因性能把 `Vec` 换成 `BTreeSet`。**代价:桶内顺序变为槽位号升序** |
+| 冲突语义 | `try_insert`→`Err`(归还元素);`insert`→**panic** | **只有 `Result`,且归还记录**(`Rejected[K,V]`);绝不 panic | MoonBit 的 panic 等价 abort;记录按值传递,不归还则调用方**丢失数据** |
+| `modify` 原子性 | 先删旧键再插新键,**失败则 panic 并留下脏索引**(缺陷) | **先全量预检,再一次性提交** | 修正上游缺陷 |
+| 范围查询 | **无**(ordered 索引只暴露点查与全量遍历) | `range_by` / `range_inclusive_by` / `iter_asc_by` / `iter_desc_by` | 上游 API 层缺口,本库增量 |
+| 代际号溢出 | **静默回绕**(slotmap / thunderdome / hecs / bevy 一致) | **溢出即退役槽位** | 陈旧句柄永不复活(不变量 I9) |
 | 索引定义 | derive 宏(编译期) | 运行时闭包注册 | MoonBit 无等价宏机制 |
+| 更新路径 | `update_by_*`(仅未索引字段)+ `modify_by_*` | 只有 `modify`,内部**逐索引键对比**只动变化的桶 | MoonBit 无法返回指向数组元素的 `&mut` 投影 |
 
 **许可证**:主蓝本 `multi_index_map` 为 MIT(兼容本项目 Apache-2.0,已在 README 致谢保留归属);
 `generational-arena` 为 MPL-2.0,**仅借鉴思路、未复制代码**。详见 `docs/SPEC.md` §0。
