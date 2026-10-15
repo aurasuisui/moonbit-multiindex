@@ -178,6 +178,10 @@ Every mutation funnels through exactly three private helpers; **no other code ma
 5. Update the API table in `README.md` **and** the contract in `docs/SPEC.md`.
 6. Add a CHANGELOG entry.
 7. Run the five-step CI locally.
+8. **Version bump follows the change's nature** — see the 版本策略 section in
+   [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md). A backwards-compatible addition is a
+   **MINOR** bump, a compatible fix is **PATCH**, and an incompatible change is **MAJOR**
+   (the `0.x` exemption is **not** used in this project). Decide it from the diff, not by habit.
 
 ---
 
