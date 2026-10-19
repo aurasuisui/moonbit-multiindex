@@ -173,12 +173,11 @@ pub fn[K : Hash + Eq + Compare, V] Table::get_by(
   key : K,
 ) -> (RowId, V)? {
   let index = self.require_index(name)
-  // `slots` is ascending, so [0] is the smallest slot in the bucket.
-  let slots = index.slots(key)
-  if slots.length() == 0 {
-    return None
+  // `first_slot` is the smallest slot of the bucket and never materializes it.
+  match index.first_slot(key) {
+    Some(slot) => self.record_at(slot)
+    None => None
   }
-  self.record_at(slots[0])
 }
 
 ///|
@@ -396,6 +395,14 @@ fn[K, V] Table::verify_storage(self : Table[K, V]) -> Result[Unit, String] {
       self.gens.length().to_string(),
     )
   }
+  if self.positions.length() != n {
+    return Err(
+      "I1: `positions` holds " +
+      self.positions.length().to_string() +
+      " slots but `rows` holds " +
+      n.to_string(),
+    )
+  }
   if self.len < 0 {
     return Err("I2: len is negative (" + self.len.to_string() + ")")
   }
@@ -450,6 +457,35 @@ fn[K, V] Table::verify_storage(self : Table[K, V]) -> Result[Unit, String] {
     }
     in_order[slot] = true
     j = j + 1
+  }
+  // I1 (inverse half): `positions` is the inverse of `order` — every live slot
+  // remembers where it sits, every dead slot carries the -1 sentinel.
+  let mut p = 0
+  while p < self.order.length() {
+    let slot = self.order[p]
+    if self.positions[slot] != p {
+      return Err(
+        "I1: `positions` says slot " +
+        slot.to_string() +
+        " sits at " +
+        self.positions[slot].to_string() +
+        " but `order` puts it at " +
+        p.to_string(),
+      )
+    }
+    p = p + 1
+  }
+  let mut q = 0
+  while q < n {
+    if !live[q] && self.positions[q] != -1 {
+      return Err(
+        "I1: dead slot " +
+        q.to_string() +
+        " has `positions` entry " +
+        self.positions[q].to_string(),
+      )
+    }
+    q = q + 1
   }
   // I6: `free` is clean and disjoint from the live set
   let in_free : Array[Bool] = Array::make(n, false)

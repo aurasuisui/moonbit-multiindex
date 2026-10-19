@@ -72,7 +72,11 @@ t.verify_invariants()                // -> Result[Unit, String](首个违反点 
 | `insert(v)` | `Result[RowId, Rejected[K, V]]` |
 | `insert_many(vs)` | `Result[Array[RowId], Rejected[K, V]]`;**整批原子**,含**批内互相冲突** |
 | `update(id, v)` / `modify(id, f)` | `Result[Unit, UpdateRejected[K, V]]`;排除自身的唯一性预检 |
-| `remove(id)` / `clear()` | 删除单条(旧句柄失效)/ 清空记录与索引条目(**保留注册**) |
+| `remove(id)` / `swap_remove(id)` / `clear()` | 删除单条(旧句柄失效):`remove` **保插入序**、O(len);`swap_remove` 末位换位、**O(1)** 但打乱插入序 / 清空记录与索引条目(**保留注册**) |
+
+**什么时候用哪个**:下一个 `iter()` 必须是插入序 → `remove`;只关心"删掉、还要快"(队列式消费、批量清理)
+→ `swap_remove`。两者对索引、`len`、`version`、槽位复用的作用完全相同,被移动的只是插入序里的**槽位**,
+所有存活 `RowId` 继续有效。
 
 **查询**
 

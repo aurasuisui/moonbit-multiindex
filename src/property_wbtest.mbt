@@ -244,6 +244,41 @@ test "the invariant guard is not vacuous: it rejects a corrupted order array" {
 }
 
 ///|
+test "the invariant guard is not vacuous: it rejects a corrupted positions array" {
+  let t : Table[Int32, Int32] = Table::new()
+  let a = wb_insert(t, 1)
+  let b = wb_insert(t, 2)
+  check_invariants(t)
+  t.positions[b.slot] = 0 // corrupt I1: b sits at order index 1, not 0
+  let caught = try {
+    check_invariants(t)
+    false
+  } catch {
+    _ => true
+  }
+  @test.assert_eq(caught, true)
+  @test.assert_eq(t.get(a), Some(1))
+}
+
+///|
+test "the invariant guard is not vacuous: it rejects a dead slot without the -1 sentinel" {
+  let t : Table[Int32, Int32] = Table::new()
+  let a = wb_insert(t, 1)
+  let b = wb_insert(t, 2)
+  t.remove(b) |> ignore
+  check_invariants(t)
+  t.positions[b.slot] = 1 // corrupt I1: a dead slot must carry -1
+  let caught = try {
+    check_invariants(t)
+    false
+  } catch {
+    _ => true
+  }
+  @test.assert_eq(caught, true)
+  @test.assert_eq(t.get(a), Some(1))
+}
+
+///|
 test "the invariant guard is not vacuous: it rejects a dangling order entry" {
   let t : Table[Int32, Int32] = Table::new()
   let a = wb_insert(t, 1)

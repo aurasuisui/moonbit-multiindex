@@ -274,6 +274,33 @@ fn[K : Hash + Eq + Compare, V] Index::slots(
 }
 
 ///|
+/// The smallest slot stored under `key` (`None` when the key is absent), **without
+/// materializing the bucket**.
+///
+/// This is the only thing `Table::get_by` needs, so a lookup on a fat bucket no
+/// longer copies every slot just to read the first one (docs/SPEC.md §13 R1:
+/// 638 ms → 28 ms per 20 000 lookups into 1 250-record buckets).
+fn[K : Hash + Eq + Compare, V] Index::first_slot(
+  self : Index[K, V],
+  key : K,
+) -> Int32? {
+  match self {
+    HashUnique(_, buckets) => buckets.get(key)
+    SortedUnique(_, buckets) => buckets.get(key)
+    HashMulti(_, buckets) =>
+      match buckets.get(key) {
+        Some(set) => set.iter().next()
+        None => None
+      }
+    SortedMulti(_, buckets) =>
+      match buckets.get(key) {
+        Some(set) => set.iter().next()
+        None => None
+      }
+  }
+}
+
+///|
 /// Whether this index is one of the two **ordered** quadrants.
 ///
 /// This is the predicate behind the docs/SPEC.md §7.1 rule that asking a hash
