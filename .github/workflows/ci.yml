@@ -28,6 +28,8 @@ jobs:
       #     ("declared execution output has multiple producers") — do not add it;
       #   * `+unnecessary_annotation` fires 30x [0073], 12 of them on the intentional
       #     black-box `@aurasuisui/multiindex.` prefix — do not enable it.
+      # Warning 0074 (missing_doc) is enabled per package in src/moon.pkg, so this
+      # step also fails on any public definition without a `///` doc block.
       - name: Warning check (deny-warn, all targets)
         run: moon check --deny-warn --target all
       - name: Interface check (mbti up-to-date)

@@ -14,3 +14,10 @@ import {
   "moonbitlang/core/random",
   "moonbitlang/core/test",
 } for "wbtest"
+
+// Warning 0074 (missing_doc) ships "off" in moon 0.1.20261012; turn it on for the
+// published package so every public definition carries `///` docs. Package
+// `warnings` merges with the compiler defaults (checked: 0001 still fires next
+// to it), so this adds a gate without weakening any existing one.
+
+warnings = "+74"

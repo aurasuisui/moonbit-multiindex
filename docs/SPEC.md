@@ -728,3 +728,32 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 >(独立复跑:1.68 / 19.13 / 267.6 µs 对 0.970 / 0.759 / 0.852 µs)。所以正确的表述是
 > **「`remove` 随 n 线性增长、`swap_remove` 持平 ⇒ 比值随 n 增大」,而非「固定倍数 ≥ 5×」**。
 > 基准表已按 n 分档呈现,不报单一「最好看的数字」。`positions` 的代价也已实测:`insert` 持平(0.95 → 0.98 µs/op),`remove` 因搬动时同步写 `positions` 从 34.8 升至 54.5 µs/op(+57%)——只由需要插入序的调用方支付。数据见 `bench/README.md`。
+
+## 14. 文档门禁:warning 0074 `missing_doc`(M10)
+
+- **开关**:告警 **74 / mnemonic `missing_doc`**("Missing documentation for public definition"),在 moon 0.1.20261012 默认 **off**。
+  默认 warn list 里就是 `-74`,所以裸 `moon check` 从不报它。开启写法是 `--warn-list "+74"`(或 `--warn-list "+missing_doc"`)。
+- **落地方式**:写进包的 `src/moon.pkg` 顶层 `warnings = "+74"`,而不是 CI 命令行 —— 这样本地 `moon check`、CI、
+  以及下游任何使用者拿到的都是同一个门槛,不存在"CI 开了本地没开"的漂移。CI 的 `moon check --deny-warn --target all`
+  因此自动覆盖它(步骤未改命令,只加了注释)。
+- **与默认集合并,不覆盖**:包的 `warnings` 与编译器默认列表叠加(实测 `0001` 与 `0074` 同时触发)。
+  `options("warn-list": ...)` 是**弃用**写法(`[0027] deprecated_syntax`),不要用。
+- **只管公开面**:实测 `priv struct` / `priv fn` 缺文档**不报** 74,只有 `pub` 定义报。正好符合 SPEC 的意图。
+- **当前状态**:开启后四后端 `moon check --deny-warn --target all` = **0 warnings 0 errors**,即公开 API 本来就 100%
+  有 `///` 文档,M10 没有补任何一条注释;门的价值是**防回归**(以后新增 `pub` 项漏文档会在 CI 直接红)。
+
+## 15. 形式化验证可行性(M10-B,时间盒内未判定)
+
+- `moon prove` 在 0.1.20261012 **存在**,后端是 **Why3**:`moon prove --why3-config <PATH>`(可用自定义配置),
+  环境变量 `MOON_PROVE_PRELUDE_OVERRIDE` 可替换证明前导。Why3 本身不需要用户安装。
+- 它要求 PATH 里有 **SMT 求解器**:`alt-ergo` / `cvc5` / `z3`(或 `ALTERGOPATH` / `CVC5PATH` / `Z3PATH` 指向)。
+  本机三个都没有,原始报错:
+  `Error: failed to locate any SMT solver for \`moon prove\`: searched for \`alt-ergo\`, \`cvc5\`, \`z3\` in PATH. You can also set ALTERGOPATH, CVC5PATH, or Z3PATH. Install at least one of: Alt-Ergo, CVC5, Z3.`
+- 安装尝试(均失败,时间盒内停止):GitHub releases API 返回 `403`;release 页面在非交互 PowerShell 下抓取失败;
+  `winget search z3` 无该包(只有无关的 Roblox 命中)。
+- **结论:未判定(⏱)**,不是"不可行"。已确定的是**进入门槛 = 一个 SMT 求解器**,moon 侧无需额外组件。
+  所以下一轮只需:装 z3(官方 win64 zip,解压后设 `Z3PATH`)→ `moon prove` 跑一个包 → 再谈 I1/I2。
+- 一条旁证(未验证,别当结论):编译器告警表里有 `missing_invariant`(38)与 `missing_reasoning`(39),
+  均默认 off,说明语言侧确实有 `invariant` / `proof_reasoning` 注解可供证明模式使用;真做 I1 大概率要给循环
+  补这些注解,而不是直接 `moon prove` 就能过。
+- **没有做的事**:没有对任何一条不变量发起证明,因此本文不声称"支持/不支持某构造";也没有弱化过任何不变量。
