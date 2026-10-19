@@ -94,7 +94,7 @@ fn wb_model_remove(
 
 ///|
 test "qc: invariants hold after every step of a random insert/remove sequence" {
-  let r = @random.Rand::new()
+  let r = @random.Rand()
   let mut round = 0
   while round < 30 {
     let t : Table[Int32, Int32] = Table::new()
@@ -145,7 +145,7 @@ test "qc: invariants hold after every step of a random insert/remove sequence" {
 
 ///|
 test "qc: indexed tables satisfy I3/I4/I5/I7 after every step" {
-  let r = @random.Rand::new()
+  let r = @random.Rand()
   let mut round = 0
   while round < 25 {
     let t = wb_indexed_table()
@@ -335,7 +335,7 @@ fn wb_model_index(
 
 ///|
 test "qc: update / modify keep the invariants intact after every step" {
-  let r = @random.Rand::new()
+  let r = @random.Rand()
   let mut round = 0
   while round < 20 {
     let t = wb_indexed_table()

@@ -69,7 +69,7 @@ fn[V : Eq + Debug] model_remove(
 
 ///|
 test "qc: observable invariants hold after every step of a random sequence" {
-  let r = @random.Rand::new()
+  let r = @random.Rand()
   let mut round = 0
   while round < 30 {
     let t : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::new()
@@ -231,7 +231,7 @@ fn check_indexes(
 
 ///|
 test "qc: indexed tables keep every bucket consistent after each step" {
-  let r = @random.Rand::new()
+  let r = @random.Rand()
   let mut round = 0
   while round < 25 {
     let t = indexed_table()
@@ -336,7 +336,7 @@ fn model_index(
 
 ///|
 test "qc: update and modify keep every bucket consistent after each step" {
-  let r = @random.Rand::new()
+  let r = @random.Rand()
   let mut round = 0
   while round < 20 {
     let t = indexed_table()

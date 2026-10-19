@@ -434,7 +434,7 @@ test "model differential: a scripted stream of every operation agrees with the m
 
 ///|
 test "model differential: random streams agree after every step" {
-  let r = @random.Rand::new()
+  let r = @random.Rand()
   let mut round = 0
   while round < 12 {
     let t = triple_table()
