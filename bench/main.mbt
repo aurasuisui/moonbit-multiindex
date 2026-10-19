@@ -1,12 +1,15 @@
-// Timing benchmarks for aurasuisui/multiindex (published artifact).
+// Timing benchmarks for aurasuisui/multiindex (LOCAL workspace module).
 //
 // Standalone module, deliberately NOT part of the root package — same layout as
-// `cmd/`: it imports the PUBLISHED package, so the numbers measure exactly what
-// users install. Uses the official @bench framework (adaptive batching, winsorized
-// statistics). Every closure ends in `b.keep(..)` so nothing is optimized away, and
-// each closure performs `n` operations, so per-op cost = reported microseconds / n.
+// `cmd/`: its manifest must name a versioned registry import, but when the repo-root
+// `moon.work` lists this directory the workspace member wins, so the numbers measure
+// `../src` and not the registry copy (verified with `moon tree`; see bench/README.md).
+// The first line of output prints `VERSION` as evidence. Uses the official @bench
+// framework (adaptive batching, winsorized statistics). Every closure ends in
+// `b.keep(..)` so nothing is optimized away, and each closure performs `n`
+// operations, so per-op cost = reported microseconds / n.
 //
-// Run with:  moon run --release bench/main.mbt
+// Run with:  moon run --release bench/main.mbt   (from the repo root, moon.work in place)
 //
 // Reporting discipline (see bench/README.md): the point is the **k-vs-throughput
 // trade-off table** — "more indexes cost more per write" — not a single headline
@@ -103,6 +106,12 @@ fn main {
   let n = 20_000
   let rows = make_rows(n)
   let bench = @bench.Bench()
+  // B5 evidence: this line must report the *local* workspace module. Run from the repo
+  // root with `moon.work` in place (bench/README.md) — a bare checkout would silently
+  // download the registry copy instead, and after M8 the code would not even compile.
+  println(
+    "# aurasuisui/multiindex VERSION: \{@multiindex.VERSION} (local workspace module)",
+  )
   println(
     "# records per table: \{n}; reported microseconds are per ITERATION (n ops)",
   )
