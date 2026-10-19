@@ -741,3 +741,19 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 - **只管公开面**:实测 `priv struct` / `priv fn` 缺文档**不报** 74,只有 `pub` 定义报。正好符合 SPEC 的意图。
 - **当前状态**:开启后四后端 `moon check --deny-warn --target all` = **0 warnings 0 errors**,即公开 API 本来就 100%
   有 `///` 文档,M10 没有补任何一条注释;门的价值是**防回归**(以后新增 `pub` 项漏文档会在 CI 直接红)。
+
+## 15. 形式化验证可行性(M10-B,时间盒内未判定)
+
+- `moon prove` 在 0.1.20261012 **存在**,后端是 **Why3**:`moon prove --why3-config <PATH>`(可用自定义配置),
+  环境变量 `MOON_PROVE_PRELUDE_OVERRIDE` 可替换证明前导。Why3 本身不需要用户安装。
+- 它要求 PATH 里有 **SMT 求解器**:`alt-ergo` / `cvc5` / `z3`(或 `ALTERGOPATH` / `CVC5PATH` / `Z3PATH` 指向)。
+  本机三个都没有,原始报错:
+  `Error: failed to locate any SMT solver for \`moon prove\`: searched for \`alt-ergo\`, \`cvc5\`, \`z3\` in PATH. You can also set ALTERGOPATH, CVC5PATH, or Z3PATH. Install at least one of: Alt-Ergo, CVC5, Z3.`
+- 安装尝试(均失败,时间盒内停止):GitHub releases API 返回 `403`;release 页面在非交互 PowerShell 下抓取失败;
+  `winget search z3` 无该包(只有无关的 Roblox 命中)。
+- **结论:未判定(⏱)**,不是"不可行"。已确定的是**进入门槛 = 一个 SMT 求解器**,moon 侧无需额外组件。
+  所以下一轮只需:装 z3(官方 win64 zip,解压后设 `Z3PATH`)→ `moon prove` 跑一个包 → 再谈 I1/I2。
+- 一条旁证(未验证,别当结论):编译器告警表里有 `missing_invariant`(38)与 `missing_reasoning`(39),
+  均默认 off,说明语言侧确实有 `invariant` / `proof_reasoning` 注解可供证明模式使用;真做 I1 大概率要给循环
+  补这些注解,而不是直接 `moon prove` 就能过。
+- **没有做的事**:没有对任何一条不变量发起证明,因此本文不声称"支持/不支持某构造";也没有弱化过任何不变量。
