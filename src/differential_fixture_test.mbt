@@ -18,11 +18,11 @@
 /// reference implementation then saw (`records` sorted by id, probe hits sorted).
 struct DiffStep {
   op : String
-  rec : (Int, Int, Int, Int)
+  rec : (Int32, Int32, Int32, Int32)
   ok : Bool
-  len : Int
-  records : Array[(Int, Int, Int, Int)]
-  probes : Array[(String, Int, Array[Int])]
+  len : Int32
+  records : Array[(Int32, Int32, Int32, Int32)]
+  probes : Array[(String, Int32, Array[Int32])]
 }
 
 ///|

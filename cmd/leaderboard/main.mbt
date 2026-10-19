@@ -27,16 +27,16 @@
 /// One player. The key type of the table is `Int`, so every index projects to an
 /// `Int`: the id, the team number, or the score.
 struct Player {
-  id : Int
+  id : Int32
   name : String
-  team : Int
-  score : Int
+  team : Int32
+  score : Int32
 } derive(Debug)
 
 ///|
 /// Build the table every demo below shares: three indexes over the same records.
-fn new_table() -> @multiindex.Table[Int, Player] {
-  let t : @multiindex.Table[Int, Player] = @multiindex.Table::new()
+fn new_table() -> @multiindex.Table[Int32, Player] {
+  let t : @multiindex.Table[Int32, Player] = @multiindex.Table::new()
   let _ = t.register_unique("id", fn(p) { p.id })
   let _ = t.register_non_unique("team", fn(p) { p.team })
   let _ = t.register_non_unique_ordered("score", fn(p) { p.score })
@@ -46,7 +46,7 @@ fn new_table() -> @multiindex.Table[Int, Player] {
 ///|
 /// Insert, reporting what happened the way the API does: `Err` carries both the
 /// conflict and the record that was refused (so nothing is ever lost).
-fn add(t : @multiindex.Table[Int, Player], player : Player) -> Unit {
+fn add(t : @multiindex.Table[Int32, Player], player : Player) -> Unit {
   match t.insert(player) {
     Ok(id) => println("  added  #\{player.id} \{player.name} (\{id})")
     Err(rejected) =>

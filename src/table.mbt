@@ -31,7 +31,7 @@
 /// Spelled as an explicit literal on purpose: `1 << 62` is *silently* reduced
 /// modulo the 32-bit width to `1 << 30` — no error, no warning — so a shift would
 /// change meaning without notice if `Int` ever widened.
-const GEN_MAX : Int = 1073741824
+const GEN_MAX : Int32 = 1073741824
 
 ///|
 /// A record store with N secondary indexes over stable generational handles.
@@ -43,12 +43,12 @@ const GEN_MAX : Int = 1073741824
 /// registered over the records and are kept consistent by the chokepoints.
 pub struct Table[K, V] {
   priv rows : Array[V?]
-  priv gens : Array[Int]
-  priv free : Array[Int]
-  priv order : Array[Int]
+  priv gens : Array[Int32]
+  priv free : Array[Int32]
+  priv order : Array[Int32]
   priv indexes : Map[String, Index[K, V]]
-  priv mut len : Int
-  priv mut version : Int
+  priv mut len : Int32
+  priv mut version : Int32
 }
 
 // ---------------------------------------------------------------------------
@@ -75,7 +75,7 @@ pub fn[K, V] Table::new() -> Table[K, V] {
 /// The reserved slots are all vacant, so they all go on `free` — pushed
 /// high-to-low, so the LIFO stack hands out slot 0 first and the first `cap`
 /// inserts never have to grow the slot arrays. `cap <= 0` reserves nothing.
-pub fn[K, V] Table::with_capacity(cap : Int) -> Table[K, V] {
+pub fn[K, V] Table::with_capacity(cap : Int32) -> Table[K, V] {
   let t = Table::new()
   let mut i = cap - 1
   while i >= 0 {
@@ -93,7 +93,7 @@ pub fn[K, V] Table::with_capacity(cap : Int) -> Table[K, V] {
 
 ///|
 /// Number of live records.
-pub fn[K, V] Table::len(self : Table[K, V]) -> Int {
+pub fn[K, V] Table::len(self : Table[K, V]) -> Int32 {
   self.len
 }
 
@@ -134,7 +134,7 @@ pub fn[K, V] Table::contains(self : Table[K, V], id : RowId) -> Bool {
 ///
 /// Reading the row copies the record value — the same shallow copy docs/SPEC.md
 /// §3.3 accepts for queries (a record's own containers stay shared).
-fn[K, V] Table::record_at(self : Table[K, V], slot : Int) -> (RowId, V)? {
+fn[K, V] Table::record_at(self : Table[K, V], slot : Int32) -> (RowId, V)? {
   if slot < 0 || slot >= self.rows.length() {
     return None
   }
@@ -206,7 +206,7 @@ fn[K : Hash + Eq + Compare, V] Table::find_conflict(
 fn[K : Hash + Eq + Compare, V] Table::find_conflict_excluding(
   self : Table[K, V],
   value : V,
-  exclude_slot : Int,
+  exclude_slot : Int32,
 ) -> Conflict[K]? {
   let mut best_name : String? = None
   let mut best : Conflict[K]? = None
@@ -242,7 +242,7 @@ fn[K : Hash + Eq + Compare, V] Table::find_conflict_excluding(
 /// Allocate a slot: reuse the most recently freed one (LIFO), or grow the slot
 /// arrays by one. Retired slots are never in `free`, so they are never handed
 /// out again (I9).
-fn[K, V] Table::alloc_slot(self : Table[K, V]) -> Int {
+fn[K, V] Table::alloc_slot(self : Table[K, V]) -> Int32 {
   match self.free.pop() {
     Some(slot) => slot
     None => {
@@ -256,7 +256,7 @@ fn[K, V] Table::alloc_slot(self : Table[K, V]) -> Int {
 
 ///|
 /// Drop `slot` from `order`, keeping the insertion order of the rest (O(n)).
-fn[K, V] Table::order_remove(self : Table[K, V], slot : Int) -> Unit {
+fn[K, V] Table::order_remove(self : Table[K, V], slot : Int32) -> Unit {
   let n = self.order.length()
   let mut i = 0
   while i < n {
@@ -310,7 +310,7 @@ fn[K : Hash + Eq + Compare, V] Table::insert_impl(
 /// `clear_impl` performs the same retirement inline, in bulk.
 fn[K : Hash + Eq + Compare, V] Table::remove_impl(
   self : Table[K, V],
-  slot : Int,
+  slot : Int32,
 ) -> V {
   let value = match self.rows[slot] {
     Some(v) => v
@@ -344,7 +344,7 @@ fn[K : Hash + Eq + Compare, V] Table::remove_impl(
 /// completed every uniqueness pre-check — this is the commit half.
 fn[K : Hash + Eq + Compare, V] Table::modify_impl(
   self : Table[K, V],
-  slot : Int,
+  slot : Int32,
   value : V,
 ) -> Unit {
   let previous = match self.rows[slot] {
@@ -436,7 +436,7 @@ pub fn[K : Hash + Eq + Compare, V] Table::insert_many(
   values : Array[V],
 ) -> Result[Array[RowId], Rejected[K, V]] {
   // Per unique index: the keys this batch has already claimed, and by which member.
-  let claimed : Map[String, Map[K, Int]] = Map([])
+  let claimed : Map[String, Map[K, Int32]] = Map([])
   let mut i = 0
   while i < values.length() {
     let value = values[i]
@@ -493,7 +493,7 @@ pub fn[K : Hash + Eq + Compare, V] Table::insert_many(
         match claimed.get(name) {
           Some(seen) => seen.set(key, i)
           None => {
-            let seen : Map[K, Int] = Map([])
+            let seen : Map[K, Int32] = Map([])
             seen.set(key, i)
             claimed.set(name, seen)
           }

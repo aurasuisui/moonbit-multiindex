@@ -16,14 +16,14 @@
 /// One record. Eight `Int` fields, so a table can carry up to eight indexes over
 /// the same records while every index still projects to the `Int` key type.
 struct Row {
-  a : Int
-  b : Int
-  c : Int
-  d : Int
-  e : Int
-  f : Int
-  g : Int
-  h : Int
+  a : Int32
+  b : Int32
+  c : Int32
+  d : Int32
+  e : Int32
+  f : Int32
+  g : Int32
+  h : Int32
 }
 
 ///|
@@ -33,7 +33,7 @@ struct Row {
 /// question is *where the index stops winning*: `e` is nearly unique (≈2 records per
 /// bucket — a selective key), while `f`/`g`/`h` cycle through tiny key spaces (up to
 /// n/8 records per bucket — fat buckets).
-fn make_rows(n : Int) -> Array[Row] {
+fn make_rows(n : Int32) -> Array[Row] {
   let rows : Array[Row] = []
   for i in 0..<n {
     rows.push({
@@ -52,8 +52,8 @@ fn make_rows(n : Int) -> Array[Row] {
 
 ///|
 /// A table with the first `k` indexes registered over `rows`.
-fn build(rows : Array[Row], k : Int) -> @multiindex.Table[Int, Row] {
-  let t : @multiindex.Table[Int, Row] = @multiindex.Table::new()
+fn build(rows : Array[Row], k : Int32) -> @multiindex.Table[Int32, Row] {
+  let t : @multiindex.Table[Int32, Row] = @multiindex.Table::new()
   if k > 0 {
     let _ = t.register_unique("a", fn(r) { r.a })
   }
@@ -88,13 +88,13 @@ fn build(rows : Array[Row], k : Int) -> @multiindex.Table[Int, Row] {
 
 ///|
 /// Deterministic LCG, so probe keys are spread the same way on every run.
-fn next_state(state : Int) -> Int {
+fn next_state(state : Int32) -> Int32 {
   (state * 1103515245 + 12345) & 0x7FFF_FFFF
 }
 
 ///|
 /// The k values the write benchmarks sweep.
-fn k_values() -> Array[Int] {
+fn k_values() -> Array[Int32] {
   [1, 2, 4, 8]
 }
 

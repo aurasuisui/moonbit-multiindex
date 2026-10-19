@@ -47,8 +47,8 @@ fn[K, V] values_of(t : @aurasuisui/multiindex.Table[K, V]) -> Array[V] {
 /// A `(lo, hi, shared)` table with all four quadrants registered: `lo` and `hi`
 /// are unique keys, `shared` is not — so records can collide on `shared` (which
 /// is what makes a multi-record bucket testable) while the unique keys stay free.
-fn triple_table() -> @aurasuisui/multiindex.Table[Int, (Int, Int, Int)] raise {
-  let t : @aurasuisui/multiindex.Table[Int, (Int, Int, Int)] = @aurasuisui/multiindex.Table::new()
+fn triple_table() -> @aurasuisui/multiindex.Table[Int32, (Int32, Int32, Int32)] raise {
+  let t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32, Int32)] = @aurasuisui/multiindex.Table::new()
   assert_registered(t.register_unique("lo", fn(p) { p.0 }))
   assert_registered(t.register_unique_ordered("hi", fn(p) { p.1 }))
   assert_registered(t.register_non_unique("shared", fn(p) { p.2 }))
@@ -62,7 +62,7 @@ fn triple_table() -> @aurasuisui/multiindex.Table[Int, (Int, Int, Int)] raise {
 /// The whole observable state of the three-record fixture, so a refused write can
 /// be checked for **zero change** across iteration and every index.
 fn assert_three_records(
-  t : @aurasuisui/multiindex.Table[Int, (Int, Int, Int)],
+  t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32, Int32)],
   a : @aurasuisui/multiindex.RowId,
   b : @aurasuisui/multiindex.RowId,
   c : @aurasuisui/multiindex.RowId,
@@ -101,8 +101,8 @@ fn[V : Eq + Debug] assert_values(
 
 ///|
 /// A table with all four quadrants registered over `(unique key, multi key)`.
-fn matrix_table() -> @aurasuisui/multiindex.Table[Int, (Int, Int)] raise {
-  let t : @aurasuisui/multiindex.Table[Int, (Int, Int)] = @aurasuisui/multiindex.Table::new()
+fn matrix_table() -> @aurasuisui/multiindex.Table[Int32, (Int32, Int32)] raise {
+  let t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32)] = @aurasuisui/multiindex.Table::new()
   assert_registered(t.register_unique("u_hash", fn(p) { p.0 }))
   assert_registered(t.register_unique_ordered("u_sorted", fn(p) { p.0 }))
   assert_registered(t.register_non_unique("m_hash", fn(p) { p.1 }))
@@ -116,7 +116,7 @@ fn matrix_table() -> @aurasuisui/multiindex.Table[Int, (Int, Int)] raise {
 
 ///|
 test "a fresh table is empty" {
-  let t : @aurasuisui/multiindex.Table[Int, Int] = @aurasuisui/multiindex.Table::new()
+  let t : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::new()
   @test.assert_eq(t.len(), 0)
   @test.assert_eq(t.is_empty(), true)
   @test.assert_eq(t.iter().to_array().length(), 0)
@@ -125,7 +125,7 @@ test "a fresh table is empty" {
 
 ///|
 test "insert returns a handle that gets the record back" {
-  let t : @aurasuisui/multiindex.Table[Int, String] = @aurasuisui/multiindex.Table::new()
+  let t : @aurasuisui/multiindex.Table[Int32, String] = @aurasuisui/multiindex.Table::new()
   let a = insert_ok(t, "a")
   let b = insert_ok(t, "b")
   @test.assert_eq(t.get(a), Some("a"))
@@ -136,7 +136,7 @@ test "insert returns a handle that gets the record back" {
 
 ///|
 test "remove returns the record and then rejects the same handle" {
-  let t : @aurasuisui/multiindex.Table[Int, Int] = @aurasuisui/multiindex.Table::new()
+  let t : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::new()
   let a = insert_ok(t, 10)
   let b = insert_ok(t, 20)
   @test.assert_eq(t.remove(a), Some(10))
@@ -149,7 +149,7 @@ test "remove returns the record and then rejects the same handle" {
 
 ///|
 test "iter yields live records in insertion order" {
-  let t : @aurasuisui/multiindex.Table[Int, Int] = @aurasuisui/multiindex.Table::new()
+  let t : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::new()
   let a = insert_ok(t, 1)
   let b = insert_ok(t, 2)
   let c = insert_ok(t, 3)
@@ -165,7 +165,7 @@ test "iter yields live records in insertion order" {
 
 ///|
 test "a recycled slot rejects the stale handle and keeps the new occupant" {
-  let t : @aurasuisui/multiindex.Table[Int, String] = @aurasuisui/multiindex.Table::new()
+  let t : @aurasuisui/multiindex.Table[Int32, String] = @aurasuisui/multiindex.Table::new()
   let old = insert_ok(t, "old")
   @test.assert_eq(t.remove(old), Some("old"))
   let fresh = insert_ok(t, "fresh")
@@ -179,7 +179,7 @@ test "a recycled slot rejects the stale handle and keeps the new occupant" {
 
 ///|
 test "clear empties the table and invalidates every handle" {
-  let t : @aurasuisui/multiindex.Table[Int, Int] = @aurasuisui/multiindex.Table::new()
+  let t : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::new()
   let a = insert_ok(t, 1)
   let b = insert_ok(t, 2)
   t.clear()
@@ -197,7 +197,7 @@ test "clear empties the table and invalidates every handle" {
 
 ///|
 test "the key type is unconstrained while no index is registered" {
-  let t : @aurasuisui/multiindex.Table[(String, Int), Int] = @aurasuisui/multiindex.Table::new()
+  let t : @aurasuisui/multiindex.Table[(String, Int32), Int32] = @aurasuisui/multiindex.Table::new()
   let a = insert_ok(t, 7)
   @test.assert_eq(t.get(a), Some(7))
   @test.assert_eq(t.remove(a), Some(7))
@@ -267,7 +267,7 @@ test "a duplicate index name is refused and changes nothing" {
 
 ///|
 test "index_names is ascending in MoonBit's shortlex string order" {
-  let t : @aurasuisui/multiindex.Table[Int, Int] = @aurasuisui/multiindex.Table::new()
+  let t : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::new()
   assert_registered(t.register_non_unique("aa", fn(v) { v }))
   assert_registered(t.register_non_unique("b", fn(v) { v }))
   let names = t.index_names()
@@ -283,7 +283,7 @@ test "index_names is ascending in MoonBit's shortlex string order" {
 
 ///|
 test "has_index tracks the registry" {
-  let t : @aurasuisui/multiindex.Table[Int, Int] = @aurasuisui/multiindex.Table::new()
+  let t : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::new()
   @test.assert_eq(t.has_index("k"), false)
   assert_registered(t.register_unique("k", fn(v) { v }))
   @test.assert_eq(t.has_index("k"), true)
@@ -293,7 +293,7 @@ test "has_index tracks the registry" {
 
 ///|
 test "contains reports live handles only" {
-  let t : @aurasuisui/multiindex.Table[Int, Int] = @aurasuisui/multiindex.Table::new()
+  let t : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::new()
   let a = insert_ok(t, 1)
   @test.assert_eq(t.contains(a), true)
   t.remove(a) |> ignore
@@ -307,7 +307,7 @@ test "contains reports live handles only" {
 
 ///|
 test "with_capacity reserves slots without inventing records" {
-  let t : @aurasuisui/multiindex.Table[Int, Int] = @aurasuisui/multiindex.Table::with_capacity(
+  let t : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::with_capacity(
     8,
   )
   @test.assert_eq(t.len(), 0)
@@ -328,11 +328,11 @@ test "with_capacity reserves slots without inventing records" {
   @test.assert_eq(t.contains(a), false)
   @test.assert_eq(t.get(c), Some(30))
   // a non-positive capacity behaves exactly like `new`
-  let zero : @aurasuisui/multiindex.Table[Int, Int] = @aurasuisui/multiindex.Table::with_capacity(
+  let zero : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::with_capacity(
     0,
   )
   @test.assert_eq(zero.len(), 0)
-  let negative : @aurasuisui/multiindex.Table[Int, Int] = @aurasuisui/multiindex.Table::with_capacity(
+  let negative : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::with_capacity(
     -5,
   )
   @test.assert_eq(negative.len(), 0)
@@ -341,7 +341,7 @@ test "with_capacity reserves slots without inventing records" {
 
 ///|
 test "registering over a non-empty table backfills it" {
-  let t : @aurasuisui/multiindex.Table[Int, Int] = @aurasuisui/multiindex.Table::new()
+  let t : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::new()
   let a = insert_ok(t, 100)
   let b = insert_ok(t, 200)
   assert_registered(t.register_unique("k", fn(v) { v }))
@@ -356,7 +356,7 @@ test "registering over a non-empty table backfills it" {
 
 ///|
 test "backfilling a conflicting unique index registers nothing" {
-  let t : @aurasuisui/multiindex.Table[Int, Int] = @aurasuisui/multiindex.Table::new()
+  let t : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::new()
   insert_ok(t, 1) |> ignore
   insert_ok(t, 11) |> ignore
   match t.register_unique("low_digit", fn(v) { v % 10 }) {
@@ -380,7 +380,7 @@ test "backfilling a conflicting unique index registers nothing" {
 
 ///|
 test "a unique collision is reported with the record and changes nothing" {
-  let t : @aurasuisui/multiindex.Table[Int, (Int, Int)] = @aurasuisui/multiindex.Table::new()
+  let t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32)] = @aurasuisui/multiindex.Table::new()
   assert_registered(t.register_unique("u", fn(p) { p.0 }))
   let a = insert_ok(t, (1, 10))
   let before = values_of(t)
@@ -572,7 +572,7 @@ test "stale handles never touch the new occupant of the slot" {
 test "modify runs its transformation exactly once and reindexes afterwards" {
   let t = triple_table()
   let a = insert_ok(t, (1, 10, 7))
-  let calls : Array[Int] = [0]
+  let calls : Array[Int32] = [0]
   match
     t.modify(a, fn(record) {
       calls[0] = calls[0] + 1
@@ -590,7 +590,7 @@ test "modify runs its transformation exactly once and reindexes afterwards" {
   // a refused modify still ran the transformation exactly once (it had to, to learn
   // what the new record would be) and changed nothing
   let holder = insert_ok(t, (3, 30, 8))
-  let calls2 : Array[Int] = [0]
+  let calls2 : Array[Int32] = [0]
   match
     t.modify(a, fn(_) {
       calls2[0] = calls2[0] + 1
@@ -792,7 +792,11 @@ test "failure classification: the abort decisions are pinned by their predicates
 test "insert_many hands out exactly the handles per-record inserts would" {
   let batch = triple_table()
   let stepwise = triple_table()
-  let records : Array[(Int, Int, Int)] = [(1, 10, 1), (2, 20, 2), (3, 30, 1)]
+  let records : Array[(Int32, Int32, Int32)] = [
+    (1, 10, 1),
+    (2, 20, 2),
+    (3, 30, 1),
+  ]
   let ids = match batch.insert_many(records) {
     Ok(ids) => ids
     Err(_) => @test.fail("the batch has no conflicts")
@@ -827,7 +831,7 @@ test "insert_many fails the whole batch when two of its own records collide" {
   let t = triple_table()
   let a = insert_ok(t, (9, 90, 9))
   // both members project to 10 on the unique "hi" index
-  let records : Array[(Int, Int, Int)] = [(1, 10, 1), (2, 10, 2)]
+  let records : Array[(Int32, Int32, Int32)] = [(1, 10, 1), (2, 10, 2)]
   match t.insert_many(records) {
     Ok(_) =>
       @test.fail("a duplicate inside the batch must fail the whole batch")
@@ -868,7 +872,7 @@ test "insert_many fails the whole batch when it clashes with a live record" {
   let t = triple_table()
   let a = insert_ok(t, (1, 10, 1))
   // the second member would take a key that `a` already holds on the unique "hi" index
-  let records : Array[(Int, Int, Int)] = [(2, 20, 2), (3, 10, 3)]
+  let records : Array[(Int32, Int32, Int32)] = [(2, 20, 2), (3, 10, 3)]
   match t.insert_many(records) {
     Ok(_) => @test.fail("the clash must fail the whole batch")
     Err(rejected) => {
@@ -895,20 +899,20 @@ test "insert_many fails the whole batch when it clashes with a live record" {
 ///|
 test "insert_many handles the degenerate batch sizes" {
   let t = triple_table()
-  let empty : Array[(Int, Int, Int)] = []
+  let empty : Array[(Int32, Int32, Int32)] = []
   match t.insert_many(empty) {
     Ok(ids) => @test.assert_eq(ids.length(), 0)
     Err(_) => @test.fail("an empty batch cannot conflict")
   }
   @test.assert_eq(t.len(), 0)
-  let single : Array[(Int, Int, Int)] = [(1, 10, 1)]
+  let single : Array[(Int32, Int32, Int32)] = [(1, 10, 1)]
   match t.insert_many(single) {
     Ok(ids) => @test.assert_eq(ids.length(), 1)
     Err(_) => @test.fail("a single record cannot conflict here")
   }
   @test.assert_eq(t.len(), 1)
   // with no unique index registered there is nothing a batch could collide on
-  let plain : @aurasuisui/multiindex.Table[Int, Int] = @aurasuisui/multiindex.Table::new()
+  let plain : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::new()
   match plain.insert_many([1, 1, 1]) {
     Ok(ids) => @test.assert_eq(ids.length(), 3)
     Err(_) => @test.fail("no unique index is registered")
@@ -999,8 +1003,11 @@ test "index_stats reports the bucket shape" {
 ///|
 /// The same table as `triple_table`, but registered in the **opposite** order — used
 /// to show the reported conflict does not depend on registration order.
-fn reversed_triple_table() -> @aurasuisui/multiindex.Table[Int, (Int, Int, Int)] raise {
-  let t : @aurasuisui/multiindex.Table[Int, (Int, Int, Int)] = @aurasuisui/multiindex.Table::new()
+fn reversed_triple_table() -> @aurasuisui/multiindex.Table[
+  Int32,
+  (Int32, Int32, Int32),
+] raise {
+  let t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32, Int32)] = @aurasuisui/multiindex.Table::new()
   assert_registered(
     t.register_non_unique_ordered("shared_sorted", fn(p) { p.2 }),
   )

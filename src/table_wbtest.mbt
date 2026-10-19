@@ -29,7 +29,7 @@ fn[K : Hash + Eq + Compare, V] wb_insert(
 ///|
 /// Assert an `Array[Int]` equals the expected literal, element by element
 /// (avoids relying on an `Eq`/`Debug` instance for arrays).
-fn assert_ints(actual : Array[Int], expected : Array[Int]) -> Unit raise {
+fn assert_ints(actual : Array[Int32], expected : Array[Int32]) -> Unit raise {
   @test.assert_eq(actual.length(), expected.length())
   let mut i = 0
   while i < expected.length() {
@@ -39,7 +39,7 @@ fn assert_ints(actual : Array[Int], expected : Array[Int]) -> Unit raise {
 }
 
 ///|
-fn int_member(a : Array[Int], value : Int) -> Bool {
+fn int_member(a : Array[Int32], value : Int32) -> Bool {
   let mut i = 0
   while i < a.length() {
     if a[i] == value {
@@ -52,7 +52,7 @@ fn int_member(a : Array[Int], value : Int) -> Bool {
 
 ///|
 test "the free stack recycles slots LIFO" {
-  let t : Table[Int, Int] = Table::new()
+  let t : Table[Int32, Int32] = Table::new()
   let a = wb_insert(t, 1)
   let b = wb_insert(t, 2)
   let c = wb_insert(t, 3)
@@ -76,7 +76,7 @@ test "the free stack recycles slots LIFO" {
 
 ///|
 test "each recycle bumps the slot generation by exactly one" {
-  let t : Table[Int, Int] = Table::new()
+  let t : Table[Int32, Int32] = Table::new()
   let first = wb_insert(t, 0)
   @test.assert_eq(t.gens[first.slot], 0)
   let mut previous = first
@@ -100,7 +100,7 @@ test "each recycle bumps the slot generation by exactly one" {
 
 ///|
 test "I9: a generation-exhausted slot is retired and never handed out again" {
-  let t : Table[Int, Int] = Table::new()
+  let t : Table[Int32, Int32] = Table::new()
   let id = wb_insert(t, 1)
   let slot = id.slot
   // white-box: pretend this slot has already burned through every generation
@@ -124,7 +124,7 @@ test "I9: a generation-exhausted slot is retired and never handed out again" {
 
 ///|
 test "a stale handle never reaches the slot's current occupant" {
-  let t : Table[Int, String] = Table::new()
+  let t : Table[Int32, String] = Table::new()
   let old = wb_insert(t, "old")
   t.remove(old) |> ignore
   let fresh = wb_insert(t, "fresh")
@@ -141,7 +141,7 @@ test "a stale handle never reaches the slot's current occupant" {
 
 ///|
 test "version only moves on a real change (I8)" {
-  let t : Table[Int, Int] = Table::new()
+  let t : Table[Int32, Int32] = Table::new()
   let v0 = t.version
   t.clear() // clearing an empty table is not a change
   @test.assert_eq(t.version, v0)
@@ -161,7 +161,7 @@ test "version only moves on a real change (I8)" {
 
 ///|
 test "clear recycles every live slot and keeps storage allocated" {
-  let t : Table[Int, Int] = Table::new()
+  let t : Table[Int32, Int32] = Table::new()
   let a = wb_insert(t, 1)
   let b = wb_insert(t, 2)
   let c = wb_insert(t, 3)
@@ -264,7 +264,7 @@ test "a stale handle cannot touch the index entries of the new occupant" {
 
 ///|
 test "a failed backfill leaves the registry and the buckets untouched" {
-  let t : Table[Int, Int] = Table::new()
+  let t : Table[Int32, Int32] = Table::new()
   let a = wb_insert(t, 1)
   let b = wb_insert(t, 11)
   check_invariants(t)
@@ -290,7 +290,7 @@ test "a failed backfill leaves the registry and the buckets untouched" {
 
 ///|
 test "with_capacity pre-fills the free stack, highest slot first" {
-  let t : Table[Int, Int] = Table::with_capacity(4)
+  let t : Table[Int32, Int32] = Table::with_capacity(4)
   @test.assert_eq(t.rows.length(), 4)
   @test.assert_eq(t.gens.length(), 4)
   assert_ints(t.gens, [0, 0, 0, 0])
@@ -316,8 +316,8 @@ test "with_capacity pre-fills the free stack, highest slot first" {
 /// exactly what the equal-key fast path must be shown to avoid. `counter` is a
 /// one-element array: a mutable cell shared by every copy of the key.
 priv struct CountedKey {
-  value : Int
-  counter : Array[Int]
+  value : Int32
+  counter : Array[Int32]
 }
 
 ///|
@@ -339,9 +339,9 @@ impl Hash for CountedKey with fn hash_combine(self, hasher) {
 ///|
 /// A `(lo, hi, shared)` table whose keys are `CountedKey`s sharing `counter`.
 fn counted_table(
-  counter : Array[Int],
-) -> Table[CountedKey, (Int, Int, Int)] raise {
-  let t : Table[CountedKey, (Int, Int, Int)] = Table::new()
+  counter : Array[Int32],
+) -> Table[CountedKey, (Int32, Int32, Int32)] raise {
+  let t : Table[CountedKey, (Int32, Int32, Int32)] = Table::new()
   let registrations : Array[Result[Unit, RegisterError[CountedKey]]] = [
     t.register_unique("lo", fn(p) { { value: p.0, counter, } }),
     t.register_unique_ordered("hi", fn(p) { { value: p.1, counter, } }),
@@ -363,7 +363,7 @@ fn counted_table(
 
 ///|
 test "fast path: an update with unchanged keys performs no bucket work" {
-  let counter : Array[Int] = [0]
+  let counter : Array[Int32] = [0]
   let t = counted_table(counter)
   let id = match t.insert((1, 10, 7)) {
     Ok(id) => id
@@ -426,7 +426,7 @@ test "fast path: a sabotaged bucket proves the equal-key update never consults i
 test "an update never replaces a bucket container" {
   let t = wb_indexed_table()
   let id = wb_insert_indexed(t, (1, 10, 7))
-  let before : Map[Int, @sorted_set.SortedSet[Int]] = match
+  let before : Map[Int32, @sorted_set.SortedSet[Int32]] = match
     t.indexes.get("shared") {
     Some(HashMulti(_, buckets)) => buckets
     _ => @test.fail("the index vanished")
@@ -435,7 +435,7 @@ test "an update never replaces a bucket container" {
     Ok(_) => ()
     Err(_) => @test.fail("a legal update must succeed")
   }
-  let after : Map[Int, @sorted_set.SortedSet[Int]] = match
+  let after : Map[Int32, @sorted_set.SortedSet[Int32]] = match
     t.indexes.get("shared") {
     Some(HashMulti(_, buckets)) => buckets
     _ => @test.fail("the index vanished")

@@ -32,12 +32,12 @@ priv struct IndexMeta[K, V] {
 /// - `HashMulti`    non-unique + hashed  (`Map[K, SortedSet[Int]]`)
 /// - `SortedMulti`  non-unique + sorted  (`SortedMap[K, SortedSet[Int]]`)
 priv enum Index[K, V] {
-  HashUnique(IndexMeta[K, V], Map[K, Int])
-  SortedUnique(IndexMeta[K, V], @sorted_map.SortedMap[K, Int])
-  HashMulti(IndexMeta[K, V], Map[K, @sorted_set.SortedSet[Int]])
+  HashUnique(IndexMeta[K, V], Map[K, Int32])
+  SortedUnique(IndexMeta[K, V], @sorted_map.SortedMap[K, Int32])
+  HashMulti(IndexMeta[K, V], Map[K, @sorted_set.SortedSet[Int32]])
   SortedMulti(
     IndexMeta[K, V],
-    @sorted_map.SortedMap[K, @sorted_set.SortedSet[Int]]
+    @sorted_map.SortedMap[K, @sorted_set.SortedSet[Int32]]
   )
 }
 
@@ -80,7 +80,7 @@ fn[K, V] Index::is_unique(self : Index[K, V]) -> Bool {
 fn[K : Hash + Eq + Compare, V] Index::holder(
   self : Index[K, V],
   key : K,
-) -> Int? {
+) -> Int32? {
   match self {
     HashUnique(_, buckets) => buckets.get(key)
     SortedUnique(_, buckets) => buckets.get(key)
@@ -94,7 +94,7 @@ fn[K : Hash + Eq + Compare, V] Index::holder(
 /// which has already rejected any unique collision).
 fn[K : Hash + Eq + Compare, V] Index::add(
   self : Index[K, V],
-  slot : Int,
+  slot : Int32,
   key : K,
 ) -> Unit {
   match self {
@@ -121,7 +121,7 @@ fn[K : Hash + Eq + Compare, V] Index::add(
 /// no-op would hide it, so this aborts instead.
 fn[K : Hash + Eq + Compare, V] Index::remove(
   self : Index[K, V],
-  slot : Int,
+  slot : Int32,
   key : K,
 ) -> Unit {
   let index_name = self.name()
@@ -228,7 +228,7 @@ fn[K : Hash + Eq + Compare, V] Index::remove(
 /// type that counts hashing).
 fn[K : Hash + Eq + Compare, V] Index::retarget(
   self : Index[K, V],
-  slot : Int,
+  slot : Int32,
   old_key : K,
   new_key : K,
 ) -> Bool {
@@ -248,7 +248,7 @@ fn[K : Hash + Eq + Compare, V] Index::retarget(
 fn[K : Hash + Eq + Compare, V] Index::slots(
   self : Index[K, V],
   key : K,
-) -> Array[Int] {
+) -> Array[Int32] {
   match self {
     HashUnique(_, buckets) =>
       match buckets.get(key) {
@@ -297,7 +297,7 @@ fn[K, V] Index::is_ordered(self : Index[K, V]) -> Bool {
 /// builds the whole result at once (docs/SPEC.md §3.3 asks range queries to stay
 /// lazy).
 priv struct BucketCursor {
-  next : () -> Array[Int]?
+  next : () -> Array[Int32]?
 }
 
 ///|
@@ -316,8 +316,8 @@ fn[K : Compare, V] Index::range_cursor(
     SortedUnique(_, buckets) => {
       let source = buckets.range(lo, hi)
       {
-        next: fn() -> Array[Int]? {
-          let mut found : Array[Int]? = None
+        next: fn() -> Array[Int32]? {
+          let mut found : Array[Int32]? = None
           let mut scanning = true
           while scanning {
             match source.next() {
@@ -336,8 +336,8 @@ fn[K : Compare, V] Index::range_cursor(
     SortedMulti(_, buckets) => {
       let source = buckets.range(lo, hi)
       {
-        next: fn() -> Array[Int]? {
-          let mut found : Array[Int]? = None
+        next: fn() -> Array[Int32]? {
+          let mut found : Array[Int32]? = None
           let mut scanning = true
           while scanning {
             match source.next() {
@@ -374,7 +374,7 @@ fn[K, V] Index::ordered_cursor(
   match self {
     SortedUnique(_, buckets) =>
       if descending {
-        let all : Array[Array[Int]] = []
+        let all : Array[Array[Int32]] = []
         for _, slot in buckets {
           all.push([slot])
         }
@@ -382,7 +382,7 @@ fn[K, V] Index::ordered_cursor(
       } else {
         let source = buckets.iter2()
         {
-          next: fn() -> Array[Int]? {
+          next: fn() -> Array[Int32]? {
             match source.next() {
               Some((_, slot)) => Some([slot])
               None => None
@@ -392,7 +392,7 @@ fn[K, V] Index::ordered_cursor(
       }
     SortedMulti(_, buckets) =>
       if descending {
-        let all : Array[Array[Int]] = []
+        let all : Array[Array[Int32]] = []
         for _, set in buckets {
           all.push(set.to_array())
         }
@@ -400,7 +400,7 @@ fn[K, V] Index::ordered_cursor(
       } else {
         let source = buckets.iter2()
         {
-          next: fn() -> Array[Int]? {
+          next: fn() -> Array[Int32]? {
             match source.next() {
               Some((_, set)) => Some(set.to_array())
               None => None
@@ -416,10 +416,10 @@ fn[K, V] Index::ordered_cursor(
 ///|
 /// Walk a collected bucket list from the back: the descending half of
 /// `ordered_cursor`.
-fn reversed_cursor(all : Array[Array[Int]]) -> BucketCursor {
+fn reversed_cursor(all : Array[Array[Int32]]) -> BucketCursor {
   let mut pos = all.length() - 1
   {
-    next: fn() -> Array[Int]? {
+    next: fn() -> Array[Int32]? {
       if pos < 0 {
         return None
       }
@@ -435,8 +435,8 @@ fn reversed_cursor(all : Array[Array[Int]]) -> BucketCursor {
 ///
 /// The enumeration primitive behind `Table::verify_invariants` and
 /// `Table::index_stats`. It materializes, so it does not belong on a query path.
-fn[K, V] Index::buckets(self : Index[K, V]) -> Array[(K, Array[Int])] {
-  let out : Array[(K, Array[Int])] = []
+fn[K, V] Index::buckets(self : Index[K, V]) -> Array[(K, Array[Int32])] {
+  let out : Array[(K, Array[Int32])] = []
   match self {
     HashUnique(_, buckets) =>
       for key, slot in buckets {

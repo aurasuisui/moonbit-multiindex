@@ -35,9 +35,9 @@ fn[K : Eq + Debug, V] check_invariants(t : Table[K, V]) -> Unit raise {
 /// A table with all four quadrants registered over `(unique, unique, shared)`
 /// records: the two unique indexes project disjoint fields, so records can share
 /// a non-unique key (which is what makes multi-record buckets testable).
-fn wb_indexed_table() -> Table[Int, (Int, Int, Int)] raise {
-  let t : Table[Int, (Int, Int, Int)] = Table::new()
-  let registrations : Array[Result[Unit, RegisterError[Int]]] = [
+fn wb_indexed_table() -> Table[Int32, (Int32, Int32, Int32)] raise {
+  let t : Table[Int32, (Int32, Int32, Int32)] = Table::new()
+  let registrations : Array[Result[Unit, RegisterError[Int32]]] = [
     t.register_unique("lo", fn(p) { p.0 }),
     t.register_unique_ordered("hi", fn(p) { p.1 }),
     t.register_non_unique("shared", fn(p) { p.2 }),
@@ -57,8 +57,8 @@ fn wb_indexed_table() -> Table[Int, (Int, Int, Int)] raise {
 ///|
 /// Insert a record whose keys the caller knows are free.
 fn wb_insert_indexed(
-  t : Table[Int, (Int, Int, Int)],
-  record : (Int, Int, Int),
+  t : Table[Int32, (Int32, Int32, Int32)],
+  record : (Int32, Int32, Int32),
 ) -> RowId raise {
   match t.insert(record) {
     Ok(id) => id
@@ -69,9 +69,9 @@ fn wb_insert_indexed(
 ///|
 /// Drop `id` from a shadow model, asserting the removed value.
 fn wb_model_remove(
-  model : Array[(RowId, (Int, Int, Int))],
+  model : Array[(RowId, (Int32, Int32, Int32))],
   id : RowId,
-  value : (Int, Int, Int),
+  value : (Int32, Int32, Int32),
 ) -> Unit raise {
   let mut i = 0
   let mut found = false
@@ -97,7 +97,7 @@ test "qc: invariants hold after every step of a random insert/remove sequence" {
   let r = @random.Rand::new()
   let mut round = 0
   while round < 30 {
-    let t : Table[Int, Int] = Table::new()
+    let t : Table[Int32, Int32] = Table::new()
     let issued : Array[RowId] = []
     // parallel to `issued`: whether that handle should still be live
     let alive : Array[Bool] = []
@@ -149,7 +149,7 @@ test "qc: indexed tables satisfy I3/I4/I5/I7 after every step" {
   let mut round = 0
   while round < 25 {
     let t = wb_indexed_table()
-    let model : Array[(RowId, (Int, Int, Int))] = []
+    let model : Array[(RowId, (Int32, Int32, Int32))] = []
     let issued : Array[RowId] = []
     let alive : Array[Bool] = []
     let mut step = 0
@@ -212,7 +212,7 @@ test "qc: indexed tables satisfy I3/I4/I5/I7 after every step" {
 
 ///|
 test "the invariant guard is not vacuous: it rejects a corrupted free list" {
-  let t : Table[Int, Int] = Table::new()
+  let t : Table[Int32, Int32] = Table::new()
   let a = wb_insert(t, 1)
   let b = wb_insert(t, 2)
   t.remove(b) |> ignore
@@ -230,7 +230,7 @@ test "the invariant guard is not vacuous: it rejects a corrupted free list" {
 
 ///|
 test "the invariant guard is not vacuous: it rejects a corrupted order array" {
-  let t : Table[Int, Int] = Table::new()
+  let t : Table[Int32, Int32] = Table::new()
   let a = wb_insert(t, 1)
   check_invariants(t)
   t.order.push(a.slot) // corrupt I1: the same live slot twice in `order`
@@ -245,7 +245,7 @@ test "the invariant guard is not vacuous: it rejects a corrupted order array" {
 
 ///|
 test "the invariant guard is not vacuous: it rejects a dangling order entry" {
-  let t : Table[Int, Int] = Table::new()
+  let t : Table[Int32, Int32] = Table::new()
   let a = wb_insert(t, 1)
   t.remove(a) |> ignore
   check_invariants(t)
@@ -301,9 +301,9 @@ test "the invariant guard is not vacuous: it rejects a bucket entry under the wr
 ///|
 /// Whether `candidate` collides with any live model record other than `skip`.
 fn wb_model_conflicts(
-  model : Array[(RowId, (Int, Int, Int))],
-  skip : Int,
-  candidate : (Int, Int, Int),
+  model : Array[(RowId, (Int32, Int32, Int32))],
+  skip : Int32,
+  candidate : (Int32, Int32, Int32),
 ) -> Bool {
   let mut i = 0
   let mut conflict = false
@@ -318,7 +318,10 @@ fn wb_model_conflicts(
 
 ///|
 /// Where `id` sits in the model, or `-1`.
-fn wb_model_index(model : Array[(RowId, (Int, Int, Int))], id : RowId) -> Int {
+fn wb_model_index(
+  model : Array[(RowId, (Int32, Int32, Int32))],
+  id : RowId,
+) -> Int32 {
   let mut i = 0
   let mut found = -1
   while i < model.length() {
@@ -336,7 +339,7 @@ test "qc: update / modify keep the invariants intact after every step" {
   let mut round = 0
   while round < 20 {
     let t = wb_indexed_table()
-    let model : Array[(RowId, (Int, Int, Int))] = []
+    let model : Array[(RowId, (Int32, Int32, Int32))] = []
     let issued : Array[RowId] = []
     let alive : Array[Bool] = []
     let mut seed = 0

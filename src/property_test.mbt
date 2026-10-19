@@ -72,8 +72,8 @@ test "qc: observable invariants hold after every step of a random sequence" {
   let r = @random.Rand::new()
   let mut round = 0
   while round < 30 {
-    let t : @aurasuisui/multiindex.Table[Int, Int] = @aurasuisui/multiindex.Table::new()
-    let model : Array[(@aurasuisui/multiindex.RowId, Int)] = []
+    let t : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::new()
+    let model : Array[(@aurasuisui/multiindex.RowId, Int32)] = []
     let issued : Array[@aurasuisui/multiindex.RowId] = []
     // parallel to `issued`: whether that handle should still be live
     let alive : Array[Bool] = []
@@ -126,7 +126,7 @@ test "qc: observable invariants hold after every step of a random sequence" {
 test "qc: handles issued before clear never resolve after it" {
   let mut round = 0
   while round < 20 {
-    let t : @aurasuisui/multiindex.Table[Int, Int] = @aurasuisui/multiindex.Table::new()
+    let t : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::new()
     let before : Array[@aurasuisui/multiindex.RowId] = []
     let mut i = 0
     while i < 12 {
@@ -169,10 +169,10 @@ test "qc: handles issued before clear never resolve after it" {
 /// A table with all four quadrants registered over `(unique, unique, shared)`
 /// records: the unique indexes project disjoint fields, so records can share a
 /// non-unique key and really fill a bucket.
-fn indexed_table() -> @aurasuisui/multiindex.Table[Int, (Int, Int, Int)] raise {
-  let t : @aurasuisui/multiindex.Table[Int, (Int, Int, Int)] = @aurasuisui/multiindex.Table::new()
+fn indexed_table() -> @aurasuisui/multiindex.Table[Int32, (Int32, Int32, Int32)] raise {
+  let t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32, Int32)] = @aurasuisui/multiindex.Table::new()
   let registrations : Array[
-    Result[Unit, @aurasuisui/multiindex.RegisterError[Int]],
+    Result[Unit, @aurasuisui/multiindex.RegisterError[Int32]],
   ] = [
     t.register_unique("lo", fn(p) { p.0 }),
     t.register_unique_ordered("hi", fn(p) { p.1 }),
@@ -195,8 +195,8 @@ fn indexed_table() -> @aurasuisui/multiindex.Table[Int, (Int, Int, Int)] raise {
 /// exactly the model record, and the non-unique bucket holds exactly the model
 /// records that share the key, ascending by slot.
 fn check_indexes(
-  t : @aurasuisui/multiindex.Table[Int, (Int, Int, Int)],
-  model : Array[(@aurasuisui/multiindex.RowId, (Int, Int, Int))],
+  t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32, Int32)],
+  model : Array[(@aurasuisui/multiindex.RowId, (Int32, Int32, Int32))],
 ) -> Unit raise {
   let mut i = 0
   while i < model.length() {
@@ -235,7 +235,7 @@ test "qc: indexed tables keep every bucket consistent after each step" {
   let mut round = 0
   while round < 25 {
     let t = indexed_table()
-    let model : Array[(@aurasuisui/multiindex.RowId, (Int, Int, Int))] = []
+    let model : Array[(@aurasuisui/multiindex.RowId, (Int32, Int32, Int32))] = []
     let issued : Array[@aurasuisui/multiindex.RowId] = []
     let alive : Array[Bool] = []
     let mut step = 0
@@ -302,9 +302,9 @@ test "qc: indexed tables keep every bucket consistent after each step" {
 ///|
 /// Whether `candidate` collides with any live model record other than `skip`.
 fn model_conflicts(
-  model : Array[(@aurasuisui/multiindex.RowId, (Int, Int, Int))],
-  skip : Int,
-  candidate : (Int, Int, Int),
+  model : Array[(@aurasuisui/multiindex.RowId, (Int32, Int32, Int32))],
+  skip : Int32,
+  candidate : (Int32, Int32, Int32),
 ) -> Bool {
   let mut i = 0
   let mut conflict = false
@@ -320,9 +320,9 @@ fn model_conflicts(
 ///|
 /// Where `id` sits in the model, or `-1`.
 fn model_index(
-  model : Array[(@aurasuisui/multiindex.RowId, (Int, Int, Int))],
+  model : Array[(@aurasuisui/multiindex.RowId, (Int32, Int32, Int32))],
   id : @aurasuisui/multiindex.RowId,
-) -> Int {
+) -> Int32 {
   let mut i = 0
   let mut found = -1
   while i < model.length() {
@@ -340,7 +340,7 @@ test "qc: update and modify keep every bucket consistent after each step" {
   let mut round = 0
   while round < 20 {
     let t = indexed_table()
-    let model : Array[(@aurasuisui/multiindex.RowId, (Int, Int, Int))] = []
+    let model : Array[(@aurasuisui/multiindex.RowId, (Int32, Int32, Int32))] = []
     let issued : Array[@aurasuisui/multiindex.RowId] = []
     let alive : Array[Bool] = []
     let mut seed = 0
