@@ -728,3 +728,16 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 >(独立复跑:1.68 / 19.13 / 267.6 µs 对 0.970 / 0.759 / 0.852 µs)。所以正确的表述是
 > **「`remove` 随 n 线性增长、`swap_remove` 持平 ⇒ 比值随 n 增大」,而非「固定倍数 ≥ 5×」**。
 > 基准表已按 n 分档呈现,不报单一「最好看的数字」。`positions` 的代价也已实测:`insert` 持平(0.95 → 0.98 µs/op),`remove` 因搬动时同步写 `positions` 从 34.8 升至 54.5 µs/op(+57%)——只由需要插入序的调用方支付。数据见 `bench/README.md`。
+
+## 14. 文档门禁:warning 0074 `missing_doc`(M10)
+
+- **开关**:告警 **74 / mnemonic `missing_doc`**("Missing documentation for public definition"),在 moon 0.1.20261012 默认 **off**。
+  默认 warn list 里就是 `-74`,所以裸 `moon check` 从不报它。开启写法是 `--warn-list "+74"`(或 `--warn-list "+missing_doc"`)。
+- **落地方式**:写进包的 `src/moon.pkg` 顶层 `warnings = "+74"`,而不是 CI 命令行 —— 这样本地 `moon check`、CI、
+  以及下游任何使用者拿到的都是同一个门槛,不存在"CI 开了本地没开"的漂移。CI 的 `moon check --deny-warn --target all`
+  因此自动覆盖它(步骤未改命令,只加了注释)。
+- **与默认集合并,不覆盖**:包的 `warnings` 与编译器默认列表叠加(实测 `0001` 与 `0074` 同时触发)。
+  `options("warn-list": ...)` 是**弃用**写法(`[0027] deprecated_syntax`),不要用。
+- **只管公开面**:实测 `priv struct` / `priv fn` 缺文档**不报** 74,只有 `pub` 定义报。正好符合 SPEC 的意图。
+- **当前状态**:开启后四后端 `moon check --deny-warn --target all` = **0 warnings 0 errors**,即公开 API 本来就 100%
+  有 `///` 文档,M10 没有补任何一条注释;门的价值是**防回归**(以后新增 `pub` 项漏文档会在 CI 直接红)。
