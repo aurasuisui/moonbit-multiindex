@@ -13,7 +13,7 @@
 ///|
 /// The naive model: live records, in insertion order.
 struct Model {
-  records : Array[(@aurasuisui/multiindex.RowId, (Int, Int, Int))]
+  records : Array[(@aurasuisui/multiindex.RowId, (Int32, Int32, Int32))]
 }
 
 ///|
@@ -26,14 +26,14 @@ struct Model {
 /// clashes of the offending member and accepts whichever one the table names.
 struct MemberClash {
   live : @aurasuisui/multiindex.RowId?
-  at : Int
+  at : Int32
   name : String
-  key : Int
+  key : Int32
 }
 
 ///|
 /// Which projected field a probe looks at: 0 -> "lo", 1 -> "hi", 2 -> "shared".
-fn field_of(record : (Int, Int, Int), field : Int) -> Int {
+fn field_of(record : (Int32, Int32, Int32), field : Int32) -> Int32 {
   if field == 0 {
     record.0
   } else if field == 1 {
@@ -44,7 +44,7 @@ fn field_of(record : (Int, Int, Int), field : Int) -> Int {
 }
 
 ///|
-fn unique_name(field : Int) -> String {
+fn unique_name(field : Int32) -> String {
   if field == 0 {
     "lo"
   } else {
@@ -58,7 +58,7 @@ fn Model::new() -> Model {
 }
 
 ///|
-fn Model::len(self : Model) -> Int {
+fn Model::len(self : Model) -> Int32 {
   self.records.length()
 }
 
@@ -66,14 +66,14 @@ fn Model::len(self : Model) -> Int {
 fn Model::add(
   self : Model,
   id : @aurasuisui/multiindex.RowId,
-  record : (Int, Int, Int),
+  record : (Int32, Int32, Int32),
 ) -> Unit {
   self.records.push((id, record))
 }
 
 ///|
 /// Where `id` sits in the model, or `-1` (a stale handle).
-fn Model::find(self : Model, id : @aurasuisui/multiindex.RowId) -> Int {
+fn Model::find(self : Model, id : @aurasuisui/multiindex.RowId) -> Int32 {
   let mut i = 0
   let mut found = -1
   while i < self.records.length() {
@@ -86,7 +86,7 @@ fn Model::find(self : Model, id : @aurasuisui/multiindex.RowId) -> Int {
 }
 
 ///|
-fn Model::drop(self : Model, at : Int) -> (Int, Int, Int) {
+fn Model::drop(self : Model, at : Int32) -> (Int32, Int32, Int32) {
   let record = self.records[at].1
   let n = self.records.length()
   let mut j = at
@@ -102,9 +102,9 @@ fn Model::drop(self : Model, at : Int) -> (Int, Int, Int) {
 /// The live record holding `key` on the unique `field`, or `None`.
 fn Model::unique_by(
   self : Model,
-  field : Int,
-  key : Int,
-) -> (@aurasuisui/multiindex.RowId, (Int, Int, Int))? {
+  field : Int32,
+  key : Int32,
+) -> (@aurasuisui/multiindex.RowId, (Int32, Int32, Int32))? {
   let mut i = 0
   while i < self.records.length() {
     if field_of(self.records[i].1, field) == key {
@@ -119,10 +119,10 @@ fn Model::unique_by(
 /// Every live record with `key` on `field`, smallest slot first (the contract).
 fn Model::multi_by(
   self : Model,
-  field : Int,
-  key : Int,
-) -> Array[(@aurasuisui/multiindex.RowId, (Int, Int, Int))] {
-  let out : Array[(@aurasuisui/multiindex.RowId, (Int, Int, Int))] = []
+  field : Int32,
+  key : Int32,
+) -> Array[(@aurasuisui/multiindex.RowId, (Int32, Int32, Int32))] {
+  let out : Array[(@aurasuisui/multiindex.RowId, (Int32, Int32, Int32))] = []
   let mut i = 0
   while i < self.records.length() {
     if field_of(self.records[i].1, field) == key {
@@ -140,13 +140,13 @@ fn Model::multi_by(
 /// inside one key, which is what the ordered walks promise.
 fn Model::ordered(
   self : Model,
-  field : Int,
-  lo : Int?,
-  hi : Int?,
+  field : Int32,
+  lo : Int32?,
+  hi : Int32?,
   half_open : Bool,
   descending : Bool,
-) -> Array[(@aurasuisui/multiindex.RowId, (Int, Int, Int))] {
-  let out : Array[(@aurasuisui/multiindex.RowId, (Int, Int, Int))] = []
+) -> Array[(@aurasuisui/multiindex.RowId, (Int32, Int32, Int32))] {
+  let out : Array[(@aurasuisui/multiindex.RowId, (Int32, Int32, Int32))] = []
   let mut i = 0
   while i < self.records.length() {
     let key = field_of(self.records[i].1, field)
@@ -195,11 +195,11 @@ fn Model::ordered(
 /// registry's internal iteration order.
 fn Model::clash(
   self : Model,
-  record : (Int, Int, Int),
+  record : (Int32, Int32, Int32),
   skip : @aurasuisui/multiindex.RowId?,
-) -> (String, Int, @aurasuisui/multiindex.RowId)? {
+) -> (String, Int32, @aurasuisui/multiindex.RowId)? {
   let mut best_name : String? = None
-  let mut best : (String, Int, @aurasuisui/multiindex.RowId)? = None
+  let mut best : (String, Int32, @aurasuisui/multiindex.RowId)? = None
   let mut field = 0
   while field <= 1 {
     let key = field_of(record, field)
@@ -233,8 +233,8 @@ fn Model::clash(
 /// Every clash member `i` of `batch` would hit, against the model alone.
 fn Model::clashes_of(
   self : Model,
-  batch : Array[(Int, Int, Int)],
-  i : Int,
+  batch : Array[(Int32, Int32, Int32)],
+  i : Int32,
 ) -> Array[MemberClash] {
   let out : Array[MemberClash] = []
   let mut field = 0
@@ -264,7 +264,10 @@ fn Model::clashes_of(
 
 ///|
 /// The first member of `batch` that cannot be inserted at all, or `-1`.
-fn Model::first_offender(self : Model, batch : Array[(Int, Int, Int)]) -> Int {
+fn Model::first_offender(
+  self : Model,
+  batch : Array[(Int32, Int32, Int32)],
+) -> Int32 {
   let mut i = 0
   while i < batch.length() {
     if self.clashes_of(batch, i).length() > 0 {
@@ -278,8 +281,8 @@ fn Model::first_offender(self : Model, batch : Array[(Int, Int, Int)]) -> Int {
 ///|
 /// Element-wise comparison of two `(RowId, record)` sequences.
 fn assert_same_pairs(
-  actual : Array[(@aurasuisui/multiindex.RowId, (Int, Int, Int))],
-  expected : Array[(@aurasuisui/multiindex.RowId, (Int, Int, Int))],
+  actual : Array[(@aurasuisui/multiindex.RowId, (Int32, Int32, Int32))],
+  expected : Array[(@aurasuisui/multiindex.RowId, (Int32, Int32, Int32))],
 ) -> Unit raise {
   @test.assert_eq(actual.length(), expected.length())
   let mut i = 0
@@ -291,14 +294,14 @@ fn assert_same_pairs(
 
 ///|
 /// The key intervals the differential test probes, as `(lo, hi)`.
-fn probe_ranges() -> Array[(Int, Int)] {
+fn probe_ranges() -> Array[(Int32, Int32)] {
   [(0, 100), (0, 10), (10, 30), (5, 5), (30, 10), (7, 7)]
 }
 
 ///|
 /// Assert the table and the model agree on **every observable answer**.
 fn assert_agrees(
-  t : @aurasuisui/multiindex.Table[Int, (Int, Int, Int)],
+  t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32, Int32)],
   model : Model,
 ) -> Unit raise {
   @test.assert_eq(t.len(), model.len())
@@ -319,7 +322,7 @@ fn assert_agrees(
     @test.assert_eq(t.get_by("lo", k), model.unique_by(0, k))
     @test.assert_eq(t.get_by("hi", k), model.unique_by(1, k))
     let matches = model.multi_by(2, k)
-    let first : (@aurasuisui/multiindex.RowId, (Int, Int, Int))? = if matches.length() ==
+    let first : (@aurasuisui/multiindex.RowId, (Int32, Int32, Int32))? = if matches.length() ==
       0 {
       None
     } else {
@@ -431,7 +434,7 @@ test "model differential: a scripted stream of every operation agrees with the m
 
 ///|
 test "model differential: random streams agree after every step" {
-  let r = @random.Rand::new()
+  let r = @random.Rand()
   let mut round = 0
   while round < 12 {
     let t = triple_table()
@@ -468,7 +471,7 @@ test "model differential: random streams agree after every step" {
           }
         }
       } else if op < 5 {
-        let batch : Array[(Int, Int, Int)] = [
+        let batch : Array[(Int32, Int32, Int32)] = [
           (r.int(limit=8), r.int(limit=8), r.int(limit=5)),
           (r.int(limit=8), r.int(limit=8), r.int(limit=5)),
         ]

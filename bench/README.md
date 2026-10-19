@@ -4,16 +4,54 @@ Timing benchmarks built on the official `@bench` framework (`moonbitlang/core/be
 **native + release**. See [`docs/RELEASE_CHECKLIST.md`](../docs/RELEASE_CHECKLIST.md) Tier 3.
 
 ```bash
+# from the repo root: make the sibling modules workspace members (once per checkout)
+Set-Content moon.work 'members = [".", "bench", "cmd/leaderboard"]'
 moon run --release bench/main.mbt
 ```
 
-`bench/` is a **standalone module** (its own `moon.mod`) that imports the **published**
-`aurasuisui/multiindex`, matching the layout used by `aurasuisui/bimap` and
-`aurasuisui/indexmap`. Root `moon check` / `moon test` therefore never touches it.
+`bench/` is a **standalone module** (its own `moon.mod`), matching the layout used by
+`aurasuisui/bimap` and `aurasuisui/indexmap`; root `moon check` / `moon test` never touches it.
 
-> Before the package is published, that import only resolves through a local workspace manifest
-> (`moon.work`, deliberately gitignored — `moon publish` would package it): from the repo root,
-> `printf 'members = [".", "bench", "cmd/leaderboard"]\n' > moon.work`.
+### It must measure the **local** module (B5)
+
+`moon.work` is deliberately gitignored (`moon publish` would package it), so a bare checkout
+has no workspace. The manifest's `"aurasuisui/multiindex@0.1.0"` is then a real registry
+dependency and the benchmark would silently time the **published** 0.1.0, not `../src`.
+The version string itself is mandatory syntax — dropping it makes `moon` fail with
+`moon.mod only supports versioned registry dependencies in `import``. The workspace member
+is what overrides the registry, so the recipe above is the supported way to run the bench.
+
+Two pieces of evidence, both taken on 2026-10-19 with `moon 0.1.20261012`:
+
+```text
+$ moon tree                       # run from bench/
+bench/multiindex_bench@0.0.0 (local C:\...\moonbit-multiindex\bench) [workspace member]:
+└─ aurasuisui/multiindex -> aurasuisui/multiindex@0.1.0 (local C:\...\moonbit-multiindex) [workspace member]
+
+$ moon run --release bench/main.mbt
+# aurasuisui/multiindex VERSION: 0.1.0 (local workspace module)
+```
+
+Toolchain note: this `moon` lexes `moon.mod` as strict TOML **without comment support** — any
+`#` (even after a valid key) fails with `Lexing error at <offset>..<offset+1>`. That is why the
+manifests stay comment-free and the explanation lives here.
+
+From M8 on, `bench/main.mbt` calls APIs that exist only in the local module, so a stale
+registry resolution fails to compile instead of silently measuring the wrong code.
+## M8 targets (written **before** implementing, 2026-10-19)
+
+Every number below is measured in **one process, one machine, one build** (`moon run --release`),
+against the *same* table the baseline uses (n = 20 000). The naive column must be a *scan that only
+reads the slot index* — comparing an id-only walk with a scan that materializes records would flatter us.
+
+| Path | Baseline (this checkout, 2026-10-19) | Target | Gate |
+|---|---|---|---|
+| fat-bucket id-only walk (`g`, ≈1 250/bucket) | 297 µs/op (`iter_by`) | **≤ 148 µs/op** | ≥ 2× faster |
+| wide-range id-only walk (5 000 of 20 000) | 1.72 ms/op (`range_by`) | **≤ 860 µs/op** | ≥ 2× faster |
+| `swap_remove` (k = 1) | 35.4 µs/op (`remove`) | **≤ 7.1 µs/op** | ≥ 5× faster |
+
+> The baselines moved ~10–20 % against the 2026-10-14 table (same code, busier machine). Both sides of
+> every ratio are re-measured now, so the ratio — not the absolute number — is the claim.
 
 ## Planned baselines
 

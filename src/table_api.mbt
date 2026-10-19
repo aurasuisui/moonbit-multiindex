@@ -24,7 +24,7 @@ pub fn[K : Hash + Eq, V] Table::register_unique(
   if self.indexes.contains(name) {
     return Err(DuplicateName(name))
   }
-  let buckets : Map[K, Int] = Map([])
+  let buckets : Map[K, Int32] = Map([])
   let mut i = 0
   while i < self.order.length() {
     let slot = self.order[i]
@@ -58,7 +58,7 @@ pub fn[K : Compare, V] Table::register_unique_ordered(
   if self.indexes.contains(name) {
     return Err(DuplicateName(name))
   }
-  let buckets : @sorted_map.SortedMap[K, Int] = @sorted_map.SortedMap([])
+  let buckets : @sorted_map.SortedMap[K, Int32] = @sorted_map.SortedMap([])
   let mut i = 0
   while i < self.order.length() {
     let slot = self.order[i]
@@ -95,7 +95,7 @@ pub fn[K : Hash + Eq, V] Table::register_non_unique(
   if self.indexes.contains(name) {
     return Err(DuplicateName(name))
   }
-  let buckets : Map[K, @sorted_set.SortedSet[Int]] = Map([])
+  let buckets : Map[K, @sorted_set.SortedSet[Int32]] = Map([])
   let mut i = 0
   while i < self.order.length() {
     let slot = self.order[i]
@@ -129,7 +129,7 @@ pub fn[K : Compare, V] Table::register_non_unique_ordered(
   if self.indexes.contains(name) {
     return Err(DuplicateName(name))
   }
-  let buckets : @sorted_map.SortedMap[K, @sorted_set.SortedSet[Int]] = @sorted_map.SortedMap([],
+  let buckets : @sorted_map.SortedMap[K, @sorted_set.SortedSet[Int32]] = @sorted_map.SortedMap([],
   )
   let mut i = 0
   while i < self.order.length() {
@@ -253,7 +253,7 @@ fn[K, V] Table::cursor_iter(
   cursor : BucketCursor,
 ) -> Iter2[RowId, V] {
   let version = self.version
-  let mut pending : Array[Int] = []
+  let mut pending : Array[Int32] = []
   let mut pos = 0
   Iter2::new(fn() -> (RowId, V)? {
     if self.version != version {

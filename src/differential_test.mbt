@@ -15,17 +15,17 @@
 ///|
 /// One record of the differential stream, mirroring the Rust struct field for field.
 struct DiffRec {
-  id : Int
-  ts : Int
-  tag : Int
-  bin : Int
+  id : Int32
+  ts : Int32
+  tag : Int32
+  bin : Int32
 } derive(Debug, Eq)
 
 ///|
 /// A table carrying the reference's four index quadrants: `id` hashed-unique, `ts`
 /// ordered-unique, `tag` hashed-non-unique, `bin` ordered-non-unique.
-fn diff_table() -> @aurasuisui/multiindex.Table[Int, DiffRec] raise {
-  let t : @aurasuisui/multiindex.Table[Int, DiffRec] = @aurasuisui/multiindex.Table::new()
+fn diff_table() -> @aurasuisui/multiindex.Table[Int32, DiffRec] raise {
+  let t : @aurasuisui/multiindex.Table[Int32, DiffRec] = @aurasuisui/multiindex.Table::new()
   assert_registered(t.register_unique("id", fn(r) { r.id }))
   assert_registered(t.register_unique_ordered("ts", fn(r) { r.ts }))
   assert_registered(t.register_non_unique("tag", fn(r) { r.tag }))
@@ -38,9 +38,9 @@ fn diff_table() -> @aurasuisui/multiindex.Table[Int, DiffRec] raise {
 /// generator emitted (the reference iterates its slab in slot order, which is not a
 /// semantic worth pinning).
 fn diff_records(
-  t : @aurasuisui/multiindex.Table[Int, DiffRec],
-) -> Array[(Int, Int, Int, Int)] {
-  let out : Array[(Int, Int, Int, Int)] = []
+  t : @aurasuisui/multiindex.Table[Int32, DiffRec],
+) -> Array[(Int32, Int32, Int32, Int32)] {
+  let out : Array[(Int32, Int32, Int32, Int32)] = []
   for _, r in t.iter() {
     out.push((r.id, r.ts, r.tag, r.bin))
   }
@@ -52,11 +52,11 @@ fn diff_records(
 /// The ids one probe answers, sorted: 0 or 1 for the unique quadrants, the whole
 /// bucket for the non-unique ones.
 fn diff_probe_ids(
-  t : @aurasuisui/multiindex.Table[Int, DiffRec],
+  t : @aurasuisui/multiindex.Table[Int32, DiffRec],
   index : String,
-  key : Int,
-) -> Array[Int] {
-  let out : Array[Int] = []
+  key : Int32,
+) -> Array[Int32] {
+  let out : Array[Int32] = []
   if index == "id" || index == "ts" {
     match t.get_by(index, key) {
       // both unique probes answer with the record's *id* (that is what the fixture
@@ -74,7 +74,10 @@ fn diff_probe_ids(
 }
 
 ///|
-fn assert_same_ints(actual : Array[Int], expected : Array[Int]) -> Unit raise {
+fn assert_same_ints(
+  actual : Array[Int32],
+  expected : Array[Int32],
+) -> Unit raise {
   @test.assert_eq(actual.length(), expected.length())
   let mut i = 0
   while i < expected.length() {
@@ -85,8 +88,8 @@ fn assert_same_ints(actual : Array[Int], expected : Array[Int]) -> Unit raise {
 
 ///|
 fn assert_same_records(
-  actual : Array[(Int, Int, Int, Int)],
-  expected : Array[(Int, Int, Int, Int)],
+  actual : Array[(Int32, Int32, Int32, Int32)],
+  expected : Array[(Int32, Int32, Int32, Int32)],
 ) -> Unit raise {
   @test.assert_eq(actual.length(), expected.length())
   let mut i = 0

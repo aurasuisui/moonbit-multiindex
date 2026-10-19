@@ -30,8 +30,8 @@ pub const VERSION : String = "0.1.0"
 /// (the ABA problem). Operations on a stale handle return `None` / `false`
 /// rather than touching the new occupant of the slot.
 pub struct RowId {
-  slot : Int
-  gen : Int
+  slot : Int32
+  gen : Int32
 } derive(Eq, Hash, Debug)
 
 ///|
@@ -61,7 +61,7 @@ pub impl Show for RowId with fn output(self : RowId, logger : &Logger) {
 ///   would have been a lie — the batch position is the honest answer.
 pub enum Conflict[K] {
   UniqueViolation(String, K, RowId)
-  DuplicateInBatch(String, K, Int)
+  DuplicateInBatch(String, K, Int32)
 } derive(Debug, Eq)
 
 ///|
@@ -163,8 +163,8 @@ pub enum UpdateRejected[K, V] {
 /// `average_bucket` stays near 1 means many records pile into one bucket. An index
 /// with no entries reports zero for everything (including the average).
 pub struct IndexStats {
-  buckets : Int
-  entries : Int
-  longest_bucket : Int
+  buckets : Int32
+  entries : Int32
+  longest_bucket : Int32
   average_bucket : Double
 } derive(Debug, Eq)

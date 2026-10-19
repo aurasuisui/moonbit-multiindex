@@ -15,7 +15,7 @@ test "a round trip preserves the records and their insertion order" {
   // leave a hole, so the order under test is not simply "slot order"
   t.remove(removed) |> ignore
   let json = t.to_json()
-  let loaded : @aurasuisui/multiindex.Table[Int, (Int, Int, Int)] = @aurasuisui/multiindex.Table::from_json(
+  let loaded : @aurasuisui/multiindex.Table[Int32, (Int32, Int32, Int32)] = @aurasuisui/multiindex.Table::from_json(
     json,
   )
   @test.assert_eq(loaded.len(), t.len())
@@ -42,7 +42,7 @@ test "registering the indexes again makes the loaded table answer identically" {
   insert_ok(t, (1, 10, 7)) |> ignore
   insert_ok(t, (2, 20, 7)) |> ignore
   insert_ok(t, (3, 30, 8)) |> ignore
-  let loaded : @aurasuisui/multiindex.Table[Int, (Int, Int, Int)] = @aurasuisui/multiindex.Table::from_json(
+  let loaded : @aurasuisui/multiindex.Table[Int32, (Int32, Int32, Int32)] = @aurasuisui/multiindex.Table::from_json(
     t.to_json(),
   )
   // the §3.1 backfill does the reindexing — no second mechanism
@@ -77,7 +77,7 @@ test "registering the indexes again makes the loaded table answer identically" {
 /// catchable — unlike the `abort`s of docs/SPEC.md §7.1).
 fn decode_raises(json : Json) -> Bool {
   let caught = try {
-    let _ : @aurasuisui/multiindex.Table[Int, Int] = @aurasuisui/multiindex.Table::from_json(
+    let _ : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::from_json(
       json,
     )
     false
@@ -100,7 +100,7 @@ test "malformed input is reported, never silently accepted" {
   )
   // and the empty-but-well-formed case is *not* an error
   @test.assert_eq(decode_raises(@json.parse("{\"records\": []}")), false)
-  let empty : @aurasuisui/multiindex.Table[Int, Int] = @aurasuisui/multiindex.Table::from_json(
+  let empty : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::from_json(
     @json.parse("{\"records\": []}"),
   )
   @test.assert_eq(empty.len(), 0)

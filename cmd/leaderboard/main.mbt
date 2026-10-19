@@ -11,32 +11,29 @@
 // inserting, updating or removing a player keeps every view correct, and a refused
 // write hands the record back instead of losing it.
 //
-// Standalone module (own `moon.mod`, imports the published package), so the root
-// `moon check` / `moon test` never touches it. Run with:
+// Standalone module (own `moon.mod`), so the root `moon check` / `moon test` never
+// touches it. The manifest must name a versioned registry import, but the local
+// workspace manifest makes the sibling module win (deliberately not committed —
+// `moon publish` would package it):
 //
+//   Set-Content moon.work 'members = [".", "bench", "cmd/leaderboard"]'
 //   moon run cmd/leaderboard
-//
-// Until the package is published, that import only resolves through a local workspace
-// manifest (deliberately not committed — `moon publish` would package it):
-//
-//   printf 'members = [".", "bench", "cmd/leaderboard"]\n' > moon.work
-//   moon run cmd/leaderboard
-//   rm moon.work
+//   Remove-Item moon.work
 
 ///|
 /// One player. The key type of the table is `Int`, so every index projects to an
 /// `Int`: the id, the team number, or the score.
 struct Player {
-  id : Int
+  id : Int32
   name : String
-  team : Int
-  score : Int
+  team : Int32
+  score : Int32
 } derive(Debug)
 
 ///|
 /// Build the table every demo below shares: three indexes over the same records.
-fn new_table() -> @multiindex.Table[Int, Player] {
-  let t : @multiindex.Table[Int, Player] = @multiindex.Table::new()
+fn new_table() -> @multiindex.Table[Int32, Player] {
+  let t : @multiindex.Table[Int32, Player] = @multiindex.Table::new()
   let _ = t.register_unique("id", fn(p) { p.id })
   let _ = t.register_non_unique("team", fn(p) { p.team })
   let _ = t.register_non_unique_ordered("score", fn(p) { p.score })
@@ -46,7 +43,7 @@ fn new_table() -> @multiindex.Table[Int, Player] {
 ///|
 /// Insert, reporting what happened the way the API does: `Err` carries both the
 /// conflict and the record that was refused (so nothing is ever lost).
-fn add(t : @multiindex.Table[Int, Player], player : Player) -> Unit {
+fn add(t : @multiindex.Table[Int32, Player], player : Player) -> Unit {
   match t.insert(player) {
     Ok(id) => println("  added  #\{player.id} \{player.name} (\{id})")
     Err(rejected) =>
@@ -76,6 +73,9 @@ fn show(label : String, found : (@multiindex.RowId, Player)?) -> Unit {
 ///|
 fn main {
   let t = new_table()
+  println(
+    "== aurasuisui/multiindex VERSION: \{@multiindex.VERSION} (local workspace module) ==",
+  )
   println("== adding players ==")
   add(t, { id: 7, name: "ada", team: 1, score: 120, })
   add(t, { id: 9, name: "bob", team: 1, score: 340, })

@@ -1,12 +1,15 @@
-// Timing benchmarks for aurasuisui/multiindex (published artifact).
+// Timing benchmarks for aurasuisui/multiindex (LOCAL workspace module).
 //
 // Standalone module, deliberately NOT part of the root package — same layout as
-// `cmd/`: it imports the PUBLISHED package, so the numbers measure exactly what
-// users install. Uses the official @bench framework (adaptive batching, winsorized
-// statistics). Every closure ends in `b.keep(..)` so nothing is optimized away, and
-// each closure performs `n` operations, so per-op cost = reported microseconds / n.
+// `cmd/`: its manifest must name a versioned registry import, but when the repo-root
+// `moon.work` lists this directory the workspace member wins, so the numbers measure
+// `../src` and not the registry copy (verified with `moon tree`; see bench/README.md).
+// The first line of output prints `VERSION` as evidence. Uses the official @bench
+// framework (adaptive batching, winsorized statistics). Every closure ends in
+// `b.keep(..)` so nothing is optimized away, and each closure performs `n`
+// operations, so per-op cost = reported microseconds / n.
 //
-// Run with:  moon run --release bench/main.mbt
+// Run with:  moon run --release bench/main.mbt   (from the repo root, moon.work in place)
 //
 // Reporting discipline (see bench/README.md): the point is the **k-vs-throughput
 // trade-off table** — "more indexes cost more per write" — not a single headline
@@ -16,14 +19,14 @@
 /// One record. Eight `Int` fields, so a table can carry up to eight indexes over
 /// the same records while every index still projects to the `Int` key type.
 struct Row {
-  a : Int
-  b : Int
-  c : Int
-  d : Int
-  e : Int
-  f : Int
-  g : Int
-  h : Int
+  a : Int32
+  b : Int32
+  c : Int32
+  d : Int32
+  e : Int32
+  f : Int32
+  g : Int32
+  h : Int32
 }
 
 ///|
@@ -33,7 +36,7 @@ struct Row {
 /// question is *where the index stops winning*: `e` is nearly unique (≈2 records per
 /// bucket — a selective key), while `f`/`g`/`h` cycle through tiny key spaces (up to
 /// n/8 records per bucket — fat buckets).
-fn make_rows(n : Int) -> Array[Row] {
+fn make_rows(n : Int32) -> Array[Row] {
   let rows : Array[Row] = []
   for i in 0..<n {
     rows.push({
@@ -52,8 +55,8 @@ fn make_rows(n : Int) -> Array[Row] {
 
 ///|
 /// A table with the first `k` indexes registered over `rows`.
-fn build(rows : Array[Row], k : Int) -> @multiindex.Table[Int, Row] {
-  let t : @multiindex.Table[Int, Row] = @multiindex.Table::new()
+fn build(rows : Array[Row], k : Int32) -> @multiindex.Table[Int32, Row] {
+  let t : @multiindex.Table[Int32, Row] = @multiindex.Table::new()
   if k > 0 {
     let _ = t.register_unique("a", fn(r) { r.a })
   }
@@ -88,13 +91,13 @@ fn build(rows : Array[Row], k : Int) -> @multiindex.Table[Int, Row] {
 
 ///|
 /// Deterministic LCG, so probe keys are spread the same way on every run.
-fn next_state(state : Int) -> Int {
+fn next_state(state : Int32) -> Int32 {
   (state * 1103515245 + 12345) & 0x7FFF_FFFF
 }
 
 ///|
 /// The k values the write benchmarks sweep.
-fn k_values() -> Array[Int] {
+fn k_values() -> Array[Int32] {
   [1, 2, 4, 8]
 }
 
@@ -103,6 +106,12 @@ fn main {
   let n = 20_000
   let rows = make_rows(n)
   let bench = @bench.Bench()
+  // B5 evidence: this line must report the *local* workspace module. Run from the repo
+  // root with `moon.work` in place (bench/README.md) — a bare checkout would silently
+  // download the registry copy instead, and after M8 the code would not even compile.
+  println(
+    "# aurasuisui/multiindex VERSION: \{@multiindex.VERSION} (local workspace module)",
+  )
   println(
     "# records per table: \{n}; reported microseconds are per ITERATION (n ops)",
   )

@@ -14,7 +14,10 @@ jobs:
       - name: Setup MoonBit
         uses: hustcer/setup-moonbit@v1
         with:
-          version: latest
+          # Pinned on purpose (AGENTS.md): `latest` floated to a toolchain that
+          # rewrote Int -> Int32 and turned CI red on every push from 2026-10-14.
+          # Bump in a separate, fully green commit.
+          version: 0.1.20261012
       - name: Format check
         run: moon fmt --check
       - name: Type check
