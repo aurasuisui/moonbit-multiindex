@@ -105,6 +105,8 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 - **警告清零**:新建 `src/extends.mbt`(官方三段式:促进 `Eq::equal`,其余 `#deprecated + #doc(hidden)`),
   测试夹具 `CountedKey` 加 `priv`,`src/moon.pkg` 改三段式(基础 + `for "test"` + `for "wbtest"`)。
   结果:`moon check --deny-warn --target all` **0 warnings 0 errors**(此前 18 条)
+> ⚠️ 该结论带**工具链前提**:它成立于 `moon 0.1.20260920`。`moon 0.1.20261012` 起
+> `@random.Rand::new()` 报 `[0020]`,本地实测 7 处调用点(见 [`plans/v0.2.0.md`](docs/plans/v0.2.0.md) §七 B2)。
 - **CI 加固**:五步 CI 新增 `moon check --deny-warn --target all`;明确不加 `moon bundle --all`
   (moon 0.1.20260920 上 panic)与 `+unnecessary_annotation`(30 条 `[0073]`,其中 12 条来自黑盒前缀约定)
 - **`Conflict::DuplicateInBatch(String, K, Int)`**(落地 M5 审核裁定):批内冲突不再用预测句柄冒充
@@ -136,7 +138,18 @@ All notable changes to `aurasuisui/multiindex` are documented here.
   写成半开的**错误表述**;偏离清单补 `insert_many` 整批原子、`index_stats`、JSON 往返
 - **申报书 / 发布清单定稿**:`docs/申报书.md` 按实际交付更新;`docs/RELEASE_CHECKLIST.md` 增
   「最近一次执行」证据表(Tier 0/1/2/4 全绿,发布三条留空)
-- 测试 78 条;`moon check --deny-warn --target all` 保持 0 warnings 0 errors
+- 测试 78 条;`moon check --deny-warn --target all` 当时保持 0 warnings 0 errors
+  (**该结论依赖 `moon 0.1.20260920`;换工具链后失效,见上**)
+
+#### 计划 — v0.2.0 纳入评审阻断项(2026-10-19)
+
+- `docs/plans/v0.2.0.md` 新增 **M7.5 发布基线修复**:CI 自 2026-10-14 起连续 6 次红在
+  `moon fmt --check`;零警告门禁实测 7 条 `[0020]`;`v0.1.0` 无 tag;申报书含姓名与手机号;
+  `bench/` 与 `cmd/leaderboard/` 依赖写死 `@0.1.0`,测的是已发布包。关闭顺序与证据见其 §七。
+- 同一计划**纠正两处 semver 判定**:`IndexStats` 字段公开,加分位数属破坏性 → 改走新增独立
+  方法/类型;约束擦除在现行架构下会牺牲 I3/I4/I5/I7 的逐步校验 → 本版不做,转 v0.3 候选。
+- 申报书 PII 处置按 2026-10-19 决定**暂缓**(另行处理),计划把 B4 转 M12 发布前确认;
+  `docs/plans/execution-brief.md` 的任务范围段标注为**停在 M1**,当前范围以 v0.2.0 计划为准。
 
 ### Notes / Deviations
 - **`Conflict` 故意没有「无冲突」变体**:无冲突用 `Option::None` 表达。加变体会与
