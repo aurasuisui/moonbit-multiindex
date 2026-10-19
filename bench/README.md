@@ -38,6 +38,20 @@ manifests stay comment-free and the explanation lives here.
 
 From M8 on, `bench/main.mbt` calls APIs that exist only in the local module, so a stale
 registry resolution fails to compile instead of silently measuring the wrong code.
+## M8 targets (written **before** implementing, 2026-10-19)
+
+Every number below is measured in **one process, one machine, one build** (`moon run --release`),
+against the *same* table the baseline uses (n = 20 000). The naive column must be a *scan that only
+reads the slot index* — comparing an id-only walk with a scan that materializes records would flatter us.
+
+| Path | Baseline (this checkout, 2026-10-19) | Target | Gate |
+|---|---|---|---|
+| fat-bucket id-only walk (`g`, ≈1 250/bucket) | 297 µs/op (`iter_by`) | **≤ 148 µs/op** | ≥ 2× faster |
+| wide-range id-only walk (5 000 of 20 000) | 1.72 ms/op (`range_by`) | **≤ 860 µs/op** | ≥ 2× faster |
+| `swap_remove` (k = 1) | 35.4 µs/op (`remove`) | **≤ 7.1 µs/op** | ≥ 5× faster |
+
+> The baselines moved ~10–20 % against the 2026-10-14 table (same code, busier machine). Both sides of
+> every ratio are re-measured now, so the ratio — not the absolute number — is the claim.
 
 ## Planned baselines
 
