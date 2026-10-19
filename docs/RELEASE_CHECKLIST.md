@@ -5,6 +5,11 @@
 
 ## 最近一次执行:M7(2026-10-14,执行会话)
 
+> ⚠️ **2026-10-19 复核**:下表是当次记录,不是当前状态。CI 装的是 `moon` **latest**
+> (`.github/workflows/ci.yml:17`),工具链漂移已使 Tier 0 的 fmt / deny-warn 结论失效
+> (`moon fmt --check` 10 个文件待格式化;`--deny-warn` 7 条 `[0020]`)。处置见
+> [`plans/v0.2.0.md`](plans/v0.2.0.md) §七;复核通过前**不要照此表宣布可发布**。
+
 > 逐项跑过并记录证据;最后三条(实际发布)是**不可逆的外部动作**,按派发要求**等用户确认,未执行**。
 
 | Tier | 项 | 结果 | 证据 |
@@ -75,6 +80,7 @@ MoonBit 的包管理遵循**语义化版本**:每个模块必须以 `MAJOR.MINOR
 
 ## Tier 0 — 硬门禁(缺一不可)
 
+- [ ] CI 使用的 `moon` 版本已固定(非 `latest`),升级单独 commit 且全绿
 - [ ] `moon fmt --check` 干净
 - [ ] `moon check` 0 error
 - [ ] `moon info && git diff --exit-code` 干净(`src/pkg.generated.mbti` 已提交)
@@ -85,7 +91,7 @@ MoonBit 的包管理遵循**语义化版本**:每个模块必须以 `MAJOR.MINOR
 
 ## Tier 1 — 正确性
 
-- [ ] 不变量 `check_invariants`(I1–I8)在随机序列每步后成立
+- [ ] 不变量 `check_invariants`(I1–I9)在随机序列每步后成立
 - [ ] 模型对拍(`model_test.mbt`)与朴素实现逐步一致
 - [ ] 差分测试(`differential_test.mbt`)对参考实现的观测序列一致
 - [ ] 回归测试钉子(特别是 update 冲突漏洞)仍在
@@ -114,5 +120,6 @@ MoonBit 的包管理遵循**语义化版本**:每个模块必须以 `MAJOR.MINOR
 ## 发布前必检
 
 - [ ] `moon publish --dry-run`(如支持)无意外
+- [ ] 产物清单逐条核对:无个人信息、无开发态文件(`_build` / `moon.work` / `bench` / `cmd`),清单留档
 - [ ] 发布后到 mooncakes.io 确认页面可访问、README 正常渲染
 - [ ] 打 tag 并推送

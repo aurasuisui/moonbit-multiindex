@@ -29,11 +29,17 @@ moon test -i 0 src/table_test.mbt        # only the 0-th test in one file
 moon test -u                             # regenerate snapshots (debug_inspect only)
 ```
 
-The five-step CI (`.github/workflows/ci.yml`) that must all stay green:
+The six-step CI (`.github/workflows/ci.yml`) that must all stay green:
 
 ```
-moon fmt --check → moon check → moon info && git diff --exit-code → moon test → moon build
+moon fmt --check → moon check → moon check --deny-warn --target all
+  → moon info && git diff --exit-code → moon test → moon build
 ```
+
+> **The toolchain version is pinned in `ci.yml` on purpose.** With `version: latest` the
+> formatter began rewriting `Int` → `Int32` and `@random.Rand::new()` became an error
+> (`[0020]`), which turned CI red on every push from 2026-10-14 on. Bump the pin in a
+> separate, fully green commit — never by floating it again.
 
 **The `moon info && git diff --exit-code` step is load-bearing:** `src/pkg.generated.mbti` is a
 checked-in interface snapshot. Change a public signature → run `moon info` and commit the
