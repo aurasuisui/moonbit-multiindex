@@ -742,18 +742,55 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 - **当前状态**:开启后四后端 `moon check --deny-warn --target all` = **0 warnings 0 errors**,即公开 API 本来就 100%
   有 `///` 文档,M10 没有补任何一条注释;门的价值是**防回归**(以后新增 `pub` 项漏文档会在 CI 直接红)。
 
-## 15. 形式化验证可行性(M10-B,时间盒内未判定)
+## 15. 形式化验证(M10-B)
 
-- `moon prove` 在 0.1.20261012 **存在**,后端是 **Why3**:`moon prove --why3-config <PATH>`(可用自定义配置),
-  环境变量 `MOON_PROVE_PRELUDE_OVERRIDE` 可替换证明前导。Why3 本身不需要用户安装。
-- 它要求 PATH 里有 **SMT 求解器**:`alt-ergo` / `cvc5` / `z3`(或 `ALTERGOPATH` / `CVC5PATH` / `Z3PATH` 指向)。
-  本机三个都没有,原始报错:
-  `Error: failed to locate any SMT solver for \`moon prove\`: searched for \`alt-ergo\`, \`cvc5\`, \`z3\` in PATH. You can also set ALTERGOPATH, CVC5PATH, or Z3PATH. Install at least one of: Alt-Ergo, CVC5, Z3.`
-- 安装尝试(均失败,时间盒内停止):GitHub releases API 返回 `403`;release 页面在非交互 PowerShell 下抓取失败;
-  `winget search z3` 无该包(只有无关的 Roblox 命中)。
-- **结论:未判定(⏱)**,不是"不可行"。已确定的是**进入门槛 = 一个 SMT 求解器**,moon 侧无需额外组件。
-  所以下一轮只需:装 z3(官方 win64 zip,解压后设 `Z3PATH`)→ `moon prove` 跑一个包 → 再谈 I1/I2。
-- 一条旁证(未验证,别当结论):编译器告警表里有 `missing_invariant`(38)与 `missing_reasoning`(39),
-  均默认 off,说明语言侧确实有 `invariant` / `proof_reasoning` 注解可供证明模式使用;真做 I1 大概率要给循环
-  补这些注解,而不是直接 `moon prove` 就能过。
-- **没有做的事**:没有对任何一条不变量发起证明,因此本文不声称"支持/不支持某构造";也没有弱化过任何不变量。
+### 15.1 结论先行
+
+- `moon prove` 在本机**仍不可用**,但原因已从「没装求解器」收窄到「why3 与 z3 的调用/解析层」:
+  求解器能被发现,WhyML 能正确生成,**每一个**目标都返回 `Failure (no prover available)`
+  (attempts 记录为 `Z3: Failure (high failure)`)——**包括 `ident'vc : eq x x = True` 这种恒真目标**。
+  因此这不是「目标太难」,是链路断了。
+- 作为替代,[`proofs/`](../proofs/) 目录改用**直接写 SMT-LIB 交给 z3** 做形式化校验,已通过两条:
+  `swap_remove` 后 `positions` 仍是 `order` 的逆;`clear()` 批量退役后陈旧 `RowId` 不复活。
+  `powershell -NoProfile -File proofs/run.ps1` 可复跑,输出 `all proofs checked`。
+
+### 15.2 moon prove 的进场方式(已实测)
+
+- **开关**:`moon.pkg` 里写 `proof_enabled = true`。写成 `proof = true` 会报
+  `Unexpected key 'proof' found in moon.pkg.`;写成 `options("proof": true)` 会被接受但只是把选项
+  透传给 moonc,**不是**开关(照旧静默跳过该包)。
+- **求解器**:`Z3PATH` 指向 exe 与「把 z3 放到 PATH」两种方式都能被发现(带不带 `.exe` 后缀均可)。
+- **Why3 不需要用户安装**:二进制随工具链分发(`~/.moon/lib/why3` 有 `why3.cmxa` / `why3server.exe`,
+  `~/.moon/share/why3` 有 `drivers/` 与 `provers-detection-data.conf`);`moonc-prove.exe` 自带 `-emit-only`。
+- **z3 的获取**:不需要 GitHub(API 返回 403)。`python -m pip download z3-solver==4.12.6.0 --no-deps`
+  得到 wheel,`tar -xf` 解开后 `z3.exe` 位于 `<pkg>-*.data/data/bin/z3.exe`。
+
+### 15.3 已排除的变量
+
+| 变量 | 试过的取值 | 结果 |
+|---|---|---|
+| z3 版本 | 5.3.1 / 4.13.4 / 4.12.6(4.12.x 是内置检测数据 `provers-detection-data.conf` 支持的最高版本) | 均 `high failure` |
+| 发现方式 | `Z3PATH` 指到 exe / 指到无后缀路径 / 仅靠 PATH | 均 `high failure`(生成的 `why3.conf` 一律登记为 `[partial_prover]`) |
+| 目标难度 | 官方文档二分查找示例(37 个目标)/ 最小恒等函数(1 个目标 `eq x x = True`) | 均 `high failure` |
+| z3 自身 | 命令行直接跑;按检测数据里的原始参数(`-smt2 -t:5 sat.random_seed=42 … -st`)经 `why3cpulimit.exe` 调用 | 均正确返回 `unsat` |
+
+补一条可复现的细节:`moon prove` 每次都会**重写** `_build/verif/why3.conf`(手工改 `magic` 值会被覆盖),
+所以「改配置绕过」不成立。
+
+### 15.4 替代方案与它的边界
+
+`proofs/` 下的证明验证的是**设计所依赖的逻辑关系**,不是 MoonBit 源码:代码是否忠实实现模型,
+仍由单元测试 / 属性测试 / 对拍测试负责。这层边界写在 [`proofs/README.md`](../proofs/README.md) 里。
+
+### 15.5 没有做的事
+
+- 没有对任何一条不变量声称「语言侧不支持」——故障在 why3↔z3,不在 MoonBit 的证明语法。
+- 没有弱化任何不变量断言来换测试通过。
+- 没有把 SMT 证明写成「已验证代码」;`proofs/` 不进 CI(它需要 z3,而 CI 镜像里没有)。
+
+### 15.6 下一轮若接着做
+
+1. 找一个 why3 能正常驱动的 z3(或换 alt-ergo / cvc5 的完整 CLI),再跑 `eq x x` 这个最小目标;
+   它一通,才谈得上把 `proofs/*.smt2` 迁移成 `.mbtp` 里的 predicate。
+2. 语言侧大概率还要给循环补 `missing_invariant`(告警 38)/ `missing_reasoning`(39) 注解——
+   两者默认 off,说明语言支持但需要显式写,不是「`moon prove` 一跑就过」。
