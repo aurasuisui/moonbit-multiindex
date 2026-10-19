@@ -173,12 +173,11 @@ pub fn[K : Hash + Eq + Compare, V] Table::get_by(
   key : K,
 ) -> (RowId, V)? {
   let index = self.require_index(name)
-  // `slots` is ascending, so [0] is the smallest slot in the bucket.
-  let slots = index.slots(key)
-  if slots.length() == 0 {
-    return None
+  // `first_slot` is the smallest slot of the bucket and never materializes it.
+  match index.first_slot(key) {
+    Some(slot) => self.record_at(slot)
+    None => None
   }
-  self.record_at(slots[0])
 }
 
 ///|
