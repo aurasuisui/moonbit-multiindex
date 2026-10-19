@@ -728,3 +728,69 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 >(独立复跑:1.68 / 19.13 / 267.6 µs 对 0.970 / 0.759 / 0.852 µs)。所以正确的表述是
 > **「`remove` 随 n 线性增长、`swap_remove` 持平 ⇒ 比值随 n 增大」,而非「固定倍数 ≥ 5×」**。
 > 基准表已按 n 分档呈现,不报单一「最好看的数字」。`positions` 的代价也已实测:`insert` 持平(0.95 → 0.98 µs/op),`remove` 因搬动时同步写 `positions` 从 34.8 升至 54.5 µs/op(+57%)——只由需要插入序的调用方支付。数据见 `bench/README.md`。
+
+## 14. 文档门禁:warning 0074 `missing_doc`(M10)
+
+- **开关**:告警 **74 / mnemonic `missing_doc`**("Missing documentation for public definition"),在 moon 0.1.20261012 默认 **off**。
+  默认 warn list 里就是 `-74`,所以裸 `moon check` 从不报它。开启写法是 `--warn-list "+74"`(或 `--warn-list "+missing_doc"`)。
+- **落地方式**:写进包的 `src/moon.pkg` 顶层 `warnings = "+74"`,而不是 CI 命令行 —— 这样本地 `moon check`、CI、
+  以及下游任何使用者拿到的都是同一个门槛,不存在"CI 开了本地没开"的漂移。CI 的 `moon check --deny-warn --target all`
+  因此自动覆盖它(步骤未改命令,只加了注释)。
+- **与默认集合并,不覆盖**:包的 `warnings` 与编译器默认列表叠加(实测 `0001` 与 `0074` 同时触发)。
+  `options("warn-list": ...)` 是**弃用**写法(`[0027] deprecated_syntax`),不要用。
+- **只管公开面**:实测 `priv struct` / `priv fn` 缺文档**不报** 74,只有 `pub` 定义报。正好符合 SPEC 的意图。
+- **当前状态**:开启后四后端 `moon check --deny-warn --target all` = **0 warnings 0 errors**,即公开 API 本来就 100%
+  有 `///` 文档,M10 没有补任何一条注释;门的价值是**防回归**(以后新增 `pub` 项漏文档会在 CI 直接红)。
+
+## 15. 形式化验证(M10-B)
+
+### 15.1 结论先行
+
+- `moon prove` 在本机**仍不可用**,但原因已从「没装求解器」收窄到「why3 与 z3 的调用/解析层」:
+  求解器能被发现,WhyML 能正确生成,**每一个**目标都返回 `Failure (no prover available)`
+  (attempts 记录为 `Z3: Failure (high failure)`)——**包括 `ident'vc : eq x x = True` 这种恒真目标**。
+  因此这不是「目标太难」,是链路断了。
+- 作为替代,[`proofs/`](../proofs/) 目录改用**直接写 SMT-LIB 交给 z3** 做形式化校验,已通过两条:
+  `swap_remove` 后 `positions` 仍是 `order` 的逆;`clear()` 批量退役后陈旧 `RowId` 不复活。
+  `powershell -NoProfile -File proofs/run.ps1` 可复跑,输出 `all proofs checked`。
+
+### 15.2 moon prove 的进场方式(已实测)
+
+- **开关**:`moon.pkg` 里写 `proof_enabled = true`。写成 `proof = true` 会报
+  `Unexpected key 'proof' found in moon.pkg.`;写成 `options("proof": true)` 会被接受但只是把选项
+  透传给 moonc,**不是**开关(照旧静默跳过该包)。
+- **求解器**:`Z3PATH` 指向 exe 与「把 z3 放到 PATH」两种方式都能被发现(带不带 `.exe` 后缀均可)。
+- **Why3 不需要用户安装**:二进制随工具链分发(`~/.moon/lib/why3` 有 `why3.cmxa` / `why3server.exe`,
+  `~/.moon/share/why3` 有 `drivers/` 与 `provers-detection-data.conf`);`moonc-prove.exe` 自带 `-emit-only`。
+- **z3 的获取**:不需要 GitHub(API 返回 403)。`python -m pip download z3-solver==4.12.6.0 --no-deps`
+  得到 wheel,`tar -xf` 解开后 `z3.exe` 位于 `<pkg>-*.data/data/bin/z3.exe`。
+
+### 15.3 已排除的变量
+
+| 变量 | 试过的取值 | 结果 |
+|---|---|---|
+| z3 版本 | 5.3.1 / 4.13.4 / 4.12.6(4.12.x 是内置检测数据 `provers-detection-data.conf` 支持的最高版本) | 均 `high failure` |
+| 发现方式 | `Z3PATH` 指到 exe / 指到无后缀路径 / 仅靠 PATH | 均 `high failure`(生成的 `why3.conf` 一律登记为 `[partial_prover]`) |
+| 目标难度 | 官方文档二分查找示例(37 个目标)/ 最小恒等函数(1 个目标 `eq x x = True`) | 均 `high failure` |
+| z3 自身 | 命令行直接跑;按检测数据里的原始参数(`-smt2 -t:5 sat.random_seed=42 … -st`)经 `why3cpulimit.exe` 调用 | 均正确返回 `unsat` |
+
+补一条可复现的细节:`moon prove` 每次都会**重写** `_build/verif/why3.conf`(手工改 `magic` 值会被覆盖),
+所以「改配置绕过」不成立。
+
+### 15.4 替代方案与它的边界
+
+`proofs/` 下的证明验证的是**设计所依赖的逻辑关系**,不是 MoonBit 源码:代码是否忠实实现模型,
+仍由单元测试 / 属性测试 / 对拍测试负责。这层边界写在 [`proofs/README.md`](../proofs/README.md) 里。
+
+### 15.5 没有做的事
+
+- 没有对任何一条不变量声称「语言侧不支持」——故障在 why3↔z3,不在 MoonBit 的证明语法。
+- 没有弱化任何不变量断言来换测试通过。
+- 没有把 SMT 证明写成「已验证代码」;`proofs/` 不进 CI(它需要 z3,而 CI 镜像里没有)。
+
+### 15.6 下一轮若接着做
+
+1. 找一个 why3 能正常驱动的 z3(或换 alt-ergo / cvc5 的完整 CLI),再跑 `eq x x` 这个最小目标;
+   它一通,才谈得上把 `proofs/*.smt2` 迁移成 `.mbtp` 里的 predicate。
+2. 语言侧大概率还要给循环补 `missing_invariant`(告警 38)/ `missing_reasoning`(39) 注解——
+   两者默认 off,说明语言支持但需要显式写,不是「`moon prove` 一跑就过」。

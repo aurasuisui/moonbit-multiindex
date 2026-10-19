@@ -162,6 +162,31 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 - 既有 83 条断言**一条未改**;新增 10 条(黑盒 5 + 白盒 5,含 300 步 insert / remove / swap_remove 混合序列每步校验),共 **93** 条。
 - n = 1 000 / 10 000 / 100 000 三档与 `positions` 的写入代价见 `bench/README.md`(S8c 小节)。
 
+#### M10 — 正确性加固(2026-10-19)
+
+- **`+missing_doc` 门禁**(`265dc2f`):`src/moon.pkg` 顶层加 `warnings = "+74"`。
+  实测该告警默认 off(`moonc check -warn-help` 的默认列表写作 `-74`)、**未知告警名会被静默接受**
+  (`+alert_this_does_not_exist` 退出码仍是 0),所以「没报警告」不能证明开关生效——另做了正对照:
+  scratch 包里放一个无文档的 `pub fn`,确认 `[0074]` 真报出。`options("warn-list": "+74")` 是**弃用**写法,报 `Error: [0027]`。
+  开启后告警 **0 条**(公开 API 本就 100% 有 `///`),这道门是**防回归**;实测 `priv` 项缺文档不报 74。
+
+- **`moon prove` 可行性探针 —— 结论:本机不可用(不再是「未判定」)**
+  - 开关只有 `proof_enabled = true`;`proof = true` 报 `Unexpected key 'proof' found in moon.pkg.`,
+    而 `options("proof": true)` 会被接受但只是把参数透传给 moonc,**不是**开关。
+  - z3 不依赖 GitHub 获取:`python -m pip download z3-solver==4.12.6.0 --no-deps`,
+    再用 `tar -xf` 解开 wheel(不能 `Expand-Archive`),`z3.exe` 位于 `<pkg>-*.data/data/bin/z3.exe`。
+  - 现象:z3 **能被发现**(生成的 `why3.conf` 里登记为 `[partial_prover] name="Z3" version="4.12.6"`)、
+    WhyML 能生成,但**每一个**目标都 `Failure (no prover available)` —— 包括 `ident'vc : eq x x = True`。
+  - 已排除:z3 5.3.1 / 4.13.4 / 4.12.6;`Z3PATH` 指 exe、指无后缀路径、仅 PATH;目标难度(官方 37 目标示例同样全红);
+    并验证 z3 自身用检测数据里的原始参数返回 `unsat`,说明故障在 why3↔z3 的调用/解析层。
+  - 完整证据表见 `docs/SPEC.md` §15。
+
+- **`proofs/`:替代方案(不是 `moon prove` 的成功)**
+  - `swap_remove_positions.smt2`:`swap_remove(i)` 后 `positions` 仍是 `order` 在新长度上的逆(以 `order` 单射为前提,去掉前提即失败)。
+  - `clear_retires_generations.smt2`:`clear()` 批量退役后,clear 之前的 `RowId` 不可能命中 clear 之后的记录。
+  - 两条均被 z3 判为 `unsat`;`proofs/run.ps1` 一键复跑(脚本内消息必须纯 ASCII:Windows PowerShell 5.1 按 ANSI 读无 BOM 的 .ps1)。
+  - 边界:证明的是**设计所依赖的逻辑关系**,不验证 MoonBit 源码;该目录**不进 CI**(CI 镜像无 z3)。
+
 ### Notes / Deviations
 - **`Conflict` 故意没有「无冲突」变体**:无冲突用 `Option::None` 表达。加变体会与
   `Option::None` 在 match 位置混淆,并迫使调用方匹配一个不可能出现的 `Err`。

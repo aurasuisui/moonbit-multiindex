@@ -40,6 +40,7 @@
 | [`../NOTICE`](../NOTICE) | 第三方来源与许可证归属(移植/参考合规) | 发版前、被问来源时 |
 | [`../tools/diffgen/README.md`](../tools/diffgen/README.md) | 差分夹具生成器(参考实现:Rust `multi_index_map` v0.15.1;开发工具,非包内容) | 重新生成差分夹具时 |
 | [`../bench/README.md`](../bench/README.md) | 计时基准(官方 `@bench` 框架,native+release) | 跑/解读性能基准时 |
+| [`../proofs/README.md`](../proofs/README.md) | **形式化证明(直接 SMT-LIB,非 `moon prove`)**:两条核心不变量的 z3 证明 + `run.ps1` 一键复跑;**不覆盖源码本身** | 想知道「这条不变量凭什么成立」时 |
 | `README.md`(本文件) | 文档枢纽/全量地图 | 不知道读哪份 |
 
 ### 一次性 / 归档(只读,不再维护)
