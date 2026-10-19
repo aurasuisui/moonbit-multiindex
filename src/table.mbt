@@ -46,6 +46,7 @@ pub struct Table[K, V] {
   priv gens : Array[Int32]
   priv free : Array[Int32]
   priv order : Array[Int32]
+  priv positions : Array[Int32]
   priv indexes : Map[String, Index[K, V]]
   priv mut len : Int32
   priv mut version : Int32
@@ -63,6 +64,7 @@ pub fn[K, V] Table::new() -> Table[K, V] {
     gens: [],
     free: [],
     order: [],
+    positions: [],
     indexes: Map([]),
     len: 0,
     version: 0,
@@ -81,6 +83,7 @@ pub fn[K, V] Table::with_capacity(cap : Int32) -> Table[K, V] {
   while i >= 0 {
     t.rows.push(None)
     t.gens.push(0)
+    t.positions.push(-1)
     t.free.push(i)
     i = i - 1
   }
@@ -249,6 +252,7 @@ fn[K, V] Table::alloc_slot(self : Table[K, V]) -> Int32 {
       let slot = self.rows.length()
       self.rows.push(None)
       self.gens.push(0)
+      self.positions.push(-1)
       slot
     }
   }
@@ -263,10 +267,13 @@ fn[K, V] Table::order_remove(self : Table[K, V], slot : Int32) -> Unit {
     if self.order[i] == slot {
       let mut j = i
       while j + 1 < n {
-        self.order[j] = self.order[j + 1]
+        let moved = self.order[j + 1]
+        self.order[j] = moved
+        self.positions[moved] = j
         j = j + 1
       }
       self.order.pop() |> ignore
+      self.positions[slot] = -1
       return
     }
     i = i + 1
@@ -287,6 +294,7 @@ fn[K : Hash + Eq + Compare, V] Table::insert_impl(
   let slot = self.alloc_slot()
   self.rows[slot] = Some(value)
   self.order.push(slot)
+  self.positions[slot] = self.order.length() - 1
   self.len = self.len + 1
   self.version = self.version + 1
   match self.rows[slot] {
@@ -379,6 +387,7 @@ fn[K, V] Table::clear_impl(self : Table[K, V]) -> Unit {
   while i < self.order.length() {
     let slot = self.order[i]
     self.rows[slot] = None
+    self.positions[slot] = -1
     if self.gens[slot] < GEN_MAX {
       self.gens[slot] = self.gens[slot] + 1
       self.free.push(slot)

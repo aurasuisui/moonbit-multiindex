@@ -599,3 +599,100 @@ test "the unique quadrants cannot expose a bucket with two slots (I5 holds by co
   @test.assert_eq(t.index_stats("shared").longest_bucket, 2)
   @test.assert_eq(t.index_stats("shared_sorted").longest_bucket, 2)
 }
+
+// ---------------------------------------------------------------------------
+// S8b: `positions` (slot -> index in `order`) is maintained by every chokepoint
+// ---------------------------------------------------------------------------
+
+///|
+/// Assert the `positions` / `order` inverse **directly from the private fields**,
+/// without going through `verify_invariants`: every live slot remembers its index
+/// and every dead slot carries the -1 sentinel.
+fn[K, V] assert_positions_inverse(t : Table[K, V]) -> Unit raise {
+  @test.assert_eq(t.positions.length(), t.rows.length())
+  let mut i = 0
+  while i < t.order.length() {
+    @test.assert_eq(t.positions[t.order[i]], i)
+    i = i + 1
+  }
+  let mut slot = 0
+  while slot < t.rows.length() {
+    if t.rows[slot] is None {
+      @test.assert_eq(t.positions[slot], -1)
+    }
+    slot = slot + 1
+  }
+}
+
+///|
+test "positions follows every slot that `remove` shifts (the tail moves, not just the hole)" {
+  let t : Table[Int32, Int32] = Table::new()
+  let a = wb_insert(t, 10)
+  let b = wb_insert(t, 20)
+  let c = wb_insert(t, 30)
+  let d = wb_insert(t, 40)
+  let e = wb_insert(t, 50)
+  @test.assert_eq(t.positions[a.slot], 0)
+  @test.assert_eq(t.positions[b.slot], 1)
+  @test.assert_eq(t.positions[c.slot], 2)
+  @test.assert_eq(t.positions[d.slot], 3)
+  @test.assert_eq(t.positions[e.slot], 4)
+  assert_positions_inverse(t)
+  // remove from the middle: d and e are copied one slot left in `order`, so their
+  // own `positions` entries must move too — the thing that is easiest to forget.
+  t.remove(c) |> ignore
+  @test.assert_eq(t.order.length(), 4)
+  @test.assert_eq(t.order[0], a.slot)
+  @test.assert_eq(t.order[1], b.slot)
+  @test.assert_eq(t.order[2], d.slot)
+  @test.assert_eq(t.order[3], e.slot)
+  @test.assert_eq(t.positions[a.slot], 0)
+  @test.assert_eq(t.positions[b.slot], 1)
+  @test.assert_eq(t.positions[d.slot], 2)
+  @test.assert_eq(t.positions[e.slot], 3)
+  @test.assert_eq(t.positions[c.slot], -1)
+  assert_positions_inverse(t)
+  check_invariants(t)
+}
+
+///|
+test "positions returns to the -1 sentinel when `clear` retires every slot" {
+  let t : Table[Int32, Int32] = Table::new()
+  let a = wb_insert(t, 1)
+  let b = wb_insert(t, 2)
+  let c = wb_insert(t, 3)
+  t.remove(b) |> ignore
+  assert_positions_inverse(t)
+  t.clear()
+  @test.assert_eq(t.order.length(), 0)
+  @test.assert_eq(t.positions[a.slot], -1)
+  @test.assert_eq(t.positions[b.slot], -1)
+  @test.assert_eq(t.positions[c.slot], -1)
+  assert_positions_inverse(t)
+  check_invariants(t)
+}
+
+///|
+test "positions stays the inverse of order after every random insert and remove" {
+  let r = @random.Rand()
+  let t : Table[Int32, Int32] = Table::new()
+  let live : Array[RowId] = []
+  let mut step = 0
+  while step < 300 {
+    if live.length() > 0 && r.int(limit=3) == 0 {
+      let at = r.int(limit=live.length())
+      t.remove(live[at]) |> ignore
+      live[at] = live[live.length() - 1]
+      live.pop() |> ignore
+    } else {
+      match t.insert(step) {
+        Ok(id) => live.push(id)
+        Err(_) =>
+          @test.fail("no index is registered, so insert cannot conflict")
+      }
+    }
+    assert_positions_inverse(t)
+    step = step + 1
+  }
+  check_invariants(t)
+}

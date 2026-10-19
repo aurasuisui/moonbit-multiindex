@@ -472,7 +472,7 @@ enum Index[K, V] {
 ## §4 核心不变量(属性测试的靶子)
 
 ```
-I1  order 中每个槽位都是活记录,且无重复
+I1  order 中每个槽位都是活记录,且无重复;且 positions 是它的逆(positions[order[i]] == i,死亡槽位为 -1,S8b 起双向校验)
 I2  活记录数 == len == order.length()
 I3  每条索引的每个桶内,槽位无重复(桶为 `SortedSet`,结构上已保证;仍作交叉校验)
 I4  桶内每个槽位 s 满足 (idx.project)(rows[s]) == 桶键
@@ -512,7 +512,7 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 ## §5 变更汇聚点与三条高危路径
 
 **汇聚点**:`insert_impl` / `remove_impl` / `modify_impl` / **`clear_impl`** 是**唯一**允许同时触碰
-`rows` + `order` + `indexes` + `gens` + `free` 的地方。
+`rows` + `order` + `positions` + `indexes` + `gens` + `free` 的地方。
 
 > **第四条是 M1 实施中补上的**:`clear` 必须同时触碰这四个结构,而循环调用 `remove_impl` 会因
 > `order` 的 O(n) 压缩退化成 **O(n²)**。`clear_impl` 是 O(n) 批量退役路径,角色等同 bimap 的 `retain`。
@@ -702,3 +702,4 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 - 方案 b) `prev`/`next` 两个 Int 数组维护插入序:现有 `remove` 也能 O(1),但 ① 所有迭代变指针追逐(热路径变慢) ② 失去"`order` 是数组、不可能有环"的免费保证,`verify_storage` 要加防环 ③ 每存活槽多 8 B。否决。
 - 选 a):`swap_remove` 配 `positions : Array[Int32]`(slot → `order` 下标),删除 = 末位换位 + 弹尾,真 O(1);没有 `positions` 时删完还得 O(n) 找位,那就不算优化。
 - 代价:`positions` 每槽 +4 B,`insert` / `remove` 各多一次写;`swap_remove` 后迭代序**不再等于**插入序(名字已写明),需要插入序时仍用 `remove`。
+- **`positions` 常驻,不做惰性构建**(S8b 决定):长度 = `rows.length()`,死亡槽位填 `-1` 作哨兵,由四个汇聚点维护。惰性构建会引入"有时存在有时不存在"的状态、每次 `insert` 一次分支判断,复杂度换不来收益;常驻的代价(每槽 +4 B、`insert` 多一次数组写)相对已有的每索引桶写入是噪声。
