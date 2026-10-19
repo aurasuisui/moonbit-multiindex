@@ -696,3 +696,128 @@ test "positions stays the inverse of order after every random insert and remove"
   }
   check_invariants(t)
 }
+
+// ---------------------------------------------------------------------------
+// S8c: `swap_remove` reorders `order` only -- `rows` never moves
+// ---------------------------------------------------------------------------
+
+///|
+/// A middle deletion must overwrite the hole with the tail slot, keep every
+/// record where it was, and move exactly one `positions` entry (the tail's).
+test "swap_remove overwrites the hole with the tail slot and leaves `rows` in place" {
+  let t : Table[Int32, Int32] = Table::new()
+  let a = wb_insert(t, 10)
+  let b = wb_insert(t, 20)
+  let c = wb_insert(t, 30)
+  let d = wb_insert(t, 40)
+  let rows_before = t.rows.length()
+  @test.assert_eq(t.swap_remove(b), Some(20))
+  // order: [a, d, c] -- the tail entry took b's index
+  @test.assert_eq(t.order.length(), 3)
+  @test.assert_eq(t.order[0], a.slot)
+  @test.assert_eq(t.order[1], d.slot)
+  @test.assert_eq(t.order[2], c.slot)
+  @test.assert_eq(t.positions[a.slot], 0)
+  @test.assert_eq(t.positions[d.slot], 1)
+  @test.assert_eq(t.positions[c.slot], 2)
+  @test.assert_eq(t.positions[b.slot], -1)
+  // no record moved: rows keeps its allocated length and the survivors' cells
+  @test.assert_eq(t.rows.length(), rows_before)
+  @test.assert_eq(t.rows[b.slot], None)
+  @test.assert_eq(t.rows[a.slot], Some(10))
+  @test.assert_eq(t.rows[c.slot], Some(30))
+  @test.assert_eq(t.rows[d.slot], Some(40))
+  // and every surviving handle still resolves through the public API
+  @test.assert_eq(t.get(a), Some(10))
+  @test.assert_eq(t.get(c), Some(30))
+  @test.assert_eq(t.get(d), Some(40))
+  @test.assert_eq(t.contains(b), false)
+  assert_positions_inverse(t)
+  check_invariants(t)
+}
+
+///|
+test "swap_remove of the tail entry is a plain pop and leaves no hole" {
+  let t : Table[Int32, Int32] = Table::new()
+  let a = wb_insert(t, 10)
+  let b = wb_insert(t, 20)
+  @test.assert_eq(t.swap_remove(b), Some(20))
+  @test.assert_eq(t.order.length(), 1)
+  @test.assert_eq(t.order[0], a.slot)
+  @test.assert_eq(t.positions[a.slot], 0)
+  @test.assert_eq(t.positions[b.slot], -1)
+  assert_positions_inverse(t)
+  check_invariants(t)
+}
+
+///|
+test "swap_remove of the only entry empties `order` and the table" {
+  let t : Table[Int32, Int32] = Table::new()
+  let a = wb_insert(t, 10)
+  @test.assert_eq(t.swap_remove(a), Some(10))
+  @test.assert_eq(t.order.length(), 0)
+  @test.assert_eq(t.positions[a.slot], -1)
+  @test.assert_eq(t.len(), 0)
+  assert_positions_inverse(t)
+  check_invariants(t)
+}
+
+///|
+/// After `swap_remove` frees a slot, the next `insert` recycles it; its
+/// `positions` entry must be rebuilt as a normal tail append.
+test "swap_remove interleaves with free-list reuse and keeps positions invertible" {
+  let t : Table[Int32, Int32] = Table::new()
+  let a = wb_insert(t, 10)
+  let b = wb_insert(t, 20)
+  let c = wb_insert(t, 30)
+  @test.assert_eq(t.swap_remove(b), Some(20))
+  let d = wb_insert(t, 40)
+  // the free stack is LIFO, so d lands in b's old slot
+  @test.assert_eq(d.slot, b.slot)
+  @test.assert_eq(t.rows[b.slot], Some(40))
+  @test.assert_eq(t.order.length(), 3)
+  @test.assert_eq(t.order[2], d.slot)
+  @test.assert_eq(t.positions[a.slot], 0)
+  @test.assert_eq(t.positions[c.slot], 1)
+  @test.assert_eq(t.positions[d.slot], 2)
+  assert_positions_inverse(t)
+  check_invariants(t)
+  // remove the recycled slot through the ordered path too: the tail shifts.
+  @test.assert_eq(t.remove(d), Some(40))
+  @test.assert_eq(t.positions[d.slot], -1)
+  @test.assert_eq(t.positions[c.slot], 1)
+  assert_positions_inverse(t)
+  check_invariants(t)
+}
+
+///|
+test "300 mixed insert / remove / swap_remove steps keep positions invertible" {
+  let r = @random.Rand()
+  let t : Table[Int32, Int32] = Table::new()
+  let live : Array[RowId] = []
+  let mut step = 0
+  while step < 300 {
+    let op = r.int(limit=3)
+    if live.length() > 0 && op != 0 {
+      let at = r.int(limit=live.length())
+      let id = live[at]
+      if op == 1 {
+        t.remove(id) |> ignore
+      } else {
+        t.swap_remove(id) |> ignore
+      }
+      @test.assert_eq(t.contains(id), false)
+      live[at] = live[live.length() - 1]
+      live.pop() |> ignore
+    } else {
+      match t.insert(step) {
+        Ok(id) => live.push(id)
+        Err(_) =>
+          @test.fail("no index is registered, so insert cannot conflict")
+      }
+    }
+    assert_positions_inverse(t)
+    step = step + 1
+  }
+  check_invariants(t)
+}

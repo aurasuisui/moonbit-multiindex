@@ -151,6 +151,17 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 - 申报书 PII 处置按 2026-10-19 决定**暂缓**(另行处理),计划把 B4 转 M12 发布前确认;
   `docs/plans/execution-brief.md` 的任务范围段标注为**停在 M1**,当前范围以 v0.2.0 计划为准。
 
+#### M8 — 删除的二分:`swap_remove`(S8c,2026-10-19)
+
+- 新增 `Table::swap_remove(id : RowId) -> V?`(**向后兼容的新增 API → SemVer MINOR,随 v0.2.0 发布**)。
+  恢复动作与 `remove` 完全一致(清行、代际 +1、归还 `free` 或退役、每个索引删桶、`len` / `version`),
+  唯一差别是 `order`:把末位槽换到被删位置再 `pop`,删除从 **O(len + I + Σ log 桶)** 降到
+  **O(I + Σ log 桶)**。代价是**删除后迭代序不再等于插入序**;被移动的是槽位,所有存活 `RowId` 继续有效。
+- 保序 `remove` 的签名、语义与复杂度不变;两条路径共用 `remove_impl` 的恢复段,只切换 `order` 维护方式。
+- S8b 的常驻 `positions`(slot → `order` 下标)在换位时同步更新两个槽;`verify_invariants` 的 I1 双向校验覆盖此路径。
+- 既有 83 条断言**一条未改**;新增 10 条(黑盒 5 + 白盒 5,含 300 步 insert / remove / swap_remove 混合序列每步校验),共 **93** 条。
+- n = 1 000 / 10 000 / 100 000 三档与 `positions` 的写入代价见 `bench/README.md`(S8c 小节)。
+
 ### Notes / Deviations
 - **`Conflict` 故意没有「无冲突」变体**:无冲突用 `Option::None` 表达。加变体会与
   `Option::None` 在 match 位置混淆,并迫使调用方匹配一个不可能出现的 `Err`。

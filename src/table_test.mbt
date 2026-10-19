@@ -1104,3 +1104,107 @@ test "update and insert_many report the same name-ascending conflict" {
   @test.assert_eq(t.get(b), Some((2, 20, 2)))
   @test.assert_eq(t.len(), 2)
 }
+
+// ---------------------------------------------------------------------------
+// swap_remove (S8c): O(1) deletion that trades insertion order for speed
+// ---------------------------------------------------------------------------
+
+///|
+/// verify_invariants must answer Ok; on failure its message *is* the
+/// assertion message (a bare false would hide which invariant broke).
+fn[K : Eq + Debug, V] assert_invariants(
+  t : @aurasuisui/multiindex.Table[K, V],
+) -> Unit raise {
+  match t.verify_invariants() {
+    Ok(_) => ()
+    Err(message) => @test.fail(message)
+  }
+}
+
+///|
+test "swap_remove moves the last slot into the hole and never moves a record" {
+  let t : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::new()
+  let a = insert_ok(t, 10)
+  let b = insert_ok(t, 20)
+  let c = insert_ok(t, 30)
+  let d = insert_ok(t, 40)
+  @test.assert_eq(t.swap_remove(b), Some(20))
+  // b hole is filled by the last slot (d), so iteration order is 10, 40, 30 --
+  // no longer insertion order, which is the documented price of the O(1) path.
+  assert_values(values_of(t), [10, 40, 30])
+  @test.assert_eq(t.len(), 3)
+  // every surviving handle still resolves: records were not moved, only order
+  @test.assert_eq(t.get(a), Some(10))
+  @test.assert_eq(t.get(c), Some(30))
+  @test.assert_eq(t.get(d), Some(40))
+  @test.assert_eq(t.contains(b), false)
+  @test.assert_eq(t.get(b), None)
+  assert_invariants(t)
+}
+
+///|
+test "swap_remove of the last record just drops it (no entry to move)" {
+  let t : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::new()
+  let a = insert_ok(t, 10)
+  let b = insert_ok(t, 20)
+  let c = insert_ok(t, 30)
+  @test.assert_eq(t.swap_remove(c), Some(30))
+  assert_values(values_of(t), [10, 20])
+  @test.assert_eq(t.get(a), Some(10))
+  @test.assert_eq(t.get(b), Some(20))
+  @test.assert_eq(t.len(), 2)
+  assert_invariants(t)
+}
+
+///|
+test "swap_remove of the only record empties the table" {
+  let t : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::new()
+  let a = insert_ok(t, 10)
+  @test.assert_eq(t.swap_remove(a), Some(10))
+  @test.assert_eq(t.len(), 0)
+  @test.assert_eq(t.is_empty(), true)
+  @test.assert_eq(t.iter().to_array().length(), 0)
+  // the slot is recycled, and the next insert works normally
+  let b = insert_ok(t, 20)
+  assert_values(values_of(t), [20])
+  @test.assert_eq(t.get(b), Some(20))
+  @test.assert_eq(t.swap_remove(b), Some(20))
+  @test.assert_eq(t.len(), 0)
+  assert_invariants(t)
+}
+
+///|
+test "swap_remove refuses a stale handle and leaves the table untouched" {
+  let t : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::new()
+  let a = insert_ok(t, 10)
+  let b = insert_ok(t, 20)
+  let c = insert_ok(t, 30)
+  @test.assert_eq(t.remove(b), Some(20))
+  // a second removal through either entry point must be a no-op, not a panic
+  @test.assert_eq(t.swap_remove(b), None)
+  @test.assert_eq(t.remove(b), None)
+  assert_values(values_of(t), [10, 30])
+  @test.assert_eq(t.len(), 2)
+  @test.assert_eq(t.get(a), Some(10))
+  @test.assert_eq(t.get(c), Some(30))
+  assert_invariants(t)
+}
+
+///|
+test "swap_remove keeps every index consistent" {
+  let t = triple_table()
+  let a = insert_ok(t, (1, 10, 7))
+  let b = insert_ok(t, (2, 20, 7))
+  let c = insert_ok(t, (3, 30, 8))
+  @test.assert_eq(t.swap_remove(b), Some((2, 20, 7)))
+  @test.assert_eq(t.get_by("lo", 1), Some((a, (1, 10, 7))))
+  @test.assert_eq(t.get_by("lo", 2), None)
+  @test.assert_eq(t.get_by("lo", 3), Some((c, (3, 30, 8))))
+  @test.assert_eq(t.get_by("hi", 20), None)
+  @test.assert_eq(t.get_by("hi", 30), Some((c, (3, 30, 8))))
+  @test.assert_eq(t.iter_by("shared", 7).to_array().length(), 1)
+  @test.assert_eq(t.iter_by("shared_sorted", 7).to_array().length(), 1)
+  @test.assert_eq(t.iter_by("shared", 8).to_array().length(), 1)
+  @test.assert_eq(t.len(), 2)
+  assert_invariants(t)
+}

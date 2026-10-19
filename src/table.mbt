@@ -282,6 +282,32 @@ fn[K, V] Table::order_remove(self : Table[K, V], slot : Int32) -> Unit {
 }
 
 ///|
+/// Drop `slot` from `order` by moving the last entry into its place (O(1)).
+///
+/// The moved entry is a **slot number**, so `rows` is never touched: every live
+/// `RowId` keeps pointing at the same record. The price is that iteration order
+/// stops matching insertion order — that is why this is opt-in via
+/// `Table::swap_remove`, next to the order-preserving `Table::remove`.
+fn[K, V] Table::order_swap_remove(self : Table[K, V], slot : Int32) -> Unit {
+  let pos = self.positions[slot]
+  if pos < 0 {
+    abort(
+      "Table::order_swap_remove: slot " +
+      slot.to_string() +
+      " has no position in `order`",
+    )
+  }
+  let last = self.order.length() - 1
+  if pos != last {
+    let moved = self.order[last]
+    self.order[pos] = moved
+    self.positions[moved] = pos
+  }
+  self.order.pop() |> ignore
+  self.positions[slot] = -1
+}
+
+///|
 /// CHOKEPOINT (insert): take a slot, store the record, append it to `order`, and
 /// add it to every registered index.
 ///
@@ -314,11 +340,18 @@ fn[K : Hash + Eq + Compare, V] Table::insert_impl(
 /// is exhausted (I9) — and drop the slot from `order`. Returns the record that
 /// lived there.
 ///
-/// Only `Table::remove` — after it has validated the handle — may call this.
-/// `clear_impl` performs the same retirement inline, in bulk.
+/// `swap` picks how the slot leaves `order`: `false` compacts the tail, keeping
+/// insertion order (O(n)); `true` moves the last entry into the hole (O(1)), which
+/// is what `Table::swap_remove` exposes. Everything else — indexes, generation,
+/// free list, `len`, `version` — is identical, so the two entry points can never
+/// drift apart.
+///
+/// Only `Table::remove` / `Table::swap_remove` — after validating the handle — may
+/// call this. `clear_impl` performs the same retirement inline, in bulk.
 fn[K : Hash + Eq + Compare, V] Table::remove_impl(
   self : Table[K, V],
   slot : Int32,
+  swap : Bool,
 ) -> V {
   let value = match self.rows[slot] {
     Some(v) => v
@@ -336,7 +369,11 @@ fn[K : Hash + Eq + Compare, V] Table::remove_impl(
     self.gens[slot] = self.gens[slot] + 1
     self.free.push(slot)
   }
-  self.order_remove(slot)
+  if swap {
+    self.order_swap_remove(slot)
+  } else {
+    self.order_remove(slot)
+  }
   self.len = self.len - 1
   self.version = self.version + 1
   value
@@ -585,7 +622,29 @@ pub fn[K : Hash + Eq + Compare, V] Table::remove(
 ) -> V? {
   match self.get(id) {
     None => None
-    Some(_) => Some(self.remove_impl(id.slot))
+    Some(_) => Some(self.remove_impl(id.slot, false))
+  }
+}
+
+///|
+/// Remove and return the record named by `id` in **O(1)**, or `None` if `id` is
+/// stale.
+///
+/// This is `remove` with one difference: the last slot in `order` is moved into
+/// the hole instead of compacting the tail. Records are not moved — every other
+/// live `RowId` stays valid — but **iteration order no longer matches insertion
+/// order** after a `swap_remove`. Use `remove` when you need insertion order,
+/// `swap_remove` when you only need speed (see docs/SPEC.md §6).
+///
+/// A rejected handle leaves the table — and the slot's current occupant —
+/// completely untouched, exactly like `remove`.
+pub fn[K : Hash + Eq + Compare, V] Table::swap_remove(
+  self : Table[K, V],
+  id : RowId,
+) -> V? {
+  match self.get(id) {
+    None => None
+    Some(_) => Some(self.remove_impl(id.slot, true))
   }
 }
 

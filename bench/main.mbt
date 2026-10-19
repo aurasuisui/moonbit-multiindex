@@ -103,6 +103,11 @@ fn k_values() -> Array[Int32] {
 
 ///|
 fn main {
+  // Manual A/B runs first, on a fresh process heap: after several minutes of
+  // @bench churn the numbers drift by an order of magnitude (measured), so the
+  // comparison must not queue behind the automated benchmarks.
+  run_swap_comparison()
+
   let n = 20_000
   let rows = make_rows(n)
   let bench = @bench.Bench()
@@ -276,6 +281,17 @@ fn main {
       let mut i = 0
       while i < ids.length() {
         t.remove(ids[i].0) |> ignore
+        i = i + 1
+      }
+      bench.keep(t.len())
+    })
+    println("# [bench] swap_remove.k\{k}")
+    bench.bench(name="swap_remove.k\{k}", count=5, fn() {
+      let t = build(rows, k)
+      let ids = t.iter().to_array()
+      let mut i = 0
+      while i < ids.length() {
+        t.swap_remove(ids[i].0) |> ignore
         i = i + 1
       }
       bench.keep(t.len())

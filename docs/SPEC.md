@@ -346,7 +346,8 @@ pub struct Table[K, V] {
 | `insert_many(vs : Array[V]) -> ...` | 批量 | 先全部落库,再**每索引一次性构建**(把 N×k 次索引插入降为 k 次批量构建);**遇重复键的胜出规则须在实现时明确并测试钉死**(主蓝本是"第一个胜出",§0.4-6) |
 | `update(id : RowId, v : V) -> Result[Unit, UpdateRejected[K, V]]` | 成功/失败 | **排除自身**的冲突检查;陈旧 id → `Err(StaleHandle(id, Some(v)))` |
 | `modify(id : RowId, f : (V) -> V) -> Result[Unit, UpdateRejected[K, V]]` | 成功/失败 | 用 `f` 变换记录后重索引;**逐索引对比新旧投影键,只动真正变化的桶**(见 §5 规则 4);陈旧 id → `Err(StaleHandle(id, None))` |
-| `remove(id : RowId) -> V?` | 被删记录 | 陈旧 id → `None` |
+| `remove(id : RowId) -> V?` | 被删记录 | 陈旧 id → `None`;**保插入序**,删除 O(len) |
+| `swap_remove(id : RowId) -> V?` | 被删记录 | 同 `remove`(同样恢复槽位/索引/`len`/`version`),但用**末位换位**维护 `order` → 删除 **O(1)**;**删除后迭代序不再等于插入序**;陈旧 id → `None`,表零变更 |
 
 #### §3.2.1 `update` / `modify` 的两个语义裁定
 
@@ -533,7 +534,8 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 | `insert` | O(I + Σ桶代价),I = 索引数 |
 | `get_by` | 均摊 O(1) |
 | `range_by` | O(log n + k) |
-| `remove` | **O(len + I + Σ log 桶)** —— 见下方警告,`len` 项来自 `order` 压缩 |
+| `remove` | **O(len + I + Σ log 桶)** —— 见下方警告,`len` 项来自 `order` 保序压缩 |
+| `swap_remove` | **O(I + Σ log 桶)** —— `order` 只做一次末位交换 + 两次 `positions` 写,无 `len` 项 |
 | `update` / `modify` | O(I + Σ log 桶);**键未变的索引不参与** |
 | `insert_many` | O(n·I + n·Σ log 桶) |
 | `iter` | O(len) |
@@ -546,9 +548,9 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 >
 > **这是有意的取舍,不是 bug**:把 `order` 换成"交换删除"(`swap_remove` 风格)可把删除降到 O(1),
 > 代价是**牺牲插入序的稳定性**(被删元素的空位由末尾元素填补)。
-> 这正是参考实现 `indexmap` 对外的 `swap_remove` / `shift_remove` 二分 —— 本库当前等价于
-> `shift_remove`(**保序**),因为"插入序"是本库的公开承诺。
-> → `swap_remove` 变体列入 **v0.2 候选**(见 §11)。
+> 这正是参考实现 `indexmap` 对外的 `shift_remove` / `swap_remove` 二分 —— v0.2 两条都提供:
+> `remove` 等价于 `shift_remove`(**保插入序**,O(len)),`swap_remove` 用末位换位换来 **O(1)**
+> 但**放弃插入序**。名字已写明差异,调用方按"要不要插入序"二选一(裁定见 §13 R3)。
 
 ---
 
@@ -632,7 +634,7 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 - 批量重建索引 `rebuild_index(name)` / 延迟建索引。
 - **约束擦除**:把有序象限桶操作在注册时擦除成闭包/trait object,使 `insert`/`remove` 只需
   `K : Hash + Eq`。代价见 §2.5.1 —— 需要先解决"擦除后如何继续逐步校验 I3/I4/I5/I7"。
-- ~~查询的 id-only 变体~~:**M8 已落地**(裁定与实测见 §13;形状是回调式的 `each_id_by` / `each_id_range_by`)。
+- ~~查询的 id-only 变体~~:M8 实测后**不做** —— 最终形状只有 1.70×,未达开工前写死的 2× 门槛(§13 R2)。
 
 ### 上游能力跟踪(不是我们的债,但影响我们的实现)
 
@@ -703,3 +705,4 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 - 选 a):`swap_remove` 配 `positions : Array[Int32]`(slot → `order` 下标),删除 = 末位换位 + 弹尾,真 O(1);没有 `positions` 时删完还得 O(n) 找位,那就不算优化。
 - 代价:`positions` 每槽 +4 B,`insert` / `remove` 各多一次写;`swap_remove` 后迭代序**不再等于**插入序(名字已写明),需要插入序时仍用 `remove`。
 - **`positions` 常驻,不做惰性构建**(S8b 决定):长度 = `rows.length()`,死亡槽位填 `-1` 作哨兵,由四个汇聚点维护。惰性构建会引入"有时存在有时不存在"的状态、每次 `insert` 一次分支判断,复杂度换不来收益;常驻的代价(每槽 +4 B、`insert` 多一次数组写)相对已有的每索引桶写入是噪声。
+- **实现状态(S8c,2026-10-19)**:`Table::swap_remove` 已落地;保序 `remove` 语义与签名不变。实测(n = 20 000,k = 1)`remove` 54.5 µs/op → `swap_remove` **1.49 µs/op(36.7×)**;三档 n = 1 000 / 10 000 / 100 000 为 1.7× / 27.9× / 303×,`swap_remove` 在 0.82–0.90 µs 持平。`positions` 的代价也已实测:`insert` 持平(0.95 → 0.98 µs/op),`remove` 因搬动时同步写 `positions` 从 34.8 升至 54.5 µs/op(+57%)——只由需要插入序的调用方支付。数据见 `bench/README.md`。
