@@ -36,10 +36,10 @@
 | 4 | `docs/README.md` 地图无孤儿 | ✅ | 本轮脚本逐条解析地图内的路径引用,孤儿 **0** |
 | 4 | `CHANGELOG.md` 有本版 entry | ✅ | `## [0.2.0] - 2026-10-20`,按 M1–M12 分节,含 Notes / Deviations |
 | 4 | 许可证与第三方来源齐备 | ✅ | `LICENSE`(Apache-2.0)、`NOTICE`、`third_party/LICENSES/multi_index_map-MIT.txt` |
-| 发布 | `moon publish --dry-run` | （见下） | — |
-| 发布 | 产物不含 PII / 开发态垃圾 | （见下） | — |
-| 发布 | 发布到 mooncakes.io 并确认 `build_status: success` | （见下） | — |
-| 发布 | 打 tag `v0.2.0` 并推送 | （见下） | — |
+| 发布 | `moon publish --dry-run` | ⚠️ | 服务端返回 `202 Accepted` + "Dry run completed successfully",但客户端 **exit=1**(把 202 当失败);**真发布返回 `200 OK`、exit=0**,因此不能用 dry-run 的退出码判断能否发布 |
+| 发布 | 产物不含 PII / 开发态垃圾 | ✅ | 解包 **53 项**:PII 命中 **0**、`moon.work` 命中 **0**;仍含 `bench/ cmd/ docs/ tools/ proofs/ third_party/` 与 `AGENTS.md` / `CONTRIBUTING.md`(`moon.mod` 无排除字段,根目录只能整体打包) |
+| 发布 | 发布到 mooncakes.io 并确认 `build_status: success` | ✅ | `moon publish` → **`Server status: 200 OK`**、exit=0;registry `latest_version = 0.2.0`、`build_status = success`、`versions = 0.2.0, 0.1.0` |
+| 发布 | 打 tag `v0.2.0` 并推送 | ✅ | `git ls-remote --tags` → `ea2ea8f...refs/tags/v0.2.0` |
 
 ## 版本策略(semver) —— 每次推送前必读
 
