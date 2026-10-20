@@ -187,6 +187,28 @@ All notable changes to `aurasuisui/multiindex` are documented here.
   - 两条均被 z3 判为 `unsat`;`proofs/run.ps1` 一键复跑(脚本内消息必须纯 ASCII:Windows PowerShell 5.1 按 ANSI 读无 BOM 的 .ps1)。
   - 边界:证明的是**设计所依赖的逻辑关系**,不验证 MoonBit 源码;该目录**不进 CI**(CI 镜像无 z3)。
 
+#### M11 — 能力扩展:`insert_or_replace` + `index_entries`(2026-10-20)
+
+- **`Table::insert_or_replace(v) -> Result[(RowId, V?), Rejected[K, V]]`**(Issue #3,向后兼容新增):
+  覆盖式 upsert。恰好一条记录在新值的某个**唯一**索引上撞键 → **原地替换并保留它的 `RowId`**
+  (外部句柄继续有效,返回被顶替的旧值);无冲突 → 等价于 `insert`;两条**不同**记录分别撞键 →
+  `abort`,消息写明两个索引与两条 `RowId`(按索引名升序,确定性)。**不新增 `Conflict` 变体** ——
+  那会让既有 `match` 不再穷尽(MAJOR 破坏),而这条路径本就是调用方的数据问题。
+- **复用 `update` 的机制**:只读判定 `replace_target`(唯一索引才参与,命中按槽位归组)→ `update` 用的
+  `find_conflict_excluding(value, 该槽位)` → 共用的落地汇聚点 `modify_impl`。**没有第二套预检**;
+  "自己撞自己"由"判定归组 + 提交排自身"这一对负责;失败路径表零变更。
+- `modify_impl` 改为**返回被顶替的记录**(原来 `-> Unit`),`update` / `modify` 的调用处 `|> ignore`:
+  返回值在这里是白拿的(调用方手里本来就有),省掉 `insert_or_replace` 为取旧值再查一次注册表。
+- **`pub(all) enum IndexKind { HashUnique, SortedUnique, HashMulti, SortedMulti }`** +
+  **`Table::index_entries() -> Array[(String, IndexKind)]`**(Issue #4,向后兼容新增):按索引名升序
+  (与 `index_names` 同序)返回"名字 + 象限"。`IndexStats` 的四个公开字段**一个没动**(加字段即 MAJOR)。
+  `IndexKind` 用 `derive(Debug)` + **手写 `Show`**(`derive(Show)` 已废弃)。
+- 测试新增 9 条(黑盒 7 + 白盒 2),共 **102** 条:无冲突 / 单条替换且 `RowId` 不变(插入序、
+  `iter_by` 两桶、`iter_asc_by`)/ 命中有序唯一索引 / 只撞自己 / 非唯一桶从不产生受害者 /
+  **双撞键 `panic` 测试** / 判定函数逐分支白盒(含精确 abort 文本)+ 与 `update` 排除自身预检的一致性 /
+  `index_entries` 的四象限与排序。
+- 五步 CI 全绿;`moon check --deny-warn --target all` **0 警告**。
+
 ### Notes / Deviations
 - **`Conflict` 故意没有「无冲突」变体**:无冲突用 `Option::None` 表达。加变体会与
   `Option::None` 在 match 位置混淆,并迫使调用方匹配一个不可能出现的 `Err`。
@@ -347,6 +369,21 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 
 **许可证**:主蓝本 `multi_index_map` 为 MIT(兼容本项目 Apache-2.0,已在 README 致谢保留归属);
 `generational-arena` 为 MPL-2.0,**仅借鉴思路、未复制代码**。详见 `docs/SPEC.md` §0。
+
+#### M11 能力扩展(2026-10-20)
+
+- **砍尾:`SparseSet` 本轮不做**。按 [`docs/plans/v0.2.0.md`](docs/plans/v0.2.0.md) §四「从尾部砍」:
+  基准里哈希桶并不慢,这是**没有实测痛点**的推测性优化。相应地**没有开 Issue** —— 它不是实测到的问题
+  (开了就是凑数)。记录在 SPEC §11 的 v0.2 候选里;`insert_or_replace` 与 `index_entries` 都做完了,
+  被砍的只有这一项。
+- **`index_entries` 的约束比简报更宽(有据)**:简报写 `K : Hash + Eq + Compare`,但方法体只查注册表,
+  编译器直接给三条 `unused_trait_bound [0053]`;`--deny-warn` 下即 CI 红。删掉未使用的约束后签名是
+  `pub fn[K, V] Table::index_entries(...)`,对调用方**只会更宽**,不是破坏(SPEC §2.5.1 补记)。
+- **`insert_or_replace` 里那个"永不触发"的 `Err` 分支是故意的**:判定函数正确时,`Replace` 分支的
+  排除自身预检必为 `None`;留着它,判定若回归就退化成 `update` 语义的 `Err(Conflict)`(表仍零变更),
+  而不是把 I5 写坏。白盒测试把这条一致性钉住(SPEC §3.2.2)。
+- **为什么 `abort` 而不是新变体**:`Conflict[K]` 只有 `UniqueViolation` / `DuplicateInBatch`,加第三个
+  会让所有既有 `match` 不再穷尽;消息按索引名升序保证同一状态给出同一段文本(SPEC §3.2.2(b))。
 
 ---
 

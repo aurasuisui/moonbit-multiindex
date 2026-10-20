@@ -75,6 +75,18 @@ fn[K, V] Index::is_unique(self : Index[K, V]) -> Bool {
 }
 
 ///|
+/// Which quadrant this index lives in, as the public `IndexKind` — the
+/// classification `Table::index_entries` reports back to the caller.
+fn[K, V] Index::kind(self : Index[K, V]) -> IndexKind {
+  match self {
+    HashUnique(_, _) => IndexKind::HashUnique
+    SortedUnique(_, _) => IndexKind::SortedUnique
+    HashMulti(_, _) => IndexKind::HashMulti
+    SortedMulti(_, _) => IndexKind::SortedMulti
+  }
+}
+
+///|
 /// Slot that currently holds `key`. Always `None` for a non-unique index — those
 /// quadrants have no conflict to report (docs/SPEC.md §3.5).
 fn[K : Hash + Eq + Compare, V] Index::holder(
