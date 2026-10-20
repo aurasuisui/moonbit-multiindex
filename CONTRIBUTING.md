@@ -239,3 +239,16 @@ test "descriptive english name" {
   that can panic: assert every precondition (fixtures, `verify_invariants`, index existence)
   first, and leave the offending call as the final statement. Delete the guard and the test fails
   with `panic is expected` — that is the built-in negative control. See `docs/MOONBIT_REF.md` §7.1.
+- **Coverage** is a checkable gate, not decoration:
+
+  ```bash
+  moon test --enable-coverage
+  moon coverage analyze -p aurasuisui/multiindex -- -f summary   # totals
+  moon coverage analyze -p aurasuisui/multiindex -- -f caret     # per-line gaps
+  moon coverage clean
+  ```
+
+  Current: **784/805**. `-f caret` flags 21 lines, most of which are *failure branches* rather than
+  code that never ran — the reporter groups a condition line with its failure branch, so read the
+  table in [`docs/SPEC.md` §7.3](docs/SPEC.md) rather than the raw line numbers. A new uncovered
+  line must either get a test or a row in that table: **no silent drift**.
