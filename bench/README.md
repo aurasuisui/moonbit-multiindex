@@ -15,13 +15,14 @@ moon run --release bench/main.mbt
 ### It must measure the **local** module (B5)
 
 `moon.work` is deliberately gitignored (`moon publish` would package it), so a bare checkout
-has no workspace. The manifest's `"aurasuisui/multiindex@0.1.0"` is then a real registry
-dependency and the benchmark would silently time the **published** 0.1.0, not `../src`.
+has no workspace. The manifest's `"aurasuisui/multiindex@0.2.0"` is then a real registry
+dependency and the benchmark would silently time the **published** 0.2.0, not `../src`.
 The version string itself is mandatory syntax — dropping it makes `moon` fail with
 `moon.mod only supports versioned registry dependencies in `import``. The workspace member
 is what overrides the registry, so the recipe above is the supported way to run the bench.
 
-Two pieces of evidence, both taken on 2026-10-19 with `moon 0.1.20261012`:
+Two pieces of evidence, both taken on 2026-10-19 with `moon 0.1.20261012` (at that time the
+manifest still said `0.1.0`, hence the version in the transcript):
 
 ```text
 $ moon tree                       # run from bench/

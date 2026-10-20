@@ -821,3 +821,130 @@ test "300 mixed insert / remove / swap_remove steps keep positions invertible" {
   }
   check_invariants(t)
 }
+
+// ---------------------------------------------------------------------------
+// M11 overwriting upsert (Issue #3): the read-only half of the pre-check
+// ---------------------------------------------------------------------------
+
+///|
+/// `(lo, hi, shared)` with both unique quadrants and one multi quadrant — the
+/// white-box twin of `triple_table` in src/table_test.mbt.
+fn wb_triple_table() -> Table[Int32, (Int32, Int32, Int32)] raise {
+  let t : Table[Int32, (Int32, Int32, Int32)] = Table::new()
+  match t.register_unique("lo", fn(p) { p.0 }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("registering \"lo\" failed")
+  }
+  match t.register_unique_ordered("hi", fn(p) { p.1 }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("registering \"hi\" failed")
+  }
+  match t.register_non_unique("shared", fn(p) { p.2 }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("registering \"shared\" failed")
+  }
+  t
+}
+
+///|
+/// `insert_or_replace` unwrapped inside the package.
+fn wb_replace(
+  t : Table[Int32, (Int32, Int32, Int32)],
+  value : (Int32, Int32, Int32),
+) -> (RowId, (Int32, Int32, Int32)?) raise {
+  match t.insert_or_replace(value) {
+    Ok(pair) => pair
+    Err(_) =>
+      @test.fail("insert_or_replace returned Err on a single-victim table")
+  }
+}
+
+///|
+/// The pre-check `insert_or_replace` runs must decide **and change nothing**: the
+/// abort it feeds cannot be caught, so `replace_target` is the only place where a
+/// two-row collision is observable from a test — including whether the table was
+/// left untouched on that path.
+test "replace_target classifies every case without mutating" {
+  let t = wb_triple_table()
+  let a = wb_insert(t, (1, 10, 7))
+  let b = wb_insert(t, (2, 20, 8))
+  let v0 = t.version
+  // no unique key is taken
+  match t.replace_target((3, 30, 9)) {
+    Fresh => ()
+    _ => @test.fail("a record with free unique keys must classify as Fresh")
+  }
+  // one holder: named by the hashed unique index, by the sorted one, and by both
+  // of them at once (a collision with a single record is still one victim)
+  match t.replace_target((1, 99, 9)) {
+    Replace(slot) => @test.assert_eq(slot, a.slot)
+    _ => @test.fail("a single holder on \"lo\" must classify as Replace(a)")
+  }
+  match t.replace_target((9, 10, 9)) {
+    Replace(slot) => @test.assert_eq(slot, a.slot)
+    _ => @test.fail("a single holder on \"hi\" must classify as Replace(a)")
+  }
+  match t.replace_target((1, 10, 9)) {
+    Replace(slot) => @test.assert_eq(slot, a.slot)
+    _ =>
+      @test.fail("colliding with one record on two indexes is still one victim")
+  }
+  // two different rows: there is no honest winner, and the message must say which
+  // two indexes disagreed and which two handles the buckets hold (index-name order
+  // decides the pair, so the text never depends on registry iteration order)
+  let expected = "Table::insert_or_replace: the new record collides with two different rows, " +
+    "index \"hi\" holds " +
+    b.to_string() +
+    " and index \"lo\" holds " +
+    a.to_string() +
+    "; refusing the write, the table is unchanged"
+  match t.replace_target((1, 20, 9)) {
+    Ambiguous(text) => @test.assert_eq(text, expected)
+    _ => @test.fail("two different holders must classify as Ambiguous")
+  }
+  // zero change on every classification path: version, storage and indexes
+  @test.assert_eq(t.version, v0)
+  @test.assert_eq(t.len(), 2)
+  @test.assert_eq(t.get(a), Some((1, 10, 7)))
+  @test.assert_eq(t.get(b), Some((2, 20, 8)))
+  @test.assert_eq(t.get_by("lo", 1), Some((a, (1, 10, 7))))
+  @test.assert_eq(t.get_by("hi", 20), Some((b, (2, 20, 8))))
+  check_invariants(t)
+  // the same call on the single-victim path moves version exactly once (I8)
+  let (id, displaced) = wb_replace(t, (1, 99, 9))
+  @test.assert_eq(id, a)
+  @test.assert_eq(displaced, Some((1, 10, 7)))
+  @test.assert_eq(t.version, v0 + 1)
+  @test.assert_eq(t.get(a), Some((1, 99, 9)))
+  @test.assert_eq(t.get_by("lo", 1), Some((a, (1, 99, 9))))
+  @test.assert_eq(t.get_by("hi", 10), None)
+  check_invariants(t)
+}
+
+///|
+/// The classifier and `update`'s pre-check must agree on the one rule they share:
+/// a collision with the victim **itself** is not a collision. That agreement is
+/// what lets `insert_or_replace` commit through `modify_impl` without a second,
+/// divergent uniqueness check.
+test "replace_target agrees with update's excluding-self pre-check" {
+  let t = wb_triple_table()
+  let a = wb_insert(t, (1, 10, 7))
+  let b = wb_insert(t, (2, 20, 8))
+  // single victim: excluding a.slot leaves nothing for the check to complain about,
+  // which is exactly what makes the commit half safe to run
+  @test.assert_eq(t.find_conflict_excluding((1, 99, 8), a.slot), None)
+  @test.assert_eq(t.find_conflict_excluding((1, 10, 7), a.slot), None)
+  // two victims: excluding a.slot still finds b, which is why this case cannot be
+  // spelled as update's Err and must abort instead
+  match t.find_conflict_excluding((1, 20, 9), a.slot) {
+    Some(UniqueViolation(name, key, holder)) => {
+      @test.assert_eq(name, "hi")
+      @test.assert_eq(key, 20)
+      @test.assert_eq(holder, b)
+    }
+    Some(DuplicateInBatch(_, _, _)) =>
+      @test.fail("a live-table check cannot report a batch duplicate")
+    None => @test.fail("excluding a.slot must still report b on \"hi\"")
+  }
+  check_invariants(t)
+}

@@ -2,26 +2,45 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, dev]
   pull_request:
-    branches: [main, master]
+    branches: [main, master, dev]
 
 jobs:
   check-and-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # Toolchain install: official channel, version printed, NOT pinned.
+      #
+      # Why not a pinned version string: cli.moonbitlang.com only serves `latest`.
+      # Twelve spellings of the toolchain we develop against (0.1.20261012,
+      # 0.1.20261012+<hash>, %2B-encoded, -dev, v-prefixed, and the neighbouring
+      # dates 20261011/20261013) all answer 403; only `latest` answers 200.
+      # `hustcer/setup-moonbit@v1` with `version: 0.1.20261012` fails the same
+      # way inside its own download step -- that was the real cause of the
+      # 13-second red runs, not the code.
+      #
+      # Consequence: toolchain drift is detected, not prevented. If upstream
+      # floats to a toolchain that reformats code, `moon fmt --check` goes red
+      # and the log prints the exact version that did it. Bump deliberately in a
+      # separate, fully green commit (AGENTS.md).
       - name: Setup MoonBit
-        uses: hustcer/setup-moonbit@v1
-        with:
-          # Pinned on purpose (AGENTS.md): `latest` floated to a toolchain that
-          # rewrote Int -> Int32 and turned CI red on every push from 2026-10-14.
-          # Bump in a separate, fully green commit.
-          version: 0.1.20261012
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+          "$HOME/.moon/bin/moon" version
+
+      - name: Toolchain version (recorded in the log)
+        run: moon version
+
       - name: Format check
         run: moon fmt --check
+
       - name: Type check
         run: moon check
+
       # Zero-warning gate (docs/STYLE.md §H): warnings are errors here, on every
       # target the package claims to support. Deliberately NOT enabled elsewhere:
       #   * `moon bundle --all` panics on moon 0.1.20260920
@@ -32,11 +51,29 @@ jobs:
       # step also fails on any public definition without a `///` doc block.
       - name: Warning check (deny-warn, all targets)
         run: moon check --deny-warn --target all
+
+      # The generated interface is a checked-in snapshot, so it must be
+      # regenerated when a public signature changes. One wrinkle: `moon info`'s
+      # spelling drifts with the toolchain. 0.1.20261012 prints `Int` where
+      # 0.1.20261016 prints the canonical `Int32` -- the same type, two
+      # spellings. Folding the spellings before comparing keeps the gate honest:
+      # an added/removed/renamed public item or a real parameter-type change is
+      # still caught, while the spelling drift that a floating CI cannot avoid
+      # is not. (Verified 2026-10-20: the whole CI-vs-local diff was exactly
+      # Int32 -> Int, nothing else.)
       - name: Interface check (mbti up-to-date)
         run: |
           moon info
-          git diff --exit-code
+          sed -E 's/\bInt32\b/Int/g' src/pkg.generated.mbti > /tmp/mbti.new
+          git show HEAD:src/pkg.generated.mbti | sed -E 's/\bInt32\b/Int/g' > /tmp/mbti.old
+          git checkout -- src/pkg.generated.mbti
+          if ! diff -u /tmp/mbti.old /tmp/mbti.new; then
+            echo "::error::src/pkg.generated.mbti is stale -- run 'moon info' and commit the result"
+            exit 1
+          fi
+
       - name: Run tests
         run: moon test
+
       - name: Build
         run: moon build

@@ -18,3 +18,5 @@ moon.work
 # part of this module's published interface.
 bench/pkg.generated.mbti
 cmd/*/pkg.generated.mbti
+# Local tool state (the gh CLI drops its state here when run from the repo)
+.local/

@@ -1208,3 +1208,182 @@ test "swap_remove keeps every index consistent" {
   @test.assert_eq(t.len(), 2)
   assert_invariants(t)
 }
+
+// ---------------------------------------------------------------------------
+// M11 overwriting upsert (Issue #3)
+// ---------------------------------------------------------------------------
+
+///|
+/// `insert_or_replace` and unwrap. `Err` is unreachable while the pre-check is
+/// sound, so an `Err` here would be a bug in the table, not in the test.
+fn[K : Hash + Eq + Compare, V] replace_ok(
+  t : @aurasuisui/multiindex.Table[K, V],
+  value : V,
+) -> (@aurasuisui/multiindex.RowId, V?) raise {
+  match t.insert_or_replace(value) {
+    Ok(pair) => pair
+    Err(_) =>
+      @test.fail(
+        "insert_or_replace returned Err on a table with a single holder",
+      )
+  }
+}
+
+///|
+test "insert_or_replace inserts when no unique key is taken" {
+  let t = triple_table()
+  let (id, displaced) = replace_ok(t, (1, 10, 7))
+  @test.assert_eq(displaced, None)
+  @test.assert_eq(t.len(), 1)
+  @test.assert_eq(t.get(id), Some((1, 10, 7)))
+  @test.assert_eq(t.get_by("lo", 1), Some((id, (1, 10, 7))))
+  @test.assert_eq(t.get_by("hi", 10), Some((id, (1, 10, 7))))
+  @test.assert_eq(t.iter_by("shared", 7).to_array().length(), 1)
+  assert_invariants(t)
+}
+
+///|
+test "insert_or_replace replaces the one colliding record and keeps its RowId" {
+  let t = triple_table()
+  let a = insert_ok(t, (1, 10, 7))
+  let b = insert_ok(t, (2, 20, 7))
+  let (id, displaced) = replace_ok(t, (1, 99, 8))
+  // the handle the caller already holds still names the same record
+  @test.assert_eq(id, a)
+  @test.assert_eq(displaced, Some((1, 10, 7)))
+  // the victim's slot is reused: the table did not grow and b was not renumbered
+  @test.assert_eq(t.len(), 2)
+  @test.assert_eq(t.get(a), Some((1, 99, 8)))
+  @test.assert_eq(t.get(b), Some((2, 20, 7)))
+  let entries = t.iter().to_array()
+  @test.assert_eq(entries[0], (a, (1, 99, 8)))
+  @test.assert_eq(entries[1], (b, (2, 20, 7)))
+  // every unique index moved off the old keys and onto the new ones
+  @test.assert_eq(t.get_by("lo", 1), Some((a, (1, 99, 8))))
+  @test.assert_eq(t.get_by("lo", 2), Some((b, (2, 20, 7))))
+  @test.assert_eq(t.get_by("hi", 10), None)
+  @test.assert_eq(t.get_by("hi", 20), Some((b, (2, 20, 7))))
+  @test.assert_eq(t.get_by("hi", 99), Some((a, (1, 99, 8))))
+  // the multi indexes were rebuilt from the new record, both quadrants
+  @test.assert_eq(t.iter_by("shared", 7).to_array().length(), 1)
+  @test.assert_eq(t.iter_by("shared", 8).to_array().length(), 1)
+  @test.assert_eq(t.iter_by("shared", 8).to_array()[0], (a, (1, 99, 8)))
+  @test.assert_eq(t.iter_by("shared_sorted", 8).to_array().length(), 1)
+  @test.assert_eq(t.iter_asc_by("hi").to_array().length(), 2)
+  assert_invariants(t)
+}
+
+///|
+test "insert_or_replace matches through the sorted unique index too" {
+  let t = triple_table()
+  let a = insert_ok(t, (1, 10, 7))
+  // hi = 10 is held by a (SortedUnique); lo = 2 is free
+  let (id, displaced) = replace_ok(t, (2, 10, 8))
+  @test.assert_eq(id, a)
+  @test.assert_eq(displaced, Some((1, 10, 7)))
+  @test.assert_eq(t.get_by("lo", 1), None)
+  @test.assert_eq(t.get_by("lo", 2), Some((a, (2, 10, 8))))
+  @test.assert_eq(t.get_by("hi", 10), Some((a, (2, 10, 8))))
+  @test.assert_eq(t.range_by("hi", 10, 20).to_array().length(), 1)
+  assert_invariants(t)
+}
+
+///|
+test "insert_or_replace keeps the RowId when the record only collides with itself" {
+  let t = triple_table()
+  let a = insert_ok(t, (1, 10, 7))
+  // both unique keys of the new record are held by a itself: a self-collision is
+  // not a collision (the same rule update's excluding-self check implements)
+  let (id, displaced) = replace_ok(t, (1, 10, 8))
+  @test.assert_eq(id, a)
+  @test.assert_eq(displaced, Some((1, 10, 7)))
+  @test.assert_eq(t.len(), 1)
+  @test.assert_eq(t.get(a), Some((1, 10, 8)))
+  @test.assert_eq(t.get_by("lo", 1), Some((a, (1, 10, 8))))
+  @test.assert_eq(t.get_by("hi", 10), Some((a, (1, 10, 8))))
+  // only the multi index had to move
+  @test.assert_eq(t.iter_by("shared", 7).to_array().length(), 0)
+  @test.assert_eq(t.iter_by("shared", 8).to_array().length(), 1)
+  // rewriting the exact same record is still a replacement, not a no-op
+  let (id2, displaced2) = replace_ok(t, (1, 10, 8))
+  @test.assert_eq(id2, a)
+  @test.assert_eq(displaced2, Some((1, 10, 8)))
+  @test.assert_eq(t.len(), 1)
+  assert_invariants(t)
+}
+
+///|
+test "insert_or_replace never picks a victim from a multi bucket" {
+  let t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32)] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_non_unique("m", fn(p) { p.1 }))
+  assert_registered(t.register_non_unique_ordered("ms", fn(p) { p.1 }))
+  let (a, d1) = replace_ok(t, (1, 5))
+  let (b, d2) = replace_ok(t, (2, 5))
+  @test.assert_eq(d1, None)
+  @test.assert_eq(d2, None)
+  // the same multi key twice is not a collision: nothing is unique
+  @test.assert_not_eq(a, b)
+  @test.assert_eq(t.len(), 2)
+  @test.assert_eq(t.get(a), Some((1, 5)))
+  @test.assert_eq(t.get(b), Some((2, 5)))
+  @test.assert_eq(t.iter_by("m", 5).to_array().length(), 2)
+  @test.assert_eq(t.iter_by("ms", 5).to_array().length(), 2)
+  assert_invariants(t)
+}
+
+///|
+test "panic insert_or_replace aborts when two different records are hit" {
+  let t = triple_table()
+  let _a = insert_ok(t, (1, 10, 7))
+  let _b = insert_ok(t, (2, 20, 8))
+  // lo = 1 is a's, hi = 20 is b's: two rows, one replacement — there is no honest
+  // winner, so the write must abort (a panic, never silently dropping a row).
+  // The message itself is asserted from src/table_wbtest.mbt against the read-only
+  // classifier, because a panic cannot be caught.
+  t.insert_or_replace((1, 20, 9)) |> ignore
+}
+
+// ---------------------------------------------------------------------------
+// M11 index enumeration (Issue #4)
+// ---------------------------------------------------------------------------
+
+///|
+/// `"name:Kind"` pairs: keeps the expectation readable and pins the enum's `Show`
+/// output in the same assertion.
+fn shown_entries(
+  t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32, Int32)],
+) -> Array[String] {
+  let out : Array[String] = []
+  for entry in t.index_entries() {
+    out.push(entry.0 + ":" + Show::to_string(entry.1))
+  }
+  out
+}
+
+///|
+/// `index_entries` answers what `index_stats` alone cannot: which names exist and
+/// which quadrant each one is. It follows the same ascending order (and the same
+/// shortlex rule) as `index_names`, and the kind does not depend on the data.
+test "index_entries lists every index with its quadrant, in name order" {
+  let empty : @aurasuisui/multiindex.Table[Int32, (Int32, Int32, Int32)] = @aurasuisui/multiindex.Table::new()
+  @test.assert_eq(empty.index_entries().length(), 0)
+  let t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32, Int32)] = @aurasuisui/multiindex.Table::new()
+  // registered out of order on purpose: the method sorts, not the registry
+  assert_registered(t.register_non_unique("aa", fn(p) { p.2 }))
+  assert_registered(t.register_unique("z", fn(p) { p.1 }))
+  assert_registered(t.register_non_unique_ordered("ab", fn(p) { p.2 }))
+  assert_registered(t.register_unique_ordered("a", fn(p) { p.0 }))
+  let expected = [
+    "a:SortedUnique", "z:HashUnique", "aa:HashMulti", "ab:SortedMulti",
+  ]
+  @test.assert_eq(shown_entries(t), expected)
+  // the names come out in the order index_names promises (shortlex)
+  @test.assert_eq(t.index_names(), ["a", "z", "aa", "ab"])
+  // records do not move the classification, even when a multi key is shared
+  let first = insert_ok(t, (1, 10, 7))
+  let second = insert_ok(t, (2, 20, 7))
+  @test.assert_not_eq(first, second)
+  @test.assert_eq(shown_entries(t), expected)
+  @test.assert_eq(t.index_stats("ab").entries, 2)
+  assert_invariants(t)
+}

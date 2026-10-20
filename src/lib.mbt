@@ -16,11 +16,11 @@
 //
 // # Quick Start
 //
-// (see README.md — the API is under construction for v0.1.0)
+// (see README.md — the API is stabilized as of v0.2.0)
 
 ///|
 /// Library version string.
-pub const VERSION : String = "0.1.0"
+pub const VERSION : String = "0.2.0"
 
 ///|
 /// A stable handle to a stored record: a slot index plus a generation counter.
@@ -168,3 +168,32 @@ pub struct IndexStats {
   longest_bucket : Int32
   average_bucket : Double
 } derive(Debug, Eq)
+
+///|
+/// Which of the four quadrants a registered index lives in — the public shadow of
+/// the private `Index[K, V]` enum (src/index.mbt).
+///
+/// `Table::index_entries` hands these out next to the index names so a caller can
+/// tell a conflict-checked index (`HashUnique` / `SortedUnique`) from a fan-out
+/// one (`HashMulti` / `SortedMulti`) before reasoning about what a write may hit.
+///
+/// Deliberately **not** folded into `IndexStats`: that struct's fields are public,
+/// so adding a name or a kind to it would break every external construction site
+/// (a MAJOR break — Issue #4). A separate enum keeps `IndexStats` at MINOR.
+pub(all) enum IndexKind {
+  HashUnique
+  SortedUnique
+  HashMulti
+  SortedMulti
+} derive(Debug)
+
+///|
+/// Display form: the bare variant name (`HashUnique`, `SortedMulti`, ...).
+pub impl Show for IndexKind with fn output(self : IndexKind, logger : &Logger) {
+  match self {
+    IndexKind::HashUnique => logger.write_string("HashUnique")
+    IndexKind::SortedUnique => logger.write_string("SortedUnique")
+    IndexKind::HashMulti => logger.write_string("HashMulti")
+    IndexKind::SortedMulti => logger.write_string("SortedMulti")
+  }
+}

@@ -273,7 +273,7 @@ pub struct Table[K, V] {
 | 方法 | 约束 |
 |---|---|
 | `insert` / `remove` / `get_by` / `iter_by` / `modify` | `K : Hash + Eq + Compare` |
-| `new` / `len` / `is_empty` / `get` / `iter` / `clear` / `index_names` | **零约束** |
+| `new` / `len` / `is_empty` / `get` / `iter` / `clear` / `index_names` / `index_entries` | **零约束** |
 
 **这意味着即使只注册哈希索引,键类型也必须实现 `Compare`。** 真正做到按方法最小化,需要把有序象限的
 桶操作在注册时**擦除成闭包/trait object**,代价是白盒不变量检查无法再枚举桶(而 I3/I4/I5/I7 的
@@ -282,6 +282,11 @@ pub struct Table[K, V] {
 **裁定:接受约束并集,换取可验证性。** 实际键类型(`String` / `Int` / 可比较的记录键)几乎都天然满足
 `Compare`,而"不变量能被逐步校验"的价值远高于省掉一个约束。
 > 类型擦除方案列为 **v0.2 候选**(见 [§11](#v0.2-候选本期明确不做记录以免遗忘))。
+
+**M11 补记**:`index_entries` 只做"取名字 → 查注册表 → 报种类",不触碰键与值,所以它落在**零约束**一行。
+初稿按"遍历注册表就得上约束"的惯性写成 `K : Hash + Eq + Compare`,编译器立刻给出三条
+`unused_trait_bound [0053]`;在 `--deny-warn` 下这就是 CI 红。**以编译器为准**:删掉未使用的约束 ——
+方法签名对调用方只会**更宽**,不是破坏。
 
 **字段可见性**:MoonBit 的 `pub struct` 字段**默认可读公开**(会出现在 `pkg.generated.mbti` 里),
 要真正私有必须逐字段写 `priv`。本库选择**字段全部 `priv`**:
@@ -302,6 +307,25 @@ pub struct Table[K, V] {
 对外只保证行为契约。mbti 中呈现为 `pub struct Table[K, V] { // private fields }`。
 **代价**:黑盒 `*_test.mbt` 无法直读字段,不变量断言必须放在包内的 `*_wbtest.mbt`(见 §8)。
 
+### §2.7 `IndexKind`:索引象限的公开名字(M11,Issue #4)
+
+```moonbit
+pub(all) enum IndexKind {
+  HashUnique
+  SortedUnique
+  HashMulti
+  SortedMulti
+} derive(Debug) // Show 手写,输出裸变体名
+```
+
+- **它是什么**:私有 `enum Index[K, V]`(§3.5)的四个象限在**公开层面**的影子,由 `index_entries()`
+  与索引名一起交出(`Array[(String, IndexKind)]`)。
+- **为什么不塞进 `IndexStats`**:那是**字段公开**的结构体(§3.4),外部已经在构造点上依赖这四个字段,
+  加"名字/种类"就是 MAJOR 破坏。独立枚举 + 独立方法,把 `IndexStats` 留在 MINOR(见 [`plans/v0.2.0.md`](plans/v0.2.0.md) 的版本判定表)。
+- **`derive(Show)` 已废弃**,故 `Show` 手写;`derive(Debug)` 保留,并按 `src/extends.mbt` 的三段式
+  把 `Debug::to_repr` 与 `Show::{to_string, output}` 标成 `#deprecated` + `#doc(hidden)` ——
+  否则 `--deny-warn` 报 `[0079]`。
+
 ---
 
 ## §3 API 规划(v0.1.0,实现时按本节锁定签名)
@@ -318,7 +342,7 @@ pub struct Table[K, V] {
 | `register_unique_ordered(name, project) -> Result[Unit, RegisterError[K]]` (需 `K : Compare`) | **有序唯一**索引(`SortedMap[K, Int]`) |
 | `register_non_unique(name, project) -> Result[Unit, RegisterError[K]]` | **哈希非唯一**索引(`Map[K, SortedSet[Int]]`) |
 | `register_non_unique_ordered(name, project) -> Result[Unit, RegisterError[K]]` (需 `K : Compare`) | **有序非唯一**索引(`SortedMap[K, SortedSet[Int]]`) |
-| `has_index(name) -> Bool` / `index_names() -> Array[String]` | 索引枚举;`index_names` 按 **MoonBit `String` 序**(长度优先的 shortlex)升序,已由测试钉死 |
+| `has_index(name) -> Bool` / `index_names() -> Array[String]` / `index_entries() -> Array[(String, IndexKind)]` | 索引枚举;`index_names` 与 `index_entries` 都按 **MoonBit `String` 序**(长度优先的 shortlex)升序,已由测试钉死;`index_entries` 同时给出每个索引的象限(§2.7)—— `index_stats(name)` 必须先知道名字,而这是拿到名字的公开途径 |
 
 **2×2 四象限**(与主蓝本的 `hashed_unique` / `ordered_unique` / `hashed_non_unique` /
 `ordered_non_unique` 一一对应):两个正交维度 —— **唯一性**(unique / non-unique)与
@@ -344,10 +368,12 @@ pub struct Table[K, V] {
 |---|---|---|
 | `insert(v : V) -> Result[RowId, Rejected[K, V]]` | 新记录句柄 | 冲突时**表零变更**,记录原样归还 |
 | `insert_many(vs : Array[V]) -> ...` | 批量 | 先全部落库,再**每索引一次性构建**(把 N×k 次索引插入降为 k 次批量构建);**遇重复键的胜出规则须在实现时明确并测试钉死**(主蓝本是"第一个胜出",§0.4-6) |
+| `insert_or_replace(v : V) -> Result[(RowId, V?), Rejected[K, V]]` | 记录句柄 + 被顶替的旧值 | **覆盖式 upsert**:恰好一条记录在新值的某个**唯一**索引上撞键 → 原地替换并**保留它的 `RowId`**(外部句柄继续有效),返回 `Ok((该 RowId, Some(旧值)))`;无冲突 → 等价于 `insert`(`Ok((新 RowId, None))`);两条**不同**记录分别在不同唯一索引上撞键 → `abort`,表零变更(三条裁定见 §3.2.2) |
 | `update(id : RowId, v : V) -> Result[Unit, UpdateRejected[K, V]]` | 成功/失败 | **排除自身**的冲突检查;陈旧 id → `Err(StaleHandle(id, Some(v)))` |
 | `modify(id : RowId, f : (V) -> V) -> Result[Unit, UpdateRejected[K, V]]` | 成功/失败 | 用 `f` 变换记录后重索引;**逐索引对比新旧投影键,只动真正变化的桶**(见 §5 规则 4);陈旧 id → `Err(StaleHandle(id, None))` |
 | `remove(id : RowId) -> V?` | 被删记录 | 陈旧 id → `None`;**保插入序**,删除 O(len) |
 | `swap_remove(id : RowId) -> V?` | 被删记录 | 同 `remove`(同样恢复槽位/索引/`len`/`version`),但用**末位换位**维护 `order` → 删除 **O(1)**;**删除后迭代序不再等于插入序**;陈旧 id → `None`,表零变更 |
+| `clear() -> Unit` | — | 清空所有记录与条目,**但保留索引注册**(只清桶,不删注册)—— 否则 `clear` 之后新插入的记录会静默不被索引。**批量退役**:每个活槽的 `gen += 1` 后归还 `free`(代际耗尽的永久退役),因此 **`clear` 之前的句柄永不复活** —— 若直接清空数组,清空后插入会复用同一个 `(slot, gen)`,旧句柄就会静默命中新记录,违反 §7。清空**空表**不算真实变更,不递增 `version`(I8) |
 
 #### §3.2.1 `update` / `modify` 的两个语义裁定
 
@@ -366,7 +392,33 @@ pub struct Table[K, V] {
 
 **裁定:保留两个方法。** 组合损失的不是效率,是**失败路径上的数据所有权** —— 这不在官方那句话的豁免范围内。
 两个方法共用同一条预检与落地路径,增量成本接近零。
-| `clear() -> Unit` | — | 清空所有记录与条目,**但保留索引注册**(只清桶,不删注册)—— 否则 `clear` 之后新插入的记录会静默不被索引。**批量退役**:每个活槽的 `gen += 1` 后归还 `free`(代际耗尽的永久退役),因此 **`clear` 之前的句柄永不复活** —— 若直接清空数组,清空后插入会复用同一个 `(slot, gen)`,旧句柄就会静默命中新记录,违反 §7。清空**空表**不算真实变更,不递增 `version`(I8) |
+
+#### §3.2.2 `insert_or_replace` 的三条裁定(M11,Issue #3)
+
+**(a) 替换保留原 `RowId`,不 retire、不新建。**
+这正是它相对 `remove` + `insert` 的全部价值:`remove` 会让代际号 +1,调用方手里的句柄**全部作废**;
+而"同一条逻辑记录换了个值"不是一个新记录。落地方式:**直接复用 `update` 的机制** —— 先由只读判定
+`replace_target` 找出"谁会被顶替"(**只有唯一索引参与**,命中按槽位归组),再跑 `update` 用的
+`find_conflict_excluding(value, 该槽位)`,最后交给 `update` 也在用的落地汇聚点 `modify_impl`。
+**"自己撞自己"由这一对负责**:判定阶段把命中按槽位归组,提交阶段显式排除该槽位。因此这里
+**没有第二套预检**,唯一索引的桶也只被 `modify_impl` 的 `retarget` 改一遍。
+
+**(b) 两条不同记录分别撞键 → `abort`,不新增 `Conflict` 变体。**
+`Conflict[K]` 只有 `UniqueViolation` / `DuplicateInBatch` 两个变体;给第三方加一个"多记录命中"会让
+**所有既有 `match` 不再穷尽** —— 那是 MAJOR 破坏。而这条路径本身就是调用方的数据问题(一个值同时
+冒充两条记录的唯一键),不是可以继续处理的业务失败。`abort` 消息必须**可定位**:写明是哪两个索引、
+各自撞到哪条 `RowId`;两个索引按**名字升序**取,保证同一状态永远给出同一段文本(与 §7 的冲突上报
+口径一致)。测试上:黑盒只能验证"它会 abort"(`panic` 前缀测试),**消息本身**由包内的
+`src/table_wbtest.mbt` 直接断言只读判定函数。
+
+**(c) 原子性按 `update` 的标准,失败路径表零变更。**
+只读判定 → 排除自身的冲突预检 → 落地,三步之前表**完全没动**;`abort` 路径同样在落地之前。
+**非唯一索引不参与"谁被顶替"** —— 一个桶可以有很多记录,它命名不了受害者;它只在落地时按新值重建。
+
+> **为什么函数体里还留着一个"看起来永不触发"的 `Err` 分支**:只要判定函数是对的,`Replace` 分支的
+> 预检必定返回 `None`。保留它不是冗余逻辑,而是**降级路径** —— 判定若出现回归,结果是 `update`
+> 语义的 `Err(Conflict)`(表仍零变更),而不是把 I5 写坏。这一点由 `table_wbtest.mbt` 的
+> "replace_target agrees with update's excluding-self pre-check" 钉住。
 
 ### §3.3 查询
 
@@ -377,6 +429,10 @@ pub struct Table[K, V] {
 | `range_by(name, lo, hi)` (需 `Compare`) | **双闭区间 `[lo, hi]`** 内的记录 | 有序索引;**本库增量**(主蓝本无 range API) |
 | `range_half_open_by(name, lo, hi)` (需 `Compare`) | **半开区间 `[lo, hi)`** 内的记录 | 同上 |
 | `iter_asc_by(name)` / `iter_desc_by(name)` | 按索引键升/降序遍历全部记录 | 同上。**不需要 `K : Compare`** —— 实现只走 `SortedMap` 的迭代器;索引是否有序由 §7.1 的运行时检查负责 |
+| `get(id : RowId) -> V?` | 按句柄取记录 | 陈旧 id → `None` |
+| `contains(id : RowId) -> Bool` | — | |
+| `len() -> Int` / `is_empty() -> Bool` | — | |
+| `iter() -> Iter2[RowId, V]` | 插入序遍历 | fail-fast(比照 `version`) |
 
 > **范围查询返回惰性迭代器**,不预先收集成数组(避免大区间一次性物化)。
 
@@ -394,16 +450,11 @@ core 的 `SortedMap::range` / `SortedSet::range` 本身就是**双闭区间 `[lo
 
 > 教训:"两个名字相近的方法"如果底层只支持一种语义,不要制造语义重叠;
 > 要么跟随平台,要么起一个不会误读的名字。
-| `get(id : RowId) -> V?` | 按句柄取记录 | 陈旧 id → `None` |
-| `contains(id : RowId) -> Bool` | — | |
-| `len() -> Int` / `is_empty() -> Bool` | — | |
-| `iter() -> Iter2[RowId, V]` | 插入序遍历 | fail-fast(比照 `version`) |
 
 > **查询统一返回 `(RowId, V)` 二元组**,理由:一次调用同时给出**身份**与**值**,不丢信息、
 > 不需要调用方决定"要不要再取一次",也避免为"只要值"和"只要身份"各开一套方法把 API 面积翻倍。
 > **代价**:MoonBit 不能返回元素内部的引用,取 `V` 是一次拷贝(记录内的容器是共享引用,通常不贵);
 > 若将来 profiling 证明热循环里这次拷贝有代价,再加 id-only 变体(v0.2 候选)。
-| `index_names() -> Array[String]` | 已注册索引名 | |
 
 ### §3.4 诊断(拿分点,也是自测手段)
 
@@ -411,6 +462,7 @@ core 的 `SortedMap::range` / `SortedSet::range` 本身就是**双闭区间 `[lo
 |---|---|
 | `verify_invariants() -> Result[Unit, String]` | **公开**的白盒自检:校验 I1–I9 + 索引不变量。**首个违反者即返回**,消息里指明**违反了哪一条 + 出问题的槽位/键**(例如 `"I5: unique index \"email\" holds 2 slots under key \"a@b.c\""`) |
 | `index_stats(name : String) -> IndexStats` | 诊断统计。`IndexStats { buckets, entries, longest_bucket, average_bucket }`(**空索引全 0,含 `0.0`,不除零**) |
+| `index_entries() -> Array[(String, IndexKind)]` | 已注册索引的"名字 + 象限"清单,按名称升序(与 `index_names` 同序)。`index_stats(name)` 需要先知道名字,这是拿到名字的**公开**途径(Issue #4);`IndexKind` 见 §2.7 |
 
 > `verify_invariants` 是**公开 API**而非仅测试辅助:调用方可在自己的断言里使用它。
 > **约束**:公开入口是 `verify_invariants[K : Eq + Debug, V]` —— `Eq` 用于比较键,`Debug` 用于把键渲染进消息。
@@ -626,11 +678,12 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 
 ### v0.2 候选(本期明确不做,记录以免遗忘)
 
-- `insert_or_replace(rec) -> Overwritten`:覆盖式 upsert 并结构化返回被顶替的记录
-  (学同作者 `bimap` 的 `Overwritten`;主蓝本也把它列在 Future work)。
 - schema → MoonBit 源码生成器:把运行时闭包投影静态展开,获得等价 derive 的零开销
   (主蓝本靠过程宏,我们靠代码生成)。
 - 密集整数键的 SparseSet 式加速(参照 bevy `ComponentSparseSet` 的 dense+sparse 双数组)。
+  **M11 砍尾(2026-10-20)**:基准里哈希桶并不慢,这是**没有实测痛点**的推测性优化,按
+  [`plans/v0.2.0.md`](plans/v0.2.0.md) §四「从尾部砍」;相应地**没有开 Issue** —— 它不是实测到的
+  问题,开了就是凑数。
 - 批量重建索引 `rebuild_index(name)` / 延迟建索引。
 - **约束擦除**:把有序象限桶操作在注册时擦除成闭包/trait object,使 `insert`/`remove` 只需
   `K : Hash + Eq`。代价见 §2.5.1 —— 需要先解决"擦除后如何继续逐步校验 I3/I4/I5/I7"。

@@ -206,17 +206,18 @@ import {
 
 ## §2 常用命令
 
-### 2.1 五步 CI(本项目门禁,与 `AGENTS.md` 一致)
+### 2.1 六步 CI(本项目门禁,与 `AGENTS.md` 一致)
 
 ```bash
-moon fmt --check                          # 1. 格式检查
-moon check                                # 2. 类型检查
-moon info && git diff --exit-code         # 3. 公开接口快照必须已提交
-moon test                                 # 4. 测试
-moon build                                # 5. 构建
+moon fmt --check                              # 1. 格式检查
+moon check                                    # 2. 类型检查
+moon check --deny-warn --target all           # 3. 零警告门禁(含 missing_doc)
+moon info && git diff --exit-code             # 4. 公开接口快照必须已提交
+moon test                                     # 5. 测试
+moon build                                    # 6. 构建
 ```
 
-第 3 步是**承重**的:`moon info` 重新生成 `src/pkg.generated.mbti`,这是**入库的接口快照**。改了公开签名必须 `moon info` 并提交,否则 CI 红。
+第 4 步是**承重**的:`moon info` 重新生成 `src/pkg.generated.mbti`,这是**入库的接口快照**。改了公开签名必须 `moon info` 并提交,否则 CI 红。这一步在 CI 里还附带两件事:① 比较前把 `Int32`/`Int` 两种拼写归一化(CI 与本机工具链打印不同);② 校验 `moon.mod` 的 `version` 与 `src/lib.mbt` 的 `VERSION` 相等。
 
 ### 2.2 `moon test` 的过滤选项(**旧文件写错了**)
 

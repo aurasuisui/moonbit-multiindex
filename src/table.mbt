@@ -237,6 +237,82 @@ fn[K : Hash + Eq + Compare, V] Table::find_conflict_excluding(
   best
 }
 
+///|
+/// What `insert_or_replace` would do with a record, decided **without touching the
+/// table** (docs/SPEC.md §3.2.2).
+///
+/// - `Fresh` — no unique index holds any of the record's keys: it would be inserted.
+/// - `Replace(slot)` — every occupied unique index is occupied by the single record
+///   in `slot`. That record is the victim, and replacing it keeps its `RowId`.
+/// - `Ambiguous(text)` — two **different** slots are hit. No single replacement can
+///   honour both, so the call aborts before any mutation; `text` is built here
+///   because a panic cannot be caught, and a read-only classifier is the only place
+///   where the wording is testable (src/table_wbtest.mbt).
+///
+/// Non-unique indexes never contribute: a bucket holds any number of records under
+/// one key, so it cannot name a victim — it is rebuilt from the new record instead.
+priv enum ReplaceTarget {
+  Fresh
+  Replace(Int32)
+  Ambiguous(String)
+}
+
+///|
+/// Classify `value` for `insert_or_replace` (docs/SPEC.md §3.2.2): which record, if
+/// any, it would displace.
+///
+/// This is the pre-check half of `update`'s mechanism, written for the case where
+/// the victim is not known in advance. Two rules are shared with
+/// `find_conflict_excluding`: only unique indexes nominate a victim, and a
+/// collision with the victim **itself** is not a collision. The difference is that
+/// `update` is told which slot to exclude, whereas here the excluded slot is the
+/// one being discovered — hence the grouping by slot rather than a single probe.
+///
+/// Mutates nothing on any path (it only reads bucket holders and generations), so
+/// both the replace path and the abort path leave the table exactly as it was.
+fn[K : Hash + Eq + Compare, V] Table::replace_target(
+  self : Table[K, V],
+  value : V,
+) -> ReplaceTarget {
+  let hits : Array[(String, Int32)] = []
+  for name, index in self.indexes {
+    if index.is_unique() {
+      let key = index.project()(value)
+      match index.holder(key) {
+        Some(slot) => hits.push((name, slot))
+        None => ()
+      }
+    }
+  }
+  if hits.is_empty() {
+    return Fresh
+  }
+  // Name order, not registry order: the reported pair must not depend on how the
+  // hash map happens to iterate (the same rule Conflict reporting follows).
+  hits.sort_by_key(fn(hit) { hit.0 })
+  let target = hits[0].1
+  let mut i = 1
+  while i < hits.length() {
+    if hits[i].1 != target {
+      let victim : RowId = { slot: target, gen: self.gens[target], }
+      let other : RowId = { slot: hits[i].1, gen: self.gens[hits[i].1], }
+      return Ambiguous(
+        "Table::insert_or_replace: the new record collides with two different rows, index \"" +
+        hits[0].0 +
+        "\" holds " +
+        Show::to_string(victim) +
+        " and index \"" +
+        hits[i].0 +
+        "\" holds " +
+        Show::to_string(other) +
+        "; refusing the write, the table is unchanged",
+      )
+    }
+    i = i + 1
+  }
+  Replace(target)
+}
+
 // ---------------------------------------------------------------------------
 // Chokepoints (docs/DEVPLAN.md §4)
 // ---------------------------------------------------------------------------
@@ -387,11 +463,15 @@ fn[K : Hash + Eq + Compare, V] Table::remove_impl(
 /// points at a slot whose projection has stopped matching (I4), and the equal-key
 /// indexes are not touched at all (docs/SPEC.md §5 rule 3). The caller must have
 /// completed every uniqueness pre-check — this is the commit half.
+///
+/// Returns the record it displaced. Handing it back is free here (the caller
+/// already had it in hand) and it is what lets `insert_or_replace` report the
+/// overwritten value without a second lookup through the index registry.
 fn[K : Hash + Eq + Compare, V] Table::modify_impl(
   self : Table[K, V],
   slot : Int32,
   value : V,
-) -> Unit {
+) -> V {
   let previous = match self.rows[slot] {
     Some(record) => record
     None =>
@@ -405,6 +485,7 @@ fn[K : Hash + Eq + Compare, V] Table::modify_impl(
   }
   self.rows[slot] = Some(value)
   self.version = self.version + 1
+  previous
 }
 
 ///|
@@ -558,6 +639,52 @@ pub fn[K : Hash + Eq + Compare, V] Table::insert_many(
 }
 
 ///|
+/// Insert `value`, or **replace the record it collides with — keeping that record's
+/// `RowId`** (docs/SPEC.md §3.2.2).
+///
+/// Keeping the `RowId` is the point of the method: `remove` + `insert` would retire
+/// the old handle and hand out a fresh one, silently stranding every handle the
+/// caller already holds. The logical record survives the write, so its identity
+/// must survive with it.
+///
+/// - No unique key is taken: exactly `insert`, `Ok((new_row, None))`.
+/// - Exactly one record holds one or more of the new keys: it is replaced in place,
+///   `Ok((its_row, Some(displaced_value)))`. Non-unique indexes are rebuilt from the
+///   new record — a multi bucket never decides *who* is replaced.
+/// - **Two different records** are hit, one per unique index: no single replacement
+///   can honour both, and arbitrarily dropping one would corrupt the caller's data
+///   model. The call **aborts**, naming both indexes and both `RowId`s. No new
+///   `Conflict` variant carries this: adding one would break exhaustive matches at
+///   every existing `Err` site (docs/SPEC.md §3.2.2).
+///
+/// Atomicity: `replace_target` decides the victim with a read-only scan, then
+/// `update`'s pre-check runs with the victim excluded, and only then does
+/// `modify_impl` — `update`'s own commit chokepoint — touch the table. The replace
+/// path shares one pre-check and one commit path with `update`, and every refusal
+/// path leaves the table byte-for-byte unchanged.
+pub fn[K : Hash + Eq + Compare, V] Table::insert_or_replace(
+  self : Table[K, V],
+  value : V,
+) -> Result[(RowId, V?), Rejected[K, V]] {
+  match self.replace_target(value) {
+    Fresh => Ok((self.insert_impl(value), None))
+    Replace(slot) =>
+      // Exactly the check `update` runs, with the victim excluded (rule 1). While
+      // `replace_target` is correct it can only return `None`; it is kept so that a
+      // classifier regression degrades to `update`'s `Err` instead of corrupting I5.
+      match self.find_conflict_excluding(value, slot) {
+        Some(conflict) => Err({ conflict, record: value, })
+        None => {
+          let displaced = self.modify_impl(slot, value)
+          let id : RowId = { slot, gen: self.gens[slot], }
+          Ok((id, Some(displaced)))
+        }
+      }
+    Ambiguous(text) => abort(text)
+  }
+}
+
+///|
 /// Replace the record named by `id` with `value`.
 ///
 /// The **excluding-self** check runs first (docs/SPEC.md §5 rule 1): writing a
@@ -576,7 +703,7 @@ pub fn[K : Hash + Eq + Compare, V] Table::update(
       match self.find_conflict_excluding(value, id.slot) {
         Some(conflict) => Err(Conflict(conflict, value))
         None => {
-          self.modify_impl(id.slot, value)
+          self.modify_impl(id.slot, value) |> ignore
           Ok(())
         }
       }
@@ -603,7 +730,7 @@ pub fn[K : Hash + Eq + Compare, V] Table::modify(
       match self.find_conflict_excluding(value, id.slot) {
         Some(conflict) => Err(Conflict(conflict, value))
         None => {
-          self.modify_impl(id.slot, value)
+          self.modify_impl(id.slot, value) |> ignore
           Ok(())
         }
       }

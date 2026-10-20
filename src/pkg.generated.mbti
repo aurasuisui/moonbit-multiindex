@@ -7,7 +7,7 @@ import {
 }
 
 // Values
-pub const VERSION : String = "0.1.0"
+pub const VERSION : String = "0.2.0"
 
 // Errors
 
@@ -18,6 +18,14 @@ pub enum Conflict[K] {
 } derive(Eq, @debug.Debug)
 pub fn[K : Eq] Conflict::equal(Self[K], Self[K]) -> Bool
 pub impl[K : Show] Show for Conflict[K]
+
+pub(all) enum IndexKind {
+  HashUnique
+  SortedUnique
+  HashMulti
+  SortedMulti
+} derive(@debug.Debug)
+pub impl Show for IndexKind
 
 pub struct IndexStats {
   buckets : Int
@@ -55,10 +63,12 @@ pub fn[K : Hash + Eq + Compare, V : @json.FromJson] Table::from_json(Json) -> Se
 pub fn[K, V] Table::get(Self[K, V], RowId) -> V?
 pub fn[K : Hash + Eq + Compare, V] Table::get_by(Self[K, V], String, K) -> (RowId, V)?
 pub fn[K, V] Table::has_index(Self[K, V], String) -> Bool
+pub fn[K, V] Table::index_entries(Self[K, V]) -> Array[(String, IndexKind)]
 pub fn[K, V] Table::index_names(Self[K, V]) -> Array[String]
 pub fn[K, V] Table::index_stats(Self[K, V], String) -> IndexStats
 pub fn[K : Hash + Eq + Compare, V] Table::insert(Self[K, V], V) -> Result[RowId, Rejected[K, V]]
 pub fn[K : Hash + Eq + Compare, V] Table::insert_many(Self[K, V], Array[V]) -> Result[Array[RowId], Rejected[K, V]]
+pub fn[K : Hash + Eq + Compare, V] Table::insert_or_replace(Self[K, V], V) -> Result[(RowId, V?), Rejected[K, V]]
 pub fn[K, V] Table::is_empty(Self[K, V]) -> Bool
 pub fn[K, V] Table::iter(Self[K, V]) -> Iter2[RowId, V]
 pub fn[K, V] Table::iter_asc_by(Self[K, V], String) -> Iter2[RowId, V]
