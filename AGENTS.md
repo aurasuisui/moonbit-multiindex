@@ -152,8 +152,14 @@ the official `moonbitlang/core` repository). Language-level facts live in
 - `src/json.mbt` — JSON round-trip (`to_json` / `from_json`). Wire format is `{"records": [...]}`
   in insertion order; **indexes are not serialized** — call `register_*` after loading.
   `src/json_test.mbt` covers the round-trip, re-registration, and malformed input.
-- `src/table_iter.mbt` / `src/table_traits.mbt` — *planned*; iterators currently live inline in
-  `table.mbt` / `table_api.mbt`, and traits in `lib.mbt` + `extends.mbt`.
+- Test files: `table_test.mbt` (black-box unit), `table_wbtest.mbt` (white-box + negative guard
+  tests), `property_test.mbt` / `property_wbtest.mbt` (invariants, black- vs white-box),
+  `model_test.mbt`, `differential_test.mbt` + `differential_fixture_test.mbt`, `json_test.mbt`,
+  `bench_test.mbt` (stress), `abort_guard_wbtest.mbt` (`test "panic …"` suite: one trigger per
+  reachable `abort` guard, each fixture re-run by a companion test). Iterators live **inline** in
+  `table.mbt` / `table_api.mbt`; there is
+  no separate `table_iter.mbt` / `table_traits.mbt` (a split that was planned and deliberately
+  dropped — the inline form keeps the chokepoints in one file).
 - `cmd/leaderboard` — runnable example; `bench/main.mbt` — timing benchmarks. Both are **standalone
   modules** importing the *published* package (`moon.work` is generated on demand, gitignored).
 

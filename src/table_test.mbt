@@ -240,9 +240,9 @@ test "every quadrant answers get_by and iter_by" {
   @test.assert_eq(t.iter_by("u_sorted", 1).to_array().length(), 1)
   @test.assert_eq(t.iter_by("u_sorted", 3).to_array().length(), 0)
   // An *absent key* is an empty answer; an *absent index name* is a caller bug
-  // that aborts (docs/SPEC.md §7.1). A MoonBit abort cannot be caught in-process,
-  // so the decision is pinned through its testable halves: `has_index` here and
-  // `Index::is_ordered` in `table_wbtest.mbt`.
+  // that aborts (docs/SPEC.md §7.1). The abort itself is asserted by the
+  // `panic …` suite in `abort_guard_wbtest.mbt`; asserted here is the public half
+  // of the decision (`has_index`), which the panic test cannot distinguish.
   @test.assert_eq(t.get_by("u_hash", 99), None)
   @test.assert_eq(t.iter_by("u_hash", 99).to_array().length(), 0)
   @test.assert_eq(t.has_index("nope"), false)
@@ -379,6 +379,93 @@ test "backfilling a conflicting unique index registers nothing" {
 }
 
 ///|
+test "register_unique_ordered refuses a duplicate name and keeps the original index" {
+  let t = triple_table()
+  let a = insert_ok(t, (1, 7, 100))
+  match t.register_unique_ordered("hi", fn(p) { p.0 }) {
+    Ok(_) => @test.fail("re-registering an existing name must fail")
+    Err(@aurasuisui/multiindex.DuplicateName(name)) =>
+      @test.assert_eq(name, "hi")
+    Err(_) => @test.fail("expected DuplicateName")
+  }
+  // nothing was replaced: the original projection (p.1) still answers, and the
+  // candidate projection (p.0) never took over
+  @test.assert_eq(t.index_names().length(), 4)
+  @test.assert_eq(t.get_by("hi", 7), Some((a, (1, 7, 100))))
+  @test.assert_eq(t.get_by("hi", 1), None)
+  // the registry still accepts a name that is genuinely free
+  assert_registered(t.register_unique_ordered("id", fn(p) { p.0 }))
+  @test.assert_eq(t.index_names().length(), 5)
+  @test.assert_eq(t.get_by("id", 1), Some((a, (1, 7, 100))))
+}
+
+///|
+test "backfilling a conflicting unique_ordered index registers nothing" {
+  let t : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::new()
+  insert_ok(t, 1) |> ignore
+  insert_ok(t, 11) |> ignore
+  match t.register_unique_ordered("low_digit", fn(v) { v % 10 }) {
+    Ok(_) => @test.fail("the backfill must report the duplicate key")
+    Err(@aurasuisui/multiindex.UniqueViolation(name, key)) => {
+      @test.assert_eq(name, "low_digit")
+      @test.assert_eq(key, 1)
+    }
+    Err(_) => @test.fail("expected UniqueViolation")
+  }
+  // atomic: the index is not registered at all, and the records stay put
+  @test.assert_eq(t.index_names().length(), 0)
+  @test.assert_eq(t.has_index("low_digit"), false)
+  @test.assert_eq(t.len(), 2)
+  // a name that does not conflict still registers afterwards, over both records
+  assert_registered(t.register_unique_ordered("high_digit", fn(v) { v / 10 }))
+  @test.assert_eq(t.index_names().length(), 1)
+  // 1 and 11 land in different tens buckets: one record each, so the backfill
+  // really did scan both records in
+  @test.assert_eq(t.iter_by("high_digit", 0).to_array().length(), 1)
+  @test.assert_eq(t.iter_by("high_digit", 1).to_array().length(), 1)
+}
+
+///|
+test "register_non_unique refuses a duplicate name and keeps the original index" {
+  let t = matrix_table()
+  let a = insert_ok(t, (1, 10))
+  insert_ok(t, (2, 10)) |> ignore
+  match t.register_non_unique("m_hash", fn(p) { p.0 }) {
+    Ok(_) => @test.fail("re-registering an existing name must fail")
+    Err(@aurasuisui/multiindex.DuplicateName(name)) =>
+      @test.assert_eq(name, "m_hash")
+    Err(_) => @test.fail("expected DuplicateName")
+  }
+  // the original projection (p.1) still groups both records under key 10
+  @test.assert_eq(t.index_names().length(), 4)
+  @test.assert_eq(t.iter_by("m_hash", 10).to_array().length(), 2)
+  @test.assert_eq(t.get_by("m_hash", 1), None)
+  // and a fresh name still backfills the same records
+  assert_registered(t.register_non_unique("pair_id", fn(p) { p.0 }))
+  @test.assert_eq(t.index_names().length(), 5)
+  @test.assert_eq(t.get_by("pair_id", 1), Some((a, (1, 10))))
+}
+
+///|
+test "register_non_unique_ordered refuses a duplicate name and keeps the original index" {
+  let t = triple_table()
+  let a = insert_ok(t, (1, 7, 100))
+  match t.register_non_unique_ordered("shared_sorted", fn(p) { p.0 }) {
+    Ok(_) => @test.fail("re-registering an existing name must fail")
+    Err(@aurasuisui/multiindex.DuplicateName(name)) =>
+      @test.assert_eq(name, "shared_sorted")
+    Err(_) => @test.fail("expected DuplicateName")
+  }
+  // original projection p.2 still answers under key 100; the candidate p.0 is absent
+  @test.assert_eq(t.index_names().length(), 4)
+  @test.assert_eq(t.iter_by("shared_sorted", 100).to_array().length(), 1)
+  @test.assert_eq(t.get_by("shared_sorted", 1), None)
+  assert_registered(t.register_non_unique_ordered("id", fn(p) { p.0 }))
+  @test.assert_eq(t.index_names().length(), 5)
+  @test.assert_eq(t.get_by("id", 1), Some((a, (1, 7, 100))))
+}
+
+///|
 test "a unique collision is reported with the record and changes nothing" {
   let t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32)] = @aurasuisui/multiindex.Table::new()
   assert_registered(t.register_unique("u", fn(p) { p.0 }))
@@ -410,6 +497,61 @@ test "a unique collision is reported with the record and changes nothing" {
   t.remove(a) |> ignore
   let c = insert_ok(t, (1, 99))
   @test.assert_eq(t.get_by("u", 1), Some((c, (1, 99))))
+}
+
+// ---------------------------------------------------------------------------
+// Show: the hand-written impls pin their exact text
+// ---------------------------------------------------------------------------
+
+///|
+test "Show pins Conflict::UniqueViolation and the Rejected around it" {
+  let t : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("u", fn(v) { v % 10 }))
+  let a = insert_ok(t, 1)
+  match t.insert(11) {
+    Ok(_) => @test.fail("a duplicate unique key must not be stored")
+    Err(rejected) => {
+      // the index name is unquoted; key and holder go through their own Show
+      // impl (src/lib.mbt), so the holder really reads as a RowId
+      @test.assert_eq(
+        Show::to_string(rejected.conflict),
+        "UniqueViolation(u, 1, RowId(0, 0))",
+      )
+      @test.assert_eq(
+        Show::to_string(rejected),
+        "Rejected(conflict=UniqueViolation(u, 1, RowId(0, 0)), record=11)",
+      )
+      @test.assert_eq(rejected.record, 11)
+    }
+  }
+  // pinning the text must not hide the contract: the table did not move
+  @test.assert_eq(t.len(), 1)
+  @test.assert_eq(t.get_by("u", 1), Some((a, 1)))
+}
+
+///|
+test "Show pins Conflict::DuplicateInBatch and the Rejected around it" {
+  let t : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("u", fn(v) { v % 10 }))
+  match t.insert_many([1, 11]) {
+    Ok(_) => @test.fail("a batch that collides with itself must be refused")
+    Err(rejected) => {
+      // the position is the batch index of the member that claimed the key
+      // first; the offending member itself comes back in record
+      @test.assert_eq(
+        Show::to_string(rejected.conflict),
+        "DuplicateInBatch(u, 1, 0)",
+      )
+      @test.assert_eq(
+        Show::to_string(rejected),
+        "Rejected(conflict=DuplicateInBatch(u, 1, 0), record=11)",
+      )
+      @test.assert_eq(rejected.record, 11)
+    }
+  }
+  // a refused batch leaves no trace
+  @test.assert_eq(t.len(), 0)
+  @test.assert_eq(t.is_empty(), true)
 }
 
 ///|
@@ -775,10 +917,10 @@ test "failure classification: the abort decisions are pinned by their predicates
   @test.assert_eq(t.has_index("shared_sorted"), true)
   @test.assert_eq(t.has_index("never_registered"), false)
   @test.assert_eq(t.has_index(""), false)
-  // 「问题问错了」→ abort: `Index::is_ordered` is the white-box half (see
-  // table_wbtest.mbt). The two aborts themselves cannot be caught in-process —
-  // a MoonBit panic is not an `Error` (MOONBIT_REF §0) — so predicates + code
-  // review are the evidence, by design.
+  // 「问题问错了」→ abort. The aborts are asserted by the `panic …` suite in
+  // `abort_guard_wbtest.mbt`; because that convention only proves *a* panic
+  // happened, `Index::is_ordered` (white-box) and `has_index` (public) pin the
+  // decisions that must lead there.
   // An *absent key* on an index that does exist is still just an empty answer:
   @test.assert_eq(t.get_by("hi", 999), None)
   @test.assert_eq(t.range_by("hi", 999, 1000).to_array().length(), 0)
@@ -1338,8 +1480,8 @@ test "panic insert_or_replace aborts when two different records are hit" {
   let _b = insert_ok(t, (2, 20, 8))
   // lo = 1 is a's, hi = 20 is b's: two rows, one replacement — there is no honest
   // winner, so the write must abort (a panic, never silently dropping a row).
-  // The message itself is asserted from src/table_wbtest.mbt against the read-only
-  // classifier, because a panic cannot be caught.
+  // The `panic ` name prefix is what asserts the panic; the wording is pinned
+  // separately in src/table_wbtest.mbt against the read-only classifier.
   t.insert_or_replace((1, 20, 9)) |> ignore
 }
 

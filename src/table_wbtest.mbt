@@ -482,10 +482,10 @@ test "update and modify keep the storage invariants intact" {
 
 ///|
 /// docs/SPEC.md §7.1 turns two caller mistakes into `abort`s: an unknown index name
-/// and a range query on a hash index. A MoonBit `abort` cannot be caught in-process
-/// (it is a panic, not an `Error`), so the *decisions* are pinned here — `is_ordered`
-/// is the white-box half, `Table::has_index` (see `table_test.mbt`) the public one —
-/// while the `abort` lines themselves stay one-liners justified by code review.
+/// and a range query on a hash index. The aborts are asserted by the `panic …` suite
+/// in `abort_guard_wbtest.mbt`; but a panic test proves only that *something*
+/// panicked, so the *decisions* are pinned here — `is_ordered` is the white-box
+/// half, `Table::has_index` (see `table_test.mbt`) the public one.
 test "is_ordered is true only for the two sorted quadrants" {
   let t = wb_indexed_table()
   match t.indexes.get("lo") {
@@ -598,6 +598,271 @@ test "the unique quadrants cannot expose a bucket with two slots (I5 holds by co
   // assertion above is not vacuous by accident of the fixture
   @test.assert_eq(t.index_stats("shared").longest_bucket, 2)
   @test.assert_eq(t.index_stats("shared_sorted").longest_bucket, 2)
+}
+
+// ---------------------------------------------------------------------------
+// M5b: the remaining storage / registry checks, falsified one at a time
+// ---------------------------------------------------------------------------
+//
+// Each test corrupts exactly one field and asserts the identifying half of the
+// message: the invariant tag (I1, I2, I4, I6) plus the slot, key or name the
+// report must name. If a check could also fire for an earlier invariant, the
+// corruption is chosen so that it cannot.
+
+///|
+test "verify_invariants names I1 when order points past the arena" {
+  let t : Table[Int32, Int32] = Table::new()
+  wb_insert(t, 1) |> ignore
+  t.order[0] = 999
+  match t.verify_invariants() {
+    Ok(_) => @test.fail("an out-of-range order slot must be reported")
+    Err(message) => {
+      @test.assert_eq(message.contains("I1"), true)
+      @test.assert_eq(message.contains("999"), true)
+      @test.assert_eq(message.contains("out of range"), true)
+    }
+  }
+}
+
+///|
+test "verify_invariants names I1 when order keeps a dead slot" {
+  let t : Table[Int32, Int32] = Table::new()
+  let a = wb_insert(t, 1)
+  let b = wb_insert(t, 2)
+  t.remove(b) |> ignore
+  // slot b is inside the arena but holds no record: an in-range dead entry, which
+  // the range check of the previous test cannot catch
+  t.order[0] = b.slot
+  match t.verify_invariants() {
+    Ok(_) => @test.fail("a dead order slot must be reported")
+    Err(message) => {
+      @test.assert_eq(message.contains("I1"), true)
+      @test.assert_eq(message.contains(b.slot.to_string()), true)
+      @test.assert_eq(message.contains("no record"), true)
+    }
+  }
+  ignore(a)
+}
+
+///|
+test "verify_invariants names I1 when a slot appears twice in order" {
+  let t : Table[Int32, Int32] = Table::new()
+  let a = wb_insert(t, 1)
+  wb_insert(t, 2) |> ignore
+  t.order[1] = a.slot
+  match t.verify_invariants() {
+    Ok(_) => @test.fail("a repeated order slot must be reported")
+    Err(message) => {
+      @test.assert_eq(message.contains("I1"), true)
+      @test.assert_eq(message.contains(a.slot.to_string()), true)
+      @test.assert_eq(message.contains("twice"), true)
+    }
+  }
+}
+
+///|
+test "verify_invariants names I2 when len is negative" {
+  let t : Table[Int32, Int32] = Table::new()
+  wb_insert(t, 1) |> ignore
+  t.len = -1
+  match t.verify_invariants() {
+    Ok(_) => @test.fail("a negative len must be reported")
+    Err(message) => {
+      @test.assert_eq(message.contains("I2"), true)
+      @test.assert_eq(message.contains("-1"), true)
+    }
+  }
+}
+
+///|
+test "verify_invariants names I2 when gens is shorter than rows" {
+  let t : Table[Int32, Int32] = Table::new()
+  wb_insert(t, 1) |> ignore
+  t.gens.pop() |> ignore
+  match t.verify_invariants() {
+    Ok(_) => @test.fail("a short gens array must be reported")
+    Err(message) => {
+      @test.assert_eq(message.contains("I2"), true)
+      @test.assert_eq(message.contains("gens"), true)
+    }
+  }
+}
+
+///|
+test "verify_invariants names I1 when positions is shorter than rows" {
+  let t : Table[Int32, Int32] = Table::new()
+  wb_insert(t, 1) |> ignore
+  t.positions.pop() |> ignore
+  match t.verify_invariants() {
+    Ok(_) => @test.fail("a short positions array must be reported")
+    Err(message) => {
+      @test.assert_eq(message.contains("I1"), true)
+      @test.assert_eq(message.contains("positions"), true)
+    }
+  }
+}
+
+///|
+test "verify_invariants names I6 when free points past the arena" {
+  let t : Table[Int32, Int32] = Table::new()
+  wb_insert(t, 1) |> ignore
+  t.free.push(999)
+  match t.verify_invariants() {
+    Ok(_) => @test.fail("an out-of-range free slot must be reported")
+    Err(message) => {
+      @test.assert_eq(message.contains("I6"), true)
+      @test.assert_eq(message.contains("999"), true)
+    }
+  }
+}
+
+///|
+test "verify_invariants names I6 when a slot is both free and live" {
+  let t : Table[Int32, Int32] = Table::new()
+  let a = wb_insert(t, 1)
+  // a live slot that nobody has removed: only the free/live overlap is wrong
+  t.free.push(a.slot)
+  match t.verify_invariants() {
+    Ok(_) => @test.fail("a live slot on the free stack must be reported")
+    Err(message) => {
+      @test.assert_eq(message.contains("I6"), true)
+      @test.assert_eq(message.contains(a.slot.to_string()), true)
+      @test.assert_eq(message.contains("free and live"), true)
+    }
+  }
+}
+
+///|
+test "verify_invariants names I9 when a dead slot is neither free nor retired" {
+  let t : Table[Int32, Int32] = Table::new()
+  let a = wb_insert(t, 1)
+  t.remove(a) |> ignore
+  // undo the removal's free-list push: the slot is now dead, in range, and not
+  // retired, which the I9 sweep must catch (generation still below GEN_MAX)
+  t.free.pop() |> ignore
+  match t.verify_invariants() {
+    Ok(_) =>
+      @test.fail(
+        "a dead slot that is neither free nor retired must be reported",
+      )
+    Err(message) => {
+      @test.assert_eq(message.contains("I9"), true)
+      @test.assert_eq(message.contains(a.slot.to_string()), true)
+      @test.assert_eq(message.contains("GEN_MAX"), true)
+    }
+  }
+}
+
+///|
+test "verify_invariants names I4 when a bucket holds a dead slot" {
+  let t = wb_indexed_table()
+  wb_insert_indexed(t, (1, 10, 7)) |> ignore
+  let b = wb_insert_indexed(t, (2, 20, 7))
+  t.remove(b) |> ignore
+  // slot b is dead but still in range; put it in a bucket whose key no live
+  // record projects to, so the per-bucket scan is what has to notice
+  match t.indexes.get("lo") {
+    Some(HashUnique(_, buckets)) => buckets.set(2, b.slot)
+    _ => @test.fail("the index vanished")
+  }
+  match t.verify_invariants() {
+    Ok(_) => @test.fail("a bucket holding a dead slot must be reported")
+    Err(message) => {
+      @test.assert_eq(message.contains("I4"), true)
+      @test.assert_eq(message.contains("lo"), true)
+      @test.assert_eq(message.contains(b.slot.to_string()), true)
+      @test.assert_eq(message.contains("no record"), true)
+    }
+  }
+}
+
+///|
+test "verify_invariants names the registry entry that lies about its name" {
+  let t = wb_indexed_table()
+  wb_insert_indexed(t, (1, 10, 7)) |> ignore
+  match t.indexes.get("lo") {
+    Some(index) => {
+      t.indexes.remove("lo") |> ignore
+      t.indexes.set("renamed", index)
+    }
+    None => @test.fail("the index vanished")
+  }
+  match t.verify_invariants() {
+    Ok(_) =>
+      @test.fail("a registry entry under the wrong name must be reported")
+    Err(message) => {
+      @test.assert_eq(message.contains("registry"), true)
+      @test.assert_eq(message.contains("renamed"), true)
+      @test.assert_eq(message.contains("lo"), true)
+    }
+  }
+}
+
+///|
+test "verify_invariants names I3 and the out-of-range bucket slot" {
+  let t = wb_indexed_table()
+  wb_insert_indexed(t, (1, 10, 7)) |> ignore
+  match t.indexes.get("lo") {
+    Some(HashUnique(_, buckets)) => buckets.set(999, 999)
+    _ => @test.fail("the index vanished")
+  }
+  match t.verify_invariants() {
+    Ok(_) => @test.fail("an out-of-range bucket slot must be reported")
+    Err(message) => {
+      @test.assert_eq(message.contains("I3"), true)
+      @test.assert_eq(message.contains("lo"), true)
+      @test.assert_eq(message.contains("999"), true)
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Defensive branches that only the inside can reach
+// ---------------------------------------------------------------------------
+
+///|
+test "Index::holder is None on the non-unique quadrants" {
+  let t = wb_indexed_table()
+  let a = wb_insert_indexed(t, (1, 10, 7))
+  // control: the unique quadrants really do name the holder
+  match t.indexes.get("lo") {
+    Some(index) => @test.assert_eq(index.holder(1), Some(a.slot))
+    None => @test.fail("the index vanished")
+  }
+  // non-unique quadrants have no conflict to report (docs/SPEC.md §3.5), even
+  // when the key is present in the bucket
+  match t.indexes.get("shared") {
+    Some(index) =>
+      match index.holder(7) {
+        Some(_) => @test.fail("a HashMulti index must not report a holder")
+        None => ()
+      }
+    None => @test.fail("the index vanished")
+  }
+  match t.indexes.get("shared_sorted") {
+    Some(index) =>
+      match index.holder(7) {
+        Some(_) => @test.fail("a SortedMulti index must not report a holder")
+        None => ()
+      }
+    None => @test.fail("the index vanished")
+  }
+}
+
+///|
+test "Table::get answers None for a slot outside the arena" {
+  let t : Table[Int32, Int32] = Table::new()
+  let a = wb_insert(t, 10)
+  // one past the end (in range check, not the generation check) ...
+  let past : RowId = { slot: t.rows.length(), gen: 0, }
+  @test.assert_eq(t.get(past), None)
+  @test.assert_eq(t.contains(past), false)
+  // ... and a negative slot, which the same guard has to reject
+  let negative : RowId = { slot: -1, gen: 0, }
+  @test.assert_eq(t.get(negative), None)
+  @test.assert_eq(t.contains(negative), false)
+  // the guard must not shadow a live handle
+  @test.assert_eq(t.get(a), Some(10))
 }
 
 // ---------------------------------------------------------------------------
@@ -860,10 +1125,11 @@ fn wb_replace(
 }
 
 ///|
-/// The pre-check `insert_or_replace` runs must decide **and change nothing**: the
-/// abort it feeds cannot be caught, so `replace_target` is the only place where a
-/// two-row collision is observable from a test — including whether the table was
-/// left untouched on that path.
+/// The pre-check `insert_or_replace` runs must decide **and change nothing**. The
+/// abort it feeds is asserted by the `panic …` test in `table_test.mbt`; what that
+/// test cannot see is the decision *and* the no-mutation property, so
+/// `replace_target` is pinned here — the only place where a two-row collision is
+/// observable and the table can still be inspected afterwards.
 test "replace_target classifies every case without mutating" {
   let t = wb_triple_table()
   let a = wb_insert(t, (1, 10, 7))

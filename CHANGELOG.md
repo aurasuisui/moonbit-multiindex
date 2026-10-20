@@ -5,6 +5,45 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 
 ---
 
+## [0.2.1] - 2026-10-21
+
+**第三个发布版本,PATCH** —— 无公开 API 变更(`src/pkg.generated.mbti` 除 `VERSION` 一行外与 0.2.0 完全一致)。
+本版只做两件事:修文档纪律、补测试覆盖。
+
+### Fixed — 文档纪律
+
+- **3 条坏链**:`docs/MOONBIT_REF.md` 的 `../SPEC.md`、`docs/plans/v0.1.0.md` 的 `../NOTICE`、
+  `docs/plans/v0.2.0.md` 的 `RELEASE_CHECKLIST.md`,全部指向真实路径。复核:全仓库 (19) 个 md / 89 条相对链接,坏链 0。
+- **4 个幽灵文件**:文档里写着、仓库里从未存在的 `src/table_iter.mbt`、`src/table_traits.mbt`、
+  `src/regression_wbtest.mbt`、`src/generics_test.mbt`。`CONTRIBUTING.md` 的目录树与测试表按真实文件重写;
+  `AGENTS.md` 源码地图删掉 *planned* 条目,并写明迭代器**内联**在 `table.mbt` / `table_api.mbt`(该拆分已决定放弃)。
+- **数字漂移**:`docs/README.md` 的可信度标记「三级」→ 四级(`[实测]` 41 / `[源码]` 23 / `[文档]` 14 / `[未核实]` 1,经脚本复算);
+  `docs/RELEASE_CHECKLIST.md` 的测试计数按当前 HEAD 重算。
+
+### Added — 测试
+
+- **覆盖率工具链**接入:`moon test --enable-coverage` + `moon coverage analyze -p aurasuisui/multiindex -- -f summary`,`CONTRIBUTING.md` 写明用法。
+- 覆盖率 **688/805 → 784/805**。`src/index.mbt` 与 `src/lib.mbt` **满覆盖**(230/230、43/43)。
+- 测试 **102 → 148**:
+  - `table_test.mbt` 51→57、`table_wbtest.mbt` 30→44:4 个 `register_*` 的错误路径(`DuplicateName` × 3、回填 `UniqueViolation`)、
+    `Conflict` / `Rejected` 的 `Show` 完整串、12 条 `verify_*` **证伪**测试(故意弄脏 `order` / `free` / 桶,证明每项检查真会报错)、2 条防御分支。
+  - 新增 `src/abort_guard_wbtest.mbt`(26 条):每条可达 `abort` 守卫一条 `test "panic …"`,另配**普通命名的伴生测试**
+    原样重跑同一 fixture —— 防止「因别的原因 panic 也算通过」。
+
+### Notes / Deviations
+
+- **推翻一条旧结论**:曾认定「MoonBit 的 `abort` 无法断言」。正解是**测试名以 `panic ` 开头**——只有真的 panic 才算通过;
+  `try`/`catch` 抓不到 `abort`(报 `[0023] unused_try`),`#panic` 属性不存在(`[4132]`/`[3002]`)。
+  这条事实原本就写在 `docs/MOONBIT_REF.md` §7.1 里;此前的实现会话与我都没先查自己的速查表。
+  教训已写进 `CONTRIBUTING.md`:推翻既有结论前,先 grep 本项目文档。
+- `panic` 是**弱断言**:它看不到 panic 消息,所以每条守卫的**判据**仍由只读分类器单测钉死。
+- 仍有 **21 行**未覆盖,均为结构不可达或防御性 `continue`:`src/table.mbt` 的 insert 后回读 abort 与 `insert_or_replace` 的 Err 分支;
+  `src/table_api.mbt` 的查询族越界 `continue`、I5/I3 的 verify 分支、I7 分支。逐条理由见 `docs/SPEC.md` §7.1。
+- `inspect(content=…)` 在当前工具链解析到已废弃的 `Show`,在 `--deny-warn` 下是 **Error** `[0020]`;
+  断言字符串一律用 `@test.assert_eq(Show::to_string(v), …)`。
+- 已知不可逆瑕疵(0.2.0 遗留):已发布的 0.2.0 包内 `bench/` 与 `cmd/leaderboard/` 的 `moon.mod` 仍写 `@0.1.0`。
+  源码已修正,但旧版本包内容不可修改。
+
 ## [0.2.0] - 2026-10-20
 
 **第二个发布版本** —— `0.1.0` 已于 2026-10-14 发布到 mooncakes.io(`build_status: success`)。下面按里程碑记录 M1–M12 的全部内容。

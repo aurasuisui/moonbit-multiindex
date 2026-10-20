@@ -316,9 +316,10 @@ fn[K : Hash + Eq + Compare, V] Index::first_slot(
 /// Whether this index is one of the two **ordered** quadrants.
 ///
 /// This is the predicate behind the docs/SPEC.md §7.1 rule that asking a hash
-/// index for a range is a programming error: the *decision* is testable here,
-/// while the `abort` that acts on it cannot be caught in-process (a MoonBit panic
-/// is not an `Error`).
+/// index for a range is a programming error. The `abort` that acts on it is
+/// asserted by the `test "panic …"` suite in `src/abort_guard_wbtest.mbt`; this
+/// predicate is what pins *which* condition decides it, because a panic test
+/// proves only that `something` panicked and cannot read the message.
 fn[K, V] Index::is_ordered(self : Index[K, V]) -> Bool {
   match self {
     HashUnique(_, _) => false

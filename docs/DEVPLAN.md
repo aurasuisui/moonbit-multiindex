@@ -187,8 +187,8 @@ I9  退役槽位永不回到 free(代际号达上限的槽位永久移出自由�
 | 不变量(黑盒) | `property_test.mbt` | 同一批不变量的**可观测投影**(len / iter / get / 插入序 / 陈旧句柄被拒),随机序列逐步校验 |
 | 模型对拍 | `model_test.mbt` | 与 `Array[V]` 线性扫描朴素实现全操作序列差分 |
 | 差分(Tier 1) | `differential_test.mbt` + `*_fixture_test.mbt` | 与 Rust 参考实现的观测序列对齐,夹具由 `tools/diffgen` 生成并入库 |
-| 白盒 | `table_wbtest.mbt` | 直读私有字段:I6(free 一致性)、槽位逆映射、代际号单调性 |
-| 回归 | `regression_wbtest.mbt` | 钉死探针发现的 update 冲突漏洞 |
+| 白盒 | `table_wbtest.mbt` | 直读私有字段:I6(free 一致性)、槽位逆映射、代际号单调性;并含**证伪式负向测试**(把 order/free/索引桶弄脏,证明 `verify_*` 真会报错) |
+| 回归 | `table_wbtest.mbt`(同一文件) | 钉死探针发现的 update 冲突漏洞 —— 回归钉子按内容归入白盒文件,不单独建 `regression_wbtest.mbt` |
 | 压力 | `bench_test.mbt` | 10k+ 操作、槽位复用风暴、桶长极值 |
 | 基准 | `bench/main.mbt` | 与线性扫描、与手工多表维护对比 |
 
