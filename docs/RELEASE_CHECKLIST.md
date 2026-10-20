@@ -35,9 +35,9 @@
 | 4 | `docs/README.md` 地图无孤儿 | ✅ | 脚本逐条解析,孤儿 0;坏链 0 |
 | 4 | `CHANGELOG.md` 有本版 entry | ✅ | `## [0.2.1] - 2026-10-21` |
 | 4 | 许可证与第三方来源齐备 | ✅ | `LICENSE` / `NOTICE` / `third_party/LICENSES/multi_index_map-MIT.txt` |
-| 发布 | 产物不含 PII / 开发态垃圾 | ⏳ | 发布前执行 `moon publish --dry-run` 并解包核对(`202 Accepted` 时客户端 exit=1 属已知假警报,不能据此判断能否发布) |
-| 发布 | `moon publish` 并确认 `build_status: success` | ⏳ | 待执行 |
-| 发布 | 打 tag `v0.2.1` 并推送 | ⏳ | 待执行 |
+| 发布 | 产物不含 PII / 开发态垃圾 | ✅ | 解包 **54 项**:零 PII(11 位手机号 / 18 位身份证正则命中 0)、`moon.work` 0、`_build` 0、`.git` 0 |
+| 发布 | `moon publish` 并确认 `build_status: success` | ✅ | `moon publish` → **`Server status: 200 OK`**、exit=0;注册表 `latest_version = 0.2.1`、`build_status = success`、`yanked = false` |
+| 发布 | 打 tag `v0.2.1` 并推送 | ✅ | annotated tag → `git ls-remote` = `5abe79e826ac17321620fce3e56588fc670331d6 refs/tags/v0.2.1` |
 
 ## 历史执行记录
 
