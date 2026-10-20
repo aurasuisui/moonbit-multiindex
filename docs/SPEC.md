@@ -634,6 +634,52 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 > **落地归属**:M2 的 `get_by` / `iter_by` 目前对未知索引名返回空(与上表冲突),已登记进 [§12](#§12-实现与契约的已知偏差待收敛),
 > 由 **M4 统一收敛**(M4 本来就要动这组查询)。
 
+#### §7.2 断言 `abort`:测试名以 `panic ` 开头(M10 后实测钉死)
+
+`abort` 不是 `Error`,`try`/`catch` 抓不到;MoonBit 也没有 `#should_panic` 之类的属性。唯一的机制是**测试名**:
+
+| 写法 | 结果 |
+|---|---|
+| `test "panic <名字>"` + 真的 abort | **通过** |
+| `test "panic <名字>"` + 没 abort | **失败**:`panic is expected` |
+| 普通名字 + 真的 abort | **失败**;`Error`,栈指向 `abort` |
+| `try { abort(…) } catch { }` | `[0023] unused_try`(编译器指出 body 不会 raise) |
+| `test "x" (#panic)` | `[4132] Invalid test parameter` + `[3002] Parse error` |
+
+**`panic ` 是弱断言** —— 只证明"某处 panic 了",看不到消息。所以:
+
+1. **一条测试只允许一个守卫可能 panic**:否则删掉目标守卫、别的守卫炸了,测试照样"通过"。
+2. **每条 `panic` 测试配一条普通命名的伴生测试**,原样跑同一 fixture;fixture 一坏,伴生测试先红。
+3. 守卫的**判据**由只读分类器单测(`is_ordered` / `has_index` / `replace_target`)钉死 ——
+   `panic` 覆盖"会不会炸",分类器覆盖"该不该炸"。
+
+落实:`src/abort_guard_wbtest.mbt`(26 条)覆盖 19 条可达守卫 + 3 条可达防御分支。
+
+#### §7.3 覆盖率的已知缺口:报告标出的 21 行
+
+`moon coverage analyze -p aurasuisui/multiindex -- -f summary` 当前 **784/805**。`-f caret` 标出 21 行:
+`src/table.mbt:409` / `:676`;`src/table_api.mbt:203` / `:210` / `:228` / `:243` / `:259` / `:273` /
+`:566-572` / `:588-592` / `:663-674`。
+
+**这些行号不能直接当"没执行"读。** 抽查:报告把 `src/table_api.mbt:228`(`require_index` 的
+`Some(index) => index`)标为未覆盖,但 `get_by` / `iter_by` / `index_entries` / `index_stats` 全都经由它,
+且它们的测试是绿的;把 `abort` 探针插到 `verify_indexes` 的桶循环(`:565` 之后),`json_test` 立刻炸 ——
+证明该循环确实执行。即:**报告会把条件行与其失败分支成组标记,行号偏保守**。
+
+因此按**失败分支**归因:
+
+| 失败分支 | 为什么没踩 |
+|---|---|
+| `insert_impl` 写完立刻回读为空 | 结构不可达:刚写入的槽位必然 `Some` |
+| `insert_or_replace` 的分类器分支 | 分类器正确时恒 `None`;保留是为了回归时退化成 `Err`,而不是破坏 I5 |
+| `iter_by` / 区间游标的 `version` 检查 | `iter` 的 fail-fast 已测,这两处游标未单独踩 |
+| `record_at` 返回 `None` 的防御性 `continue` / `()` | 槽位出现在 `order` 里就意味着存活 |
+| I5:唯一桶长度 > 1 | 结构不可达:唯一桶是 `Map[K, Int32]`,每键恒 1 槽 |
+| I3:桶内重复槽位 | 结构不可达:非唯一桶是 `SortedSet`,天然去重 |
+| I7:记录不在任何桶里 | 可达,但需注入"记录在表里、却不在该索引桶里"的脏态;12 条 `verify_*` 证伪测试已覆盖 I1/I2/I4/I6/I9/registry |
+
+> **不追求 100%。** 登记这张表的目的是防止覆盖率**偷偷下降**:新增的未覆盖行要么补测试,要么在这里说明理由。
+
 ---
 
 ## §8 Trait 实现规划
