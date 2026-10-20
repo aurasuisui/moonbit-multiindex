@@ -1199,7 +1199,10 @@ attrs = 'enable'
 | 12 | `src/lib.mbt:142:10` | `UpdateRejected` | `derive(Debug)` → `to_repr` |
 | 13 | `src/lib.mbt:142:17` | `UpdateRejected` | `derive(Eq)` → `not_equal, equal` |
 
-> 这正是 `AGENTS.md` 承诺要写的 `src/table_traits.mbt` / `src/json.mbt` 的一部分。**建议新建 `src/extends.mbt`**(官方文件名约定,见 §B.2),而不是塞进 `table_traits.mbt`。
+> **结论已采纳(2026-10)**:
+> - `src/extends.mbt` 已按修法 A 新建,`[0079]` 保持 0 条;
+> - `src/json.mbt` 已存在;
+> - `src/table_traits.mbt` **没有创建**——这些 promote 全部落在 `extends.mbt`,没有第二个文件需要它。
 
 **修法 A(照抄 core 的三段式,直接可粘贴)**
 

@@ -245,9 +245,10 @@ fn[K : Hash + Eq + Compare, V] Table::find_conflict_excluding(
 /// - `Replace(slot)` — every occupied unique index is occupied by the single record
 ///   in `slot`. That record is the victim, and replacing it keeps its `RowId`.
 /// - `Ambiguous(text)` — two **different** slots are hit. No single replacement can
-///   honour both, so the call aborts before any mutation; `text` is built here
-///   because a panic cannot be caught, and a read-only classifier is the only place
-///   where the wording is testable (src/table_wbtest.mbt).
+///   honour both, so the call aborts before any mutation. `text` is built here
+///   because `test "panic …"` proves only that *something* panicked — a read-only
+///   classifier is the only place where the wording itself is testable
+///   (src/table_wbtest.mbt).
 ///
 /// Non-unique indexes never contribute: a bucket holds any number of records under
 /// one key, so it cannot name a victim — it is rebuilt from the new record instead.

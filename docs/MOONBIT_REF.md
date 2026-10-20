@@ -286,7 +286,7 @@ println("max     = \{@int.max_value}")  // 2147483647
 - 本项目的真实案例:`GEN_MAX` 最初写成 `const GEN_MAX : Int = 1 << 62`,注释还声称
   "fits in a 64-bit signed `Int`"。实际值是 2^30 —— 行为侥幸安全(2^30 次复用不可达),
   但**依据是假的、常量是误导的**,而测试全绿并不能暴露它。详见
-  [`../SPEC.md` §2.1.1](../SPEC.md) 与 `src/table.mbt`。
+  [`SPEC.md` §2.1.1](SPEC.md) 与 `src/table.mbt`。
 
 
 ### 3.1 字符串插值:是 `\{expr}` [实测]
@@ -816,7 +816,7 @@ maximum minimum new nth repeat singleton size_hint take take_while tap to_array 
 concat add( `+` ) clamped_view( `_[_:_]` )
 ```
 
-**构造与 fail-fast 惯用法 [实测]**——本项目 `table_iter.mbt` 的核心模式:
+**构造与 fail-fast 惯用法 [实测]**——本项目 `Table::iter` / `iter_by` 的核心模式:
 
 ```moonbit
 ///|
@@ -1002,7 +1002,27 @@ test "descriptive english name" {
 }
 ```
 
-[文档] `test` 块本质是 `() -> Unit raise Error` 的函数;名字可选。**名字以 `panic` 开头的测试,只有真的 panic 才算通过** [实测 + 文档]。
+[文档] `test` 块本质是 `() -> Unit raise Error` 的函数;名字可选。
+
+**断言 panic 的开关是测试名的 `panic ` 前缀——不是 `try/catch`,也不是属性。** [实测,2026-10-20 三组对照]
+
+| 测试名 | 正文 | 结果 |
+|---|---|---|
+| `test "panic …"` | 真的 `abort` | **passed** |
+| `test "panic …"` | 正常返回、不 panic | **failed: `panic is expected`** |
+| `test "普通名字 …"` | 真的 `abort` | **failed: `Error`**,栈指向 `abort` |
+
+两条**走不通**的路(别浪费时间,也别据此下"不可测"的结论):
+
+- `try { abort("x") } catch { }` → 警告 `[0023] unused_try: The body of this try expression never raises any error`
+  —— `abort` 抛的是 **panic**,不是 `Error`,`catch` 拿不到。
+- `test "x" ( #panic ) { … }` → `[4132] Invalid test parameter` + `[3002] Parse error`;
+  `#skip` 同样报错。**没有 `#panic` / `#should_panic` 属性。**
+
+> ⚠️ **`panic ` 测试是弱断言**:它只证明"这个测试里发生过 panic",不证明是**哪一个** panic。
+> 所以正文必须让目标守卫成为**唯一可能 panic 的地方**:先逐条断言前置状态(fixture 值、
+> `verify_invariants`、索引存在),**最后一步**才是那个触发调用。框架自带负向性质——守卫一旦被
+> 删掉或放宽,测试会以 `panic is expected` 失败。
 
 ### 7.2 断言 API —— 准确的包名 [源码:`test/pkg.generated.mbti`]
 

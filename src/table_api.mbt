@@ -220,8 +220,9 @@ pub fn[K : Hash + Eq + Compare, V] Table::iter_by(
 /// The index registered under `name`, aborting when there is none.
 ///
 /// The decision is *data* (`Table::has_index` is the public, testable form of it);
-/// the abort is one line, and docs/SPEC.md §7.1 keeps a MoonBit panic — which no
-/// `try`/`catch` can intercept — as the only way to report a caller bug.
+/// the abort itself is asserted by the `test "panic …"` suite. docs/SPEC.md §7.1
+/// keeps a MoonBit panic — which no `try`/`catch` can intercept — as the only way
+/// to report a caller bug.
 fn[K, V] Table::require_index(self : Table[K, V], name : String) -> Index[K, V] {
   match self.indexes.get(name) {
     Some(index) => index

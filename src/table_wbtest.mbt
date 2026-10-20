@@ -482,10 +482,10 @@ test "update and modify keep the storage invariants intact" {
 
 ///|
 /// docs/SPEC.md §7.1 turns two caller mistakes into `abort`s: an unknown index name
-/// and a range query on a hash index. A MoonBit `abort` cannot be caught in-process
-/// (it is a panic, not an `Error`), so the *decisions* are pinned here — `is_ordered`
-/// is the white-box half, `Table::has_index` (see `table_test.mbt`) the public one —
-/// while the `abort` lines themselves stay one-liners justified by code review.
+/// and a range query on a hash index. The aborts are asserted by the `panic …` suite
+/// in `abort_guard_wbtest.mbt`; but a panic test proves only that *something*
+/// panicked, so the *decisions* are pinned here — `is_ordered` is the white-box
+/// half, `Table::has_index` (see `table_test.mbt`) the public one.
 test "is_ordered is true only for the two sorted quadrants" {
   let t = wb_indexed_table()
   match t.indexes.get("lo") {
@@ -1125,10 +1125,11 @@ fn wb_replace(
 }
 
 ///|
-/// The pre-check `insert_or_replace` runs must decide **and change nothing**: the
-/// abort it feeds cannot be caught, so `replace_target` is the only place where a
-/// two-row collision is observable from a test — including whether the table was
-/// left untouched on that path.
+/// The pre-check `insert_or_replace` runs must decide **and change nothing**. The
+/// abort it feeds is asserted by the `panic …` test in `table_test.mbt`; what that
+/// test cannot see is the decision *and* the no-mutation property, so
+/// `replace_target` is pinned here — the only place where a two-row collision is
+/// observable and the table can still be inspected afterwards.
 test "replace_target classifies every case without mutating" {
   let t = wb_triple_table()
   let a = wb_insert(t, (1, 10, 7))

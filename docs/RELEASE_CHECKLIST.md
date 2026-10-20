@@ -3,43 +3,54 @@
 > **每次 `moon publish` / bump `moon.mod` 版本之前,逐项跑到全绿。**
 > 勾选结果记一行到 `CHANGELOG.md`。任何一项不绿 = 不发版。
 
-## 最近一次执行:v0.2.0(2026-10-20)
+## 最近一次执行:v0.2.1(2026-10-21)
 
-> `0.1.0` 已于 2026-10-14 发布(`build_status: success`),本次是 **0.2.0** 的 MINOR 发布。下表按当前 HEAD 逐项重跑,
-> 不沿用 M7 的记录 —— M7 那次 CI 装的是 `latest`,Tier 0 的 fmt / deny-warn 结论此后已失效。
+> PATCH 发布:无公开 API 变更,只含文档纪律修复与测试覆盖补齐。下表按当前 HEAD 逐项重跑。
 
 | Tier | 项 | 结果 | 证据 |
 |---|---|---|---|
 | 0 | `moon fmt --check` | ✅ | exit=0 |
 | 0 | `moon check` | ✅ | 0 error |
-| 0 | `moon check --deny-warn --target all` | ✅ | **0 warnings 0 errors**,全后端 |
-| 0 | `moon info && git diff --exit-code` | ✅ | exit=0;`pkg.generated.mbti` 仅含 `VERSION` 0.1.0→0.2.0 一行变化 |
-| 0 | `moon test` | ✅ | **102/102**(基线 93;`--target js` 亦全绿) |
+| 0 | `moon check --deny-warn --target all` | ✅ | 0 warnings 0 errors,全后端 |
+| 0 | `moon info && git diff --exit-code` | ✅ | exit=0;`pkg.generated.mbti` 仅 `VERSION` 0.2.0→0.2.1 一行 |
+| 0 | `moon test` | ✅ | **148/148** |
 | 0 | `moon build` | ✅ | exit=0 |
-| 0 | 版本单一真源 | ✅ | `moon.mod` 0.2.0 == `src/lib.mbt` 的 `VERSION` 0.2.0;本轮把该校验折进 CI 接口步骤 |
-| 0 | `moon.mod` 元数据 | ✅ | `aurasuisui/multiindex` / 0.2.0 / repository / Apache-2.0 / description 一致 |
-| 0 | 命名空间是本人 GitHub 账号 | ✅ | `aurasuisui/...`,与已发布的 `aurasuisui/bimap`、`aurasuisui/indexmap` 同命名空间 |
-| 0 | CI 工具链 | ⚠️ | **无法固定**(上游只提供 `latest`,12 种写法全 403)→ 改为「漂移可检测」:每步打印 `moon version`,红线处日志可见确切版本 |
+| 0 | 版本单一真源 | ✅ | `moon.mod` 0.2.1 == `src/lib.mbt` 的 `VERSION` 0.2.1(该校验已折进 CI 接口步骤) |
+| 0 | `moon.mod` 元数据 | ✅ | `aurasuisui/multiindex` / 0.2.1 / repository / Apache-2.0 |
+| 0 | CI 工具链 | ⚠️ | 无法固定(上游只提供 `latest`)→「漂移可检测」:每步打印 `moon version` |
 | 1 | 不变量 I1–I9 随机序列每步成立 | ✅ | `property_wbtest.mbt` 的 `check_invariants` 委托公开 `verify_invariants` |
-| 1 | 模型对拍逐步一致 | ✅ | `src/model_test.mbt`(脚本流 + 随机流,每步比对全部可观测量) |
-| 1 | 差分测试对参考实现一致 | ✅ | `src/differential_test.mbt` 回放 `tools/diffgen` 黄金序列(`multi_index_map` 0.15.1) |
-| 1 | 回归钉子仍在 | ✅ | update 撞唯一键 → `Err(Conflict)` 零变更;`modify` 双冲突零变更;`insert_or_replace` 双撞键 `abort`(M11 新增) |
-| 1 | 冲突后表与调用前一致 | ✅ | 上述回归 + `insert_many` 批内/批外冲突零变更;每步 `verify_invariants` |
-| 2 | 每条公开 API 有测试 | ✅ | `table_test` 51 / `table_wbtest` 20 / `property_wbtest` 8 / `property_test` 4 / `json_test` 3 / `model_test` 2 / `bench_test` 1 / `differential_test` 1 ≈ 102 |
+| 1 | 模型对拍逐步一致 | ✅ | `src/model_test.mbt` |
+| 1 | 差分测试对参考实现一致 | ✅ | `src/differential_test.mbt` 回放 `multi_index_map` 0.15.1 黄金序列 |
+| 1 | 回归钉子仍在 | ✅ | update 撞唯一键零变更;`modify` 双冲突零变更;`insert_or_replace` 双撞键 `abort` |
+| 2 | 每条公开 API 有测试 | ✅ | `table_test` 57 / `table_wbtest` 44 / `abort_guard_wbtest` 26 / `property_wbtest` 10 / `property_test` 4 / `json_test` 3 / `model_test` 2 / `differential_test` 1 / `bench_test` 1 = **148** |
+| 2 | **行覆盖率** | ✅ | `moon coverage analyze` → **784/805**;`src/index.mbt` 230/230、`src/lib.mbt` 43/43 满覆盖;余 21 行逐条登记为不可达(见 `docs/SPEC.md` §7.1) |
+| 2 | `abort` 守卫有断言 | ✅ | `abort_guard_wbtest.mbt` 的 `test "panic …"` 套件;负向对照:注释掉守卫 → 对应测试报 `panic is expected` |
 | 2 | 边界:空表/单元素/槽位复用/代际回绕/超长桶/重名注册 | ✅ | 各自有专测(`GEN_MAX` 白盒退役;单桶 1250) |
-| 2 | 泛型:自定义键 / Int 边界 | ✅ | 元组键 `(String, Int)`、`(Int, Int, Int)`、Int 键;`with_capacity(0/-5)` |
-| 2 | JSON 往返 | ✅ | `src/json_test.mbt`:往返保序 + 载入后重新注册索引答案一致 + 畸形输入报错 |
-| 3 | 压力用例(10k+ 操作) | ✅ | `src/bench_test.mbt`:5 000 插入 + 2 500 删除 + 2 500 重插,每阶段 `verify_invariants` |
-| 3 | 基准无回退 | ⚠️ | 有 v0.2.0 实测基线(`bench/README.md`);**无历史数据可比**与 M7 的差异,只能记录当前数字 |
-| 4 | README API 表与 SPEC 一致 | ✅ | README 三表已覆盖 v0.2.0 新增的 `swap_remove` / `insert_or_replace` / `IndexKind` / `index_entries` |
-| 4 | 至少一个可运行示例 | ✅ | `cmd/leaderboard`(独立模块) |
-| 4 | `docs/README.md` 地图无孤儿 | ✅ | 本轮脚本逐条解析地图内的路径引用,孤儿 **0** |
-| 4 | `CHANGELOG.md` 有本版 entry | ✅ | `## [0.2.0] - 2026-10-20`,按 M1–M12 分节,含 Notes / Deviations |
-| 4 | 许可证与第三方来源齐备 | ✅ | `LICENSE`(Apache-2.0)、`NOTICE`、`third_party/LICENSES/multi_index_map-MIT.txt` |
-| 发布 | `moon publish --dry-run` | ⚠️ | 服务端返回 `202 Accepted` + "Dry run completed successfully",但客户端 **exit=1**(把 202 当失败);**真发布返回 `200 OK`、exit=0**,因此不能用 dry-run 的退出码判断能否发布 |
-| 发布 | 产物不含 PII / 开发态垃圾 | ✅ | 解包 **53 项**:PII 命中 **0**、`moon.work` 命中 **0**;仍含 `bench/ cmd/ docs/ tools/ proofs/ third_party/` 与 `AGENTS.md` / `CONTRIBUTING.md`(`moon.mod` 无排除字段,根目录只能整体打包) |
-| 发布 | 发布到 mooncakes.io 并确认 `build_status: success` | ✅ | `moon publish` → **`Server status: 200 OK`**、exit=0;registry `latest_version = 0.2.0`、`build_status = success`、`versions = 0.2.0, 0.1.0` |
-| 发布 | 打 tag `v0.2.0` 并推送 | ✅ | `git ls-remote --tags` → `ea2ea8f...refs/tags/v0.2.0` |
+| 2 | 泛型:自定义键 / Int 边界 | ✅ | 元组键 `(String, Int)`、`(Int, Int, Int)`;`with_capacity(0/-5)` |
+| 2 | JSON 往返 | ✅ | `src/json_test.mbt` |
+| 3 | 压力用例(10k+ 操作) | ✅ | `src/bench_test.mbt` |
+| 3 | 基准无回退 | ⚠️ | 本版未改实现路径,无回退风险;数字沿用 `bench/README.md` |
+| 4 | README API 表与 SPEC 一致 | ✅ | 三表未变(本版无 API 变更) |
+| 4 | 至少一个可运行示例 | ✅ | `cmd/leaderboard`(独立模块,依赖已升 `@0.2.1`) |
+| 4 | `docs/README.md` 地图无孤儿 | ✅ | 脚本逐条解析,孤儿 0;坏链 0 |
+| 4 | `CHANGELOG.md` 有本版 entry | ✅ | `## [0.2.1] - 2026-10-21` |
+| 4 | 许可证与第三方来源齐备 | ✅ | `LICENSE` / `NOTICE` / `third_party/LICENSES/multi_index_map-MIT.txt` |
+| 发布 | 产物不含 PII / 开发态垃圾 | ⏳ | 发布前执行 `moon publish --dry-run` 并解包核对(`202 Accepted` 时客户端 exit=1 属已知假警报,不能据此判断能否发布) |
+| 发布 | `moon publish` 并确认 `build_status: success` | ⏳ | 待执行 |
+| 发布 | 打 tag `v0.2.1` 并推送 | ⏳ | 待执行 |
+
+## 历史执行记录
+
+### v0.2.0(2026-10-20)
+
+`0.1.0` 于 2026-10-14 发布(`build_status: success`),`0.2.0` 是 MINOR 发布。当时记录:
+- `moon test` **102/102**(基线 93)。
+- `--dry-run` 服务端 `202 Accepted` + "Dry run completed successfully",客户端 **exit=1**(把 202 当失败);
+  真发布返回 `200 OK`、exit=0 —— **不能用 dry-run 退出码判断能否发布**。
+- 产物 **53 项**:PII 命中 0、`moon.work` 命中 0;仍含 `bench/ cmd/ docs/ tools/ proofs/ third_party/`、
+  `AGENTS.md`、`CONTRIBUTING.md`(`moon.mod` 无排除字段)。
+- 注册表:`latest_version = 0.2.0`、`build_status = success`、`versions = 0.2.0, 0.1.0`。
+- tag `v0.2.0` → `ea2ea8f`。
 
 ## 版本策略(semver) —— 每次推送前必读
 
@@ -99,6 +110,10 @@ MoonBit 的包管理遵循**语义化版本**:每个模块必须以 `MAJOR.MINOR
 - [ ] 边界:空表、单元素、槽位复用、代际号回绕、超长桶、重复注册索引名
 - [ ] 泛型:自定义 struct 键、Int 边界键
 - [ ] JSON 往返(如有):往返恒等 + 冲突/畸形输入报错
+- [ ] **测试覆盖率有据可查**:`moon coverage analyze -p aurasuisui/multiindex -- -f summary`
+      必跑,并在下表记录数字;未覆盖行须逐类归因(「不可达 / 断言过 / 待补」),**不得只报百分比**
+- [ ] **每条 `abort` 守卫要么被测到、要么给出不可达论证**(`test "panic …"` 前缀可断言 panic;
+      详见 `docs/MOONBIT_REF.md` §7.1)
 
 ## Tier 3 — 性能与压力
 

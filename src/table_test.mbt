@@ -240,9 +240,9 @@ test "every quadrant answers get_by and iter_by" {
   @test.assert_eq(t.iter_by("u_sorted", 1).to_array().length(), 1)
   @test.assert_eq(t.iter_by("u_sorted", 3).to_array().length(), 0)
   // An *absent key* is an empty answer; an *absent index name* is a caller bug
-  // that aborts (docs/SPEC.md §7.1). A MoonBit abort cannot be caught in-process,
-  // so the decision is pinned through its testable halves: `has_index` here and
-  // `Index::is_ordered` in `table_wbtest.mbt`.
+  // that aborts (docs/SPEC.md §7.1). The abort itself is asserted by the
+  // `panic …` suite in `abort_guard_wbtest.mbt`; asserted here is the public half
+  // of the decision (`has_index`), which the panic test cannot distinguish.
   @test.assert_eq(t.get_by("u_hash", 99), None)
   @test.assert_eq(t.iter_by("u_hash", 99).to_array().length(), 0)
   @test.assert_eq(t.has_index("nope"), false)
@@ -917,10 +917,10 @@ test "failure classification: the abort decisions are pinned by their predicates
   @test.assert_eq(t.has_index("shared_sorted"), true)
   @test.assert_eq(t.has_index("never_registered"), false)
   @test.assert_eq(t.has_index(""), false)
-  // 「问题问错了」→ abort: `Index::is_ordered` is the white-box half (see
-  // table_wbtest.mbt). The two aborts themselves cannot be caught in-process —
-  // a MoonBit panic is not an `Error` (MOONBIT_REF §0) — so predicates + code
-  // review are the evidence, by design.
+  // 「问题问错了」→ abort. The aborts are asserted by the `panic …` suite in
+  // `abort_guard_wbtest.mbt`; because that convention only proves *a* panic
+  // happened, `Index::is_ordered` (white-box) and `has_index` (public) pin the
+  // decisions that must lead there.
   // An *absent key* on an index that does exist is still just an empty answer:
   @test.assert_eq(t.get_by("hi", 999), None)
   @test.assert_eq(t.range_by("hi", 999, 1000).to_array().length(), 0)
@@ -1480,8 +1480,8 @@ test "panic insert_or_replace aborts when two different records are hit" {
   let _b = insert_ok(t, (2, 20, 8))
   // lo = 1 is a's, hi = 20 is b's: two rows, one replacement — there is no honest
   // winner, so the write must abort (a panic, never silently dropping a row).
-  // The message itself is asserted from src/table_wbtest.mbt against the read-only
-  // classifier, because a panic cannot be caught.
+  // The `panic ` name prefix is what asserts the panic; the wording is pinned
+  // separately in src/table_wbtest.mbt against the read-only classifier.
   t.insert_or_replace((1, 20, 9)) |> ignore
 }
 
