@@ -2,26 +2,45 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, dev]
   pull_request:
-    branches: [main, master]
+    branches: [main, master, dev]
 
 jobs:
   check-and-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # Toolchain install: official channel, version printed, NOT pinned.
+      #
+      # Why not a pinned version string: cli.moonbitlang.com only serves `latest`.
+      # Twelve spellings of the toolchain we develop against (0.1.20261012,
+      # 0.1.20261012+<hash>, %2B-encoded, -dev, v-prefixed, and the neighbouring
+      # dates 20261011/20261013) all answer 403; only `latest` answers 200.
+      # `hustcer/setup-moonbit@v1` with `version: 0.1.20261012` fails the same
+      # way inside its own download step -- that was the real cause of the
+      # 13-second red runs, not the code.
+      #
+      # Consequence: toolchain drift is detected, not prevented. If upstream
+      # floats to a toolchain that reformats code, `moon fmt --check` goes red
+      # and the log prints the exact version that did it. Bump deliberately in a
+      # separate, fully green commit (AGENTS.md).
       - name: Setup MoonBit
-        uses: hustcer/setup-moonbit@v1
-        with:
-          # Pinned on purpose (AGENTS.md): `latest` floated to a toolchain that
-          # rewrote Int -> Int32 and turned CI red on every push from 2026-10-14.
-          # Bump in a separate, fully green commit.
-          version: 0.1.20261012
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+          "$HOME/.moon/bin/moon" version
+
+      - name: Toolchain version (recorded in the log)
+        run: moon version
+
       - name: Format check
         run: moon fmt --check
+
       - name: Type check
         run: moon check
+
       # Zero-warning gate (docs/STYLE.md §H): warnings are errors here, on every
       # target the package claims to support. Deliberately NOT enabled elsewhere:
       #   * `moon bundle --all` panics on moon 0.1.20260920
@@ -32,11 +51,14 @@ jobs:
       # step also fails on any public definition without a `///` doc block.
       - name: Warning check (deny-warn, all targets)
         run: moon check --deny-warn --target all
+
       - name: Interface check (mbti up-to-date)
         run: |
           moon info
           git diff --exit-code
+
       - name: Run tests
         run: moon test
+
       - name: Build
         run: moon build
