@@ -414,6 +414,8 @@ All notable changes to `aurasuisui/multiindex` are documented here.
   `202 Accepted` + "Dry run completed successfully" 时仍以非零码退出 —— 客户端把 202 当失败。
   真实发布返回 `200 OK`、exit=0(M7 实测),所以**不能**用 dry-run 的退出码判断能不能发布。
 - **RELEASE_CHECKLIST Tier 0–4** 全绿,证据见该文档「最近一次执行」表。
+- **发布结果(2026-10-20)**:`moon publish` → `Server status: 200 OK`、exit=0;注册表
+  `latest_version = 0.2.0`、`build_status = success`、`versions = 0.2.0, 0.1.0`;tag `v0.2.0` 已推送。
 
 ---
 
