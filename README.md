@@ -60,7 +60,7 @@ t.verify_invariants()                // -> Result[Unit, String](首个违反点 
 | `register_unique_ordered(name, project)` (需 `K : Compare`) | 有序唯一(`SortedMap[K, Int]`) |
 | `register_non_unique(name, project)` | 哈希非唯一(`Map[K, SortedSet[Int]]`) |
 | `register_non_unique_ordered(name, project)` (需 `K : Compare`) | 有序非唯一 |
-| `has_index(name)` / `index_names()` | 注册表查询(名字升序) |
+| `has_index(name)` / `index_names()` / `index_entries()` | 注册表查询(名字升序);`index_entries()` 额外给出每个索引的种类(`IndexKind`:`HashUnique` / `SortedUnique` / `HashMulti` / `SortedMulti`) |
 
 所有 `register_*` 返回 `Result[Unit, RegisterError[K]]`:重名 `Err(DuplicateName)`(**不覆盖**);
 对**非空表**注册会**回填扫描**已有记录,回填唯一索引遇冲突则 `Err(UniqueViolation)` 且**完全不注册**。
@@ -71,10 +71,14 @@ t.verify_invariants()                // -> Result[Unit, String](首个违反点 
 |---|---|
 | `insert(v)` | `Result[RowId, Rejected[K, V]]` |
 | `insert_many(vs)` | `Result[Array[RowId], Rejected[K, V]]`;**整批原子**,含**批内互相冲突** |
+| `insert_or_replace(v)` | `Result[(RowId, V?), Rejected[K, V]]`;**覆盖式 upsert**:恰好一条记录在新值的某个唯一索引上撞键 → 原地替换、**保留它的 `RowId`**,返回被顶替的旧值;无冲突则等价于 `insert`;两条不同记录分别撞键 → `abort`(表零变更) |
 | `update(id, v)` / `modify(id, f)` | `Result[Unit, UpdateRejected[K, V]]`;排除自身的唯一性预检 |
 | `remove(id)` / `swap_remove(id)` / `clear()` | 删除单条(旧句柄失效):`remove` **保插入序**、O(len);`swap_remove` 末位换位、**O(1)** 但打乱插入序 / 清空记录与索引条目(**保留注册**) |
 
-**什么时候用哪个**:下一个 `iter()` 必须是插入序 → `remove`;只关心"删掉、还要快"(队列式消费、批量清理)
+**什么时候用哪个**:要"按某个新值找到那条记录并原地换掉、但句柄不能失效" → `insert_or_replace`
+(它复用 `update` 的排除自身预检,所以单条命中时不报冲突);`remove` + `insert` 会换掉 `RowId`,
+只在明确想要新身份时才用。
+下一个 `iter()` 必须是插入序 → `remove`;只关心"删掉、还要快"(队列式消费、批量清理)
 → `swap_remove`。两者对索引、`len`、`version`、槽位复用的作用完全相同,被移动的只是插入序里的**槽位**,
 所有存活 `RowId` 继续有效。
 
