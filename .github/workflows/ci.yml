@@ -72,6 +72,18 @@ jobs:
             exit 1
           fi
 
+          # Version single-source check. `moon.mod` carries the package version
+          # (what mooncakes and resolvers see); `src/lib.mbt`'s `VERSION` is the
+          # copy a consumer reads at run time. `moon info` happily snapshots a
+          # stale constant, so without this the two can drift silently.
+          mod_ver=$(sed -n 's/^version = "\(.*\)"/\1/p' moon.mod)
+          lib_ver=$(sed -n 's/^pub const VERSION : String = "\(.*\)"/\1/p' src/lib.mbt)
+          if [ "$mod_ver" != "$lib_ver" ]; then
+            echo "::error::version mismatch: moon.mod='$mod_ver' src/lib.mbt VERSION='$lib_ver'"
+            exit 1
+          fi
+          echo "version: $mod_ver (moon.mod == src/lib.mbt VERSION)"
+
       - name: Run tests
         run: moon test
 
