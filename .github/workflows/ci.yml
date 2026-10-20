@@ -52,10 +52,25 @@ jobs:
       - name: Warning check (deny-warn, all targets)
         run: moon check --deny-warn --target all
 
+      # The generated interface is a checked-in snapshot, so it must be
+      # regenerated when a public signature changes. One wrinkle: `moon info`'s
+      # spelling drifts with the toolchain. 0.1.20261012 prints `Int` where
+      # 0.1.20261016 prints the canonical `Int32` -- the same type, two
+      # spellings. Folding the spellings before comparing keeps the gate honest:
+      # an added/removed/renamed public item or a real parameter-type change is
+      # still caught, while the spelling drift that a floating CI cannot avoid
+      # is not. (Verified 2026-10-20: the whole CI-vs-local diff was exactly
+      # Int32 -> Int, nothing else.)
       - name: Interface check (mbti up-to-date)
         run: |
           moon info
-          git diff --exit-code
+          sed -E 's/\bInt32\b/Int/g' src/pkg.generated.mbti > /tmp/mbti.new
+          git show HEAD:src/pkg.generated.mbti | sed -E 's/\bInt32\b/Int/g' > /tmp/mbti.old
+          git checkout -- src/pkg.generated.mbti
+          if ! diff -u /tmp/mbti.old /tmp/mbti.new; then
+            echo "::error::src/pkg.generated.mbti is stale -- run 'moon info' and commit the result"
+            exit 1
+          fi
 
       - name: Run tests
         run: moon test

@@ -33,15 +33,22 @@ The six-step CI (`.github/workflows/ci.yml`) that must all stay green:
 
 ```
 moon fmt --check → moon check → moon check --deny-warn --target all
-  → moon info && git diff --exit-code → moon test → moon build
+  → interface check (normalized `moon info`) → moon test → moon build
 ```
 
-> **The toolchain version is pinned in `ci.yml` on purpose.** With `version: latest` the
-> formatter began rewriting `Int` → `Int32` and `@random.Rand::new()` became an error
-> (`[0020]`), which turned CI red on every push from 2026-10-14 on. Bump the pin in a
-> separate, fully green commit — never by floating it again.
+> **CI installs the *latest* toolchain, and that is not a choice.** `cli.moonbitlang.com` serves
+> only `latest`: twelve spellings of the version we develop against all answer 403, so a pinned
+> version string is simply not downloadable — that 403 (inside `setup-moonbit`'s own download
+> step) was the cause of the 13-second red runs from 2026-10-19. The consequence, accepted
+> deliberately: toolchain drift is **detected, not prevented**. Every step prints `moon version`;
+> if upstream floats to a formatter that rewrites code, `moon fmt --check` goes red and the log
+> names the exact version. Follow it in a separate, fully green commit.
+>
+> A local toolchain older than `latest` therefore disagrees on *spelling*, not on semantics:
+> `moon info` used to print `Int` where newer releases print `Int32`. The interface gate folds
+> those two spellings (see the step's comment) and still catches every real signature change.
 
-**The `moon info && git diff --exit-code` step is load-bearing:** `src/pkg.generated.mbti` is a
+**The interface check is load-bearing:** `src/pkg.generated.mbti` is a
 checked-in interface snapshot. Change a public signature → run `moon info` and commit the
 regenerated file, or CI fails.
 
