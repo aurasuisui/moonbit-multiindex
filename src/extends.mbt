@@ -109,3 +109,13 @@ pub extend IndexStats with @debug.Debug::{to_repr}
 #deprecated("Use `!=` instead", skip_current_package=true)
 #doc(hidden)
 pub extend IndexStats with Eq::{not_equal}
+
+///|
+#deprecated("Use `@debug.Debug` instead", skip_current_package=true)
+#doc(hidden)
+pub extend IndexKind with @debug.Debug::{to_repr}
+
+///|
+#deprecated("Use `Show::output` via the trait, or `to_string`", skip_current_package=true)
+#doc(hidden)
+pub extend IndexKind with Show::{to_string, output}

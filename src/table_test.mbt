@@ -1342,3 +1342,48 @@ test "panic insert_or_replace aborts when two different records are hit" {
   // classifier, because a panic cannot be caught.
   t.insert_or_replace((1, 20, 9)) |> ignore
 }
+
+// ---------------------------------------------------------------------------
+// M11 index enumeration (Issue #4)
+// ---------------------------------------------------------------------------
+
+///|
+/// `"name:Kind"` pairs: keeps the expectation readable and pins the enum's `Show`
+/// output in the same assertion.
+fn shown_entries(
+  t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32, Int32)],
+) -> Array[String] {
+  let out : Array[String] = []
+  for entry in t.index_entries() {
+    out.push(entry.0 + ":" + Show::to_string(entry.1))
+  }
+  out
+}
+
+///|
+/// `index_entries` answers what `index_stats` alone cannot: which names exist and
+/// which quadrant each one is. It follows the same ascending order (and the same
+/// shortlex rule) as `index_names`, and the kind does not depend on the data.
+test "index_entries lists every index with its quadrant, in name order" {
+  let empty : @aurasuisui/multiindex.Table[Int32, (Int32, Int32, Int32)] = @aurasuisui/multiindex.Table::new()
+  @test.assert_eq(empty.index_entries().length(), 0)
+  let t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32, Int32)] = @aurasuisui/multiindex.Table::new()
+  // registered out of order on purpose: the method sorts, not the registry
+  assert_registered(t.register_non_unique("aa", fn(p) { p.2 }))
+  assert_registered(t.register_unique("z", fn(p) { p.1 }))
+  assert_registered(t.register_non_unique_ordered("ab", fn(p) { p.2 }))
+  assert_registered(t.register_unique_ordered("a", fn(p) { p.0 }))
+  let expected = [
+    "a:SortedUnique", "z:HashUnique", "aa:HashMulti", "ab:SortedMulti",
+  ]
+  @test.assert_eq(shown_entries(t), expected)
+  // the names come out in the order index_names promises (shortlex)
+  @test.assert_eq(t.index_names(), ["a", "z", "aa", "ab"])
+  // records do not move the classification, even when a multi key is shared
+  let first = insert_ok(t, (1, 10, 7))
+  let second = insert_ok(t, (2, 20, 7))
+  @test.assert_not_eq(first, second)
+  @test.assert_eq(shown_entries(t), expected)
+  @test.assert_eq(t.index_stats("ab").entries, 2)
+  assert_invariants(t)
+}

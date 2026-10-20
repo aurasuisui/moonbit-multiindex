@@ -357,6 +357,25 @@ pub fn[K, V] Table::index_names(self : Table[K, V]) -> Array[String] {
 }
 
 ///|
+/// Every registered index as `(name, kind)`, ascending by name — the same order,
+/// and the same shortlex rule, as `index_names` (docs/SPEC.md §3.3.1).
+///
+/// This is the enumeration `index_stats` cannot provide on its own: stats take a
+/// name, so before this method a caller had no public way to learn which names
+/// exist *and* what kind each one is. `IndexStats` itself keeps its four fields —
+/// growing it would be a MAJOR break for every external construction site
+/// (Issue #4).
+pub fn[K, V] Table::index_entries(
+  self : Table[K, V],
+) -> Array[(String, IndexKind)] {
+  let entries : Array[(String, IndexKind)] = []
+  for name in self.index_names() {
+    entries.push((name, self.require_index(name).kind()))
+  }
+  entries
+}
+
+///|
 /// Whether an index is registered under `name`.
 pub fn[K, V] Table::has_index(self : Table[K, V], name : String) -> Bool {
   self.indexes.contains(name)
