@@ -59,6 +59,7 @@ pub fn[K, V] Table::index_names(Self[K, V]) -> Array[String]
 pub fn[K, V] Table::index_stats(Self[K, V], String) -> IndexStats
 pub fn[K : Hash + Eq + Compare, V] Table::insert(Self[K, V], V) -> Result[RowId, Rejected[K, V]]
 pub fn[K : Hash + Eq + Compare, V] Table::insert_many(Self[K, V], Array[V]) -> Result[Array[RowId], Rejected[K, V]]
+pub fn[K : Hash + Eq + Compare, V] Table::insert_or_replace(Self[K, V], V) -> Result[(RowId, V?), Rejected[K, V]]
 pub fn[K, V] Table::is_empty(Self[K, V]) -> Bool
 pub fn[K, V] Table::iter(Self[K, V]) -> Iter2[RowId, V]
 pub fn[K, V] Table::iter_asc_by(Self[K, V], String) -> Iter2[RowId, V]
