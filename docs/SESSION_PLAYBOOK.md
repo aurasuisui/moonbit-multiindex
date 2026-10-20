@@ -73,14 +73,14 @@
 1. **同步文档**——按 `CONTRIBUTING.md` 的"文档同步约定"联动更新(SSOT 表 + 改动清单)。
 2. **新增/删除了文档?** → 更新 `docs/README.md` 枢纽地图(防孤儿文件)。
 3. **非显然决策** → 写进 `CHANGELOG.md` 的 "Notes / Deviations"。
-4. 跑五步 CI 本地验证。
+4. 跑六步 CI 本地验证。
 5. 工作区干净(`git status` 空),分支可发 PR。
 
 ---
 
 ## 6. 完成定义(通用)
 
-- [ ] 五步 CI 全绿;`moon info` 后 `git diff --exit-code` 干净
+- [ ] 六步 CI 全绿;`moon info` 后 `git diff --exit-code` 干净
 - [ ] 新增/修改的测试覆盖改动;涉及不变量则已扩展 `check_invariants`
 - [ ] 文档已按 §5 同步;`docs/README.md` 地图无孤儿
 - [ ] `CHANGELOG.md` 记录了改动与关键决策

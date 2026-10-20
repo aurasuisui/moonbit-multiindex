@@ -16,11 +16,11 @@
 //
 // # Quick Start
 //
-// (see README.md — the API is under construction for v0.1.0)
+// (see README.md — the API is stabilized as of v0.2.0)
 
 ///|
 /// Library version string.
-pub const VERSION : String = "0.1.0"
+pub const VERSION : String = "0.2.0"
 
 ///|
 /// A stable handle to a stored record: a slot index plus a generation counter.

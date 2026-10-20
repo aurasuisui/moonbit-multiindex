@@ -373,6 +373,7 @@ pub(all) enum IndexKind {
 | `modify(id : RowId, f : (V) -> V) -> Result[Unit, UpdateRejected[K, V]]` | 成功/失败 | 用 `f` 变换记录后重索引;**逐索引对比新旧投影键,只动真正变化的桶**(见 §5 规则 4);陈旧 id → `Err(StaleHandle(id, None))` |
 | `remove(id : RowId) -> V?` | 被删记录 | 陈旧 id → `None`;**保插入序**,删除 O(len) |
 | `swap_remove(id : RowId) -> V?` | 被删记录 | 同 `remove`(同样恢复槽位/索引/`len`/`version`),但用**末位换位**维护 `order` → 删除 **O(1)**;**删除后迭代序不再等于插入序**;陈旧 id → `None`,表零变更 |
+| `clear() -> Unit` | — | 清空所有记录与条目,**但保留索引注册**(只清桶,不删注册)—— 否则 `clear` 之后新插入的记录会静默不被索引。**批量退役**:每个活槽的 `gen += 1` 后归还 `free`(代际耗尽的永久退役),因此 **`clear` 之前的句柄永不复活** —— 若直接清空数组,清空后插入会复用同一个 `(slot, gen)`,旧句柄就会静默命中新记录,违反 §7。清空**空表**不算真实变更,不递增 `version`(I8) |
 
 #### §3.2.1 `update` / `modify` 的两个语义裁定
 
@@ -391,7 +392,6 @@ pub(all) enum IndexKind {
 
 **裁定:保留两个方法。** 组合损失的不是效率,是**失败路径上的数据所有权** —— 这不在官方那句话的豁免范围内。
 两个方法共用同一条预检与落地路径,增量成本接近零。
-| `clear() -> Unit` | — | 清空所有记录与条目,**但保留索引注册**(只清桶,不删注册)—— 否则 `clear` 之后新插入的记录会静默不被索引。**批量退役**:每个活槽的 `gen += 1` 后归还 `free`(代际耗尽的永久退役),因此 **`clear` 之前的句柄永不复活** —— 若直接清空数组,清空后插入会复用同一个 `(slot, gen)`,旧句柄就会静默命中新记录,违反 §7。清空**空表**不算真实变更,不递增 `version`(I8) |
 
 #### §3.2.2 `insert_or_replace` 的三条裁定(M11,Issue #3)
 
@@ -429,6 +429,10 @@ pub(all) enum IndexKind {
 | `range_by(name, lo, hi)` (需 `Compare`) | **双闭区间 `[lo, hi]`** 内的记录 | 有序索引;**本库增量**(主蓝本无 range API) |
 | `range_half_open_by(name, lo, hi)` (需 `Compare`) | **半开区间 `[lo, hi)`** 内的记录 | 同上 |
 | `iter_asc_by(name)` / `iter_desc_by(name)` | 按索引键升/降序遍历全部记录 | 同上。**不需要 `K : Compare`** —— 实现只走 `SortedMap` 的迭代器;索引是否有序由 §7.1 的运行时检查负责 |
+| `get(id : RowId) -> V?` | 按句柄取记录 | 陈旧 id → `None` |
+| `contains(id : RowId) -> Bool` | — | |
+| `len() -> Int` / `is_empty() -> Bool` | — | |
+| `iter() -> Iter2[RowId, V]` | 插入序遍历 | fail-fast(比照 `version`) |
 
 > **范围查询返回惰性迭代器**,不预先收集成数组(避免大区间一次性物化)。
 
@@ -446,16 +450,11 @@ core 的 `SortedMap::range` / `SortedSet::range` 本身就是**双闭区间 `[lo
 
 > 教训:"两个名字相近的方法"如果底层只支持一种语义,不要制造语义重叠;
 > 要么跟随平台,要么起一个不会误读的名字。
-| `get(id : RowId) -> V?` | 按句柄取记录 | 陈旧 id → `None` |
-| `contains(id : RowId) -> Bool` | — | |
-| `len() -> Int` / `is_empty() -> Bool` | — | |
-| `iter() -> Iter2[RowId, V]` | 插入序遍历 | fail-fast(比照 `version`) |
 
 > **查询统一返回 `(RowId, V)` 二元组**,理由:一次调用同时给出**身份**与**值**,不丢信息、
 > 不需要调用方决定"要不要再取一次",也避免为"只要值"和"只要身份"各开一套方法把 API 面积翻倍。
 > **代价**:MoonBit 不能返回元素内部的引用,取 `V` 是一次拷贝(记录内的容器是共享引用,通常不贵);
 > 若将来 profiling 证明热循环里这次拷贝有代价,再加 id-only 变体(v0.2 候选)。
-| `index_names() -> Array[String]` | 已注册索引名 | |
 
 ### §3.4 诊断(拿分点,也是自测手段)
 

@@ -5,7 +5,9 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 
 ---
 
-## [Unreleased]
+## [0.2.0] - 2026-10-20
+
+**第二个发布版本** —— `0.1.0` 已于 2026-10-14 发布到 mooncakes.io(`build_status: success`)。下面按里程碑记录 M1–M12 的全部内容。
 
 ### Added
 - 立项:仓库骨架、文档体系(枢纽/SPEC/DEVPLAN/开发圣经/会话入口)、CI 五步门禁。
@@ -385,14 +387,37 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 - **为什么 `abort` 而不是新变体**:`Conflict[K]` 只有 `UniqueViolation` / `DuplicateInBatch`,加第三个
   会让所有既有 `match` 不再穷尽;消息按索引名升序保证同一状态给出同一段文本(SPEC §3.2.2(b))。
 
+#### M12 — 发布 v0.2.0(2026-10-20)
+
+- **版本 `0.1.0` → `0.2.0`**:`moon.mod` 与 `src/lib.mbt` 的 `VERSION` 同步;CI 新增一步校验两者相等
+  (此前没有任何检查能发现"忘了改 VERSION",而 `moon info` 的快照恰好把这个常量也带出去)。
+- **SemVer 判定 = MINOR(有据)**:相对 `v0.1.0` tag,公开接口**只增不减** —— `swap_remove` /
+  `insert_or_replace` / `IndexKind` / `index_entries` 四项,`src/pkg.generated.mbti` 里
+  一行 `-pub` 都没有。
+- **CI 从「永远红」修到全绿 —— 根因不在代码**:自 2026-10-14 起每次都在 13 秒内失败,死点是
+  `setup-moonbit` **自己的下载步骤**返回 `curl: (22) ... 403`。实测 `cli.moonbitlang.com`
+  **只提供 `latest`**:在 `0.1.20261012` 上试了 12 种写法(`+hash`、`%2B` 编码、`-dev`、`v` 前缀、
+  相邻日期 `20261011` / `20261013` ……)全部 403,只有 `latest` 返回 200。所以「固定版本号」在
+  这条通道上**不可能实现**,原 `ci.yml` 的 pin 是死配置。改为官方 `install/unix.sh` + 每步打印实际
+  `moon version`,把"版本漂移"变成可见的红 + 精确版本号。
+- **另一个一直没被发现的问题**:原触发器只有 `main` / `master`,**`dev` 上的所有改动从未跑过 CI**,
+  这正是"本机能过、CI 红"拖了 6 次才被正面处理的原因之一;现已加入 `dev`。
+- **接口门禁按拼写归一化**:CI 用 `0.1.20261016`、本机 `0.1.20261012`,前者把 `Int` 打印成规范的
+  `Int32` —— 同一个类型的两种写法。归一化后比较,真实签名变化仍会被抓到
+  (留证:CI 与本机的**全部**差异恰好只有 `Int32` / `Int` 这一处)。
+- **B4(PII)关闭**:`docs/申报书.md` 的姓名与手机号在 HEAD 上已去标识化(只留 GitHub ID),
+  联系方式改为指向报名问卷。**残留风险如实记录**:PII 从 commit `6108604` 起仍在 git 历史里,
+  仓库是公开仓库,本版**未做** force-push 改写历史。
+- **`docs/SPEC.md` 两处表格断裂修复**:`clear()` 行被 §3.2.1 截断、`get` / `contains` / `len` /
+  `iter` 四行被 §3.3.1 截断,均已移回所属表格;删掉一行与 §3.1 重复的 `index_names()`。
+- **`--dry-run` 的 exit=1 是假警报,已定位**:`moon publish --dry-run` 在服务端返回
+  `202 Accepted` + "Dry run completed successfully" 时仍以非零码退出 —— 客户端把 202 当失败。
+  真实发布返回 `200 OK`、exit=0(M7 实测),所以**不能**用 dry-run 的退出码判断能不能发布。
+- **RELEASE_CHECKLIST Tier 0–4** 全绿,证据见该文档「最近一次执行」表。
+
 ---
 
-## [0.1.0] - 计划中(2026-10-31 前)
+## [0.1.0] - 2026-10-14
 
-目标:通过十月黑客松验收,发布到 mooncakes.io。
-
-- 核心:记录存储 + 稳定 ID + 唯一/非唯一/有序索引
-- 查询:`get_by` / `iter_by` / `range_by`
-- 写入:`insert` / `update` / `remove`(含冲突上报与不变量自检)
-- 序列化:JSON 往返
-- 工程:对拍测试、QuickCheck、基准、三平台 CI、README/示例/WASM demo
+已发布到 mooncakes.io(发布 commit `8f69e79`,registry `build_status: success`,`yanked: false`)。
+内容为 M1–M7;`0.2.0` 在其上做向后兼容扩展,故本节不再重复列出各项。
