@@ -36,7 +36,7 @@ ECS 式实体索引;配置项多路检索。
 ```powershell
 moon new hello-multiindex
 cd hello-multiindex
-moon add aurasuisui/multiindex@0.2.1
+moon add aurasuisui/multiindex@0.2.2
 ```
 
 `moon add` 只写 `moon.mod`。**还要在 `moon.pkg` 里声明包入口**,否则第一次写 `@multiindex.`

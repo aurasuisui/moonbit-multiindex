@@ -1,5 +1,5 @@
 import {
-  "aurasuisui/multiindex@0.2.0",
+  "aurasuisui/multiindex@0.2.2",
 }
 
 name = "cmd/leaderboard"

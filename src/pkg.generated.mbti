@@ -7,7 +7,7 @@ import {
 }
 
 // Values
-pub const VERSION : String = "0.2.1"
+pub const VERSION : String = "0.2.2"
 
 // Errors
 
