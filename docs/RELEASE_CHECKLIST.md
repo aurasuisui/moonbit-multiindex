@@ -88,7 +88,7 @@
 | 3 | 压力用例(10k+ 操作) | ✅ | `bench_test.mbt:10`:共 10 000 次操作(5 000 insert + 2 500 remove + 2 500 复用 insert,全程 `verify_invariants`) |
 | 3 | 基准无回退 | ✅(未改实现路径) | `git diff v0.2.1..HEAD -- src` 中 `src/*.mbt` 只有 `src/lib.mbt:23` 的 VERSION 一行(`pkg.generated.mbti` 的其余差异是 M2 的 `Int → Int32` 拼写重生成,无语义);沿用 `bench/README.md:154-171` 的实测:`get_by` 0.24 vs 59.3 µs、窄 range 6.4 vs 84.1 µs、`insert` k=1/8 = 0.98/11.6 µs、`remove` 54.5/69.4 µs |
 | 4 | README API 表与 SPEC 一致 | ✅ | 32 个公开方法名全部出现在 README;SPEC §11:697 以 `ToJson`/`FromJson` trait 登记 JSON 入口,README:174 写方法名 `to_json()`/`Table::from_json` —— trait↔method 表述差,已列报告 |
-| 4 | 至少一个可运行示例 | ✅ | 生成 `moon.work`(`members = [".", "bench", "cmd/leaderboard"]`)后 `cd cmd/leaderboard && moon run .` → exit 0、34 行、首行 `== aurasuisui/multiindex VERSION: 0.2.2 (local workspace module) ==`、含 `verify_invariants: Ok`;无 `moon.work` 时按注册表 0.2.0 运行(CI 的 example-smoke 覆盖 workspace 路径) |
+| 4 | 至少一个可运行示例 | ✅ | 生成 `moon.work`(`members = [".", "bench", "cmd/leaderboard"]`)后 `cd cmd/leaderboard && moon run .` → exit 0、34 行、首行 `== aurasuisui/multiindex VERSION: 0.2.2 (local workspace module) ==`、含 `verify_invariants: Ok`。发布前**无** `moon.work` 会因 `@0.2.2` 尚未上架而解析失败(实测 `no version satisfies requirement 0.2.2`),发布后即回落到注册表版本;CI 的 example-smoke 覆盖 workspace 路径 |
 | 4 | `docs/README.md` 地图无孤儿 | ✅ | 20 个 md 文件全部在 `docs/README.md` 有对应行(脚本比对,unlisted=0);全仓相对链接 100 条、真实坏链 0(M4 检查) |
 | 4 | `CHANGELOG.md` 有本版 entry | ✅ | `f478c17` 写入 `## [0.2.2] - 2026-10-22`:含 D1–D11 修复、CI 八项、六处版本升版与 mbti 重生成,末行 `<!-- 发布结果由 M6 回填 -->` |
 | 4 | 许可证与第三方来源齐备 | ✅ | `LICENSE`(Apache-2.0 正文)、`third_party/LICENSES/multi_index_map-MIT.txt`、README「致谢与来源」:224、CHANGELOG 的 Notes/Deviations 归属 |
