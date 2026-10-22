@@ -7,7 +7,7 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 
 ## [0.2.2] - 2026-10-22
 
-**第四个发布版本,PATCH** —— 无公开 API 变更(`src/pkg.generated.mbti` 只差 `VERSION` 一行)。
+**第四个发布版本,PATCH** —— 无公开 API 变更:相对 0.2.1,`src/pkg.generated.mbti` 的 diff 是 **9 行**(`VERSION` 一行 + 8 行 `Int` → `Int32` 的**拼写**重生成,同一种类型,无语义变化);相对本版 HEAD 跑 `moon info` 只差 `VERSION` 一行。
 本版把文档与 CI 的既有偏差一次收口:示例不再吞掉 `Result`、CI 补到八项、性能口径统一、
 发布记录拆成「包内快照 + 仓库回填」两层。
 

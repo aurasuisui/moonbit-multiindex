@@ -36,7 +36,7 @@
 | [`plans/v0.1.0.md`](plans/v0.1.0.md) | v0.1.0 **范围与里程碑**(含出口条件)+ **进度看板**;**§一 说明为何不是移植** | 想知道做到哪了、下一步做什么 |
 | [`plans/v0.2.0.md`](plans/v0.2.0.md) | v0.2.0 **范围与里程碑**(已完成):先清 §七 的发布基线阻断项(M7.5),再修掉基准实测出的两个性能弱点 + 补齐验收口径要求的 Issues/PR | 想知道 v0.2 做过什么 |
 | [`plans/v0.2.2.md`](plans/v0.2.2.md) | v0.2.2 **验收修复计划**:修复 README 安装/示例门禁、文档一致性、发布流程闭环;**D1–D11 缺陷台账 + M0–M7 里程碑与出口条件 + §3.2 grep 门禁** | 发 0.2.2 前 / 想知道当前版本还差什么 |
-| [`plans/execution-brief.md`](plans/execution-brief.md) | **执行/审核分工契约**:执行纪律、出口条件、审核验收清单;**§四 已同步到 v0.2.0 的 M7.5 → M8** | 执行会话开工前 / 审核会话验收时 |
+| [`plans/execution-brief.md`](plans/execution-brief.md) | **执行/审核分工契约**:执行纪律、出口条件、审核验收清单。**§四 是 v0.2.0 时期的历史范围**(文件顶部已有横幅指向 v0.2.2 计划) | 执行会话开工前 / 审核会话验收时 |
 | [`research/rust-ecosystem-2026-10-14.md`](research/rust-ecosystem-2026-10-14.md) | **Rust 生态调研报告**(逐行读 `generators.rs` 的源码级核对:许可证/API/实现/缺口) | 想核对"为什么这么设计"的依据时 |
 | [`../NOTICE`](../NOTICE) | 第三方来源与许可证归属(移植/参考合规) | 发版前、被问来源时 |
 | [`../tools/diffgen/README.md`](../tools/diffgen/README.md) | 差分夹具生成器(参考实现:Rust `multi_index_map` v0.15.1;开发工具,非包内容) | 重新生成差分夹具时 |

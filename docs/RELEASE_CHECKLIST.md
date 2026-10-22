@@ -69,7 +69,7 @@
 | 0 | `moon fmt --check` | ✅ | 2026-10-22 本机 `moon 0.1.20261020`:`moon fmt --check` → `Finished. moon: no work to do`,exit 0 |
 | 0 | `moon check` | ✅ | `moon check` → exit 0(`Finished. moon: no work to do`) |
 | 0 | `moon check --deny-warn --target all` | ✅ | exit 0,`moon: ran 12 tasks, now up to date`(wasm / wasm-gc / js / native 全查) |
-| 0 | 接口快照折叠比对(见上方注①) | ✅ | `moon info` 后 `git status --short -- src` 为空;101 行经 `\bInt32\b → Int` 折叠后与 HEAD 逐行一致(`Compare-Object` 无差异) |
+| 0 | 接口快照折叠比对(见上方注①) | ✅ | **内容判据**:`moon info` 后 `git diff --quiet -- src` **exit 0**。注意 `git status` 会误报 —— 本机 `core.autocrlf=true`,`moon info` 重写该文件后 `git status` 报 ` M src/pkg.generated.mbti`,但 `git hash-object` 与 `git rev-parse HEAD:src/pkg.generated.mbti` **同为 `f51b733f…`**、`git diff` 为空,`git add --refresh` 也不消失(2026-10-22 复现);**别用 `git status` 判接口快照漂移**。101 行经 `\bInt32\b → Int` 折叠后与 HEAD 逐行一致(`Compare-Object` 无差异) |
 | 0 | `moon test` | ✅ | `Total tests: 148, passed: 148, failed: 0.`,exit 0 |
 | 0 | `moon build` | ✅ | exit 0(`moon: ran 1 task, now up to date`) |
 | 0 | 版本单一真源 | ✅ | 六处均 `0.2.2`:`moon.mod:3`、`src/lib.mbt:23`、`src/pkg.generated.mbti:10`(`moon info` 生成)、`cmd/leaderboard/moon.mod:2`、`bench/moon.mod:2`、`README.md:39`;CI 的 version single-source 步(`ci.yml:77-85`)比对 `moon.mod` 与 `src/lib.mbt` |
@@ -95,6 +95,20 @@
 | 发布 | 产物不含 PII / 开发态垃圾 | ⏳ | 待填(M6 回填) |
 | 发布 | `moon publish` 并确认 `build_status: success` | ⏳ | 待填(M6 回填,带 registry 证据) |
 | 发布 | 打 tag `v0.2.2` 并推送 | 📌 | 按本表表头的包内快照约定;tag sha 记入下一版的历史执行记录 |
+
+### M5 的 dry-run 与解包核对(2026-10-22)
+
+| 项 | 实测 |
+|---|---|
+| 命令 | `moon publish --dry-run`(本机 `moon 0.1.20261020`) |
+| 服务端 | `Server status: 202 Accepted` … `The dry-run was made for package aurasuisui/multiindex version 0.2.2.` |
+| 客户端 | `Error: moon publish failed`,exit = **-1** —— **已知假警报**:202 表示 dry-run 已被接受,不是失败;不据此判断能否发布,也未反复重试 |
+| 打包内容 | 独立复跑 `moon package` → `_build/publish/aurasuisui-multiindex-0.2.2.zip`,**55 项**(0.2.1 为 54 项) |
+| 差异 | 只多 `docs/plans/v0.2.2.md`(0.2.1 时该文件还不存在),无删除;`docs/申报书.md` 看似差异是 git C-quote 转义的假象 |
+| PII / 垃圾 | 手机号 + 邮箱扫描 **0 真命中**(2 条正则命中是 `docs/STYLE.md` 的 `2^64-1` 与 `coshf` 常量);`moon.work` / `_build/` / `.exe` 命中 **0** |
+| 包内版本 | 六处版本全为 `0.2.2` |
+
+> 这张表只证明「包能打、内容干净」,**不是**发布证据 —— `publish` / `产物` / `tag` 三行仍由 M6 填写。
 
 ## 历史执行记录
 
