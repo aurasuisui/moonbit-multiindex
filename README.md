@@ -173,6 +173,14 @@ moon run .
 | `index_stats(name)` | `IndexStats { buckets, entries, longest_bucket, average_bucket }` |
 | `to_json()` / `Table::from_json(json)` | `{"records": [...]}`,**按插入序**;索引不参与序列化 |
 
+## 限制(已知边界)
+
+- **`RowId` 不可持久化**:跨进程 / 跨版本不保证稳定;`to_json` / `from_json` 只保记录与插入序,**不序列化索引**,
+  载入后要重新 `register_*`、重新取句柄。跨表引用要自己带上表标识(见上文)。
+- **`from_json` 没有行数上限**:读多大就解析多大;超大文件请自行分批,避免一次性内存峰值。
+- **约束擦除(异构枚举)不做**:`K` 必须满足方法所需的 `Hash + Eq + Compare`,不能在注册时擦成闭包 ——
+  否则擦除后无法继续逐步校验 I3 / I4 / I5 / I7(理由见 [`docs/SPEC.md`](docs/SPEC.md) §11)。
+
 ## 与生态中已有项目的关系
 
 - **不重复** `Milky2018/slotmap`:slotmap 提供稳定键与槽复用(**无索引投影、无唯一性、无按键查找**);
