@@ -5,6 +5,64 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 
 ---
 
+## [0.2.2] - 2026-10-22
+
+**第四个发布版本,PATCH** —— 无公开 API 变更:相对 0.2.1,`src/pkg.generated.mbti` 的 diff 是 **9 行**(`VERSION` 一行 + 8 行 `Int` → `Int32` 的**拼写**重生成,同一种类型,无语义变化);相对本版 HEAD 跑 `moon info` 只差 `VERSION` 一行。
+本版把文档与 CI 的既有偏差一次收口:示例不再吞掉 `Result`、CI 补到八项、性能口径统一、
+发布记录拆成「包内快照 + 仓库回填」两层。
+
+### Fixed — 文档纪律(缺陷台账 D1–D10)
+
+- **D1 README 引号碎片**:`:157-162` 三条列表项被行尾 `,'` / 行首 `'` 截断,该段已重写并连续成列;
+  `Select-String -Path README.md -Pattern "^'"` 命中 **0**。
+- **D2 安装节缺失**:README 新增「安装」「运行」两节 —— 工具链要求、`moon new` /
+  `moon add aurasuisui/multiindex@0.2.2`、`moon.pkg` 里的 import 行,以及一段带 `fn main` 的示例。
+- **D3 `RowId` 跨表语义**:README 与 `docs/SPEC.md` §2.1 同步写明 —— 只在创建它的 `Table` 内有效,
+  跨表使用**未定义**,同一个 `(0,0)` 在另一张同类表上可能**命中**首条记录(两处措辞逐字一致)。
+- **D4 发布记录失真**:`docs/RELEASE_CHECKLIST.md` 的 0.2.1 三行按事实补 ✅(registry
+  `latest_version = 0.2.1`、`build_status = success`;tag `v0.2.1 = 5abe79e` → `b391aa7`);
+  `:34`「依赖已升 `@0.2.1`」改成真实状态;新增 v0.2.2 执行表与「包内副本是发布前快照」的表头约定。
+- **D5 计划台账**:`docs/plans/v0.2.0.md:70` 的 M7.5 ⬜ → ✅(`1f4b156`);另两处(`:132` 关闭条件、
+  §八 `IndexStats` 误读)按 2026-10-22 裁定**不回改历史**,更正记在 `plans/v0.2.2.md` 的 D5 行。
+- **D7 性能口径**:三处统一到同一组实测 —— n = 20 000 时 `remove` 相对 `insert` 为
+  **k = 1 约 56× / k = 8 约 6×**,并解释比值随 n 增大、同一 n 下随 k 收窄的原因(`insert` 没有
+  `len` 项,`remove` 是 `O(len + I + Σ log 桶)`);`20–44×` 与 `30–70×` 两个旧数字在 README / SPEC / bench 归零。
+- **D10 限制清单**:`docs/SPEC.md` §2.1 与 §11、README 的「限制」段三条(跨表 `RowId`、`from_json`
+  无行数上限、异构枚举约束擦除不做)。
+- **文档口径同步**:`docs/STYLE.md` / `docs/MOONBIT_REF.md` / `docs/SESSION_PLAYBOOK.md` /
+  `docs/plans/execution-brief.md` 里与版本相关的写法改为「以 `moon.mod` 为准」;CI 描述从「六步」
+  统一为「八项(两个 job)」。
+
+### Changed — CI 与工具链
+
+- **D8 示例不再丢弃 `Result`**(`cmd/leaderboard/main.mbt`、`bench/main.mbt`):`register_*` 失败时
+  以 `abort` 报出索引名,而不是静默打印/计时一张少索引的表;示例输出与退出码不变。
+- **D9 CI 补到八项**(`.github/workflows/ci.yml`):新增 `moon test --target all` 与独立的
+  `example-smoke` job(生成 `moon.work` 跑 `cmd/leaderboard`,断言示例输出与本地版本号,`trap` 清理);
+  无 `continue-on-error`、不注释失败步骤。
+- **D12 接口快照按当前工具链重新生成**(`9b1fbf1`):`moon 0.1.20261020` 把 `src/pkg.generated.mbti` 的
+  `Int` 印成 `Int32`(同一种类型,**纯拼写**,8 行)。提交生成物,使 `moon info` 之后工作树为空。
+- **发布流程决定**:`dev` 逐节点提交 → `moon publish` → 在仓库 HEAD 回填 `publish` / `产物` 两行 →
+  CI 绿 → `git read-tree --reset -u dev` **一次性**同步 `main`(只一个 commit)→ tag 打在回填后的
+  提交上 → push `main` / `dev` / tag。不重写历史;`main` 与 tag 只出现在 publish 之后,避免
+  「干净 clone 解析到未发布版本」的窗口。包内副本的 `publish` / `tag` 两行按定义只能是 📌
+  (口径见 `docs/RELEASE_CHECKLIST.md` 的 v0.2.2 表头;D6)。
+
+### Changed — 版本
+
+- `moon.mod` 与 `src/lib.mbt` 的 `VERSION`:`0.2.1` → `0.2.2`;`src/pkg.generated.mbti` 由 `moon info`
+  重新生成(只动 `VERSION` 一行)。其余文档一律写「以 `moon.mod` 为准」,不再硬编码版本。
+- `cmd/leaderboard/moon.mod`、`bench/moon.mod` 的依赖 `@0.2.0` → `@0.2.2`(0.2.1 遗留的 pin);
+  README:39 的 `moon add` 命令同步。
+
+### Notes / Deviations
+
+- **0.2.1 遗留已清**:0.2.1 包内 `cmd/leaderboard/moon.mod` 与 `bench/moon.mod` 仍 pin `@0.2.0`
+  (发布提交 `c8e56fd` 的消息称已升,与实际不符);本版两处升到 `@0.2.2`。子模块在发布前无法
+  从注册表解析 `@0.2.2`,跑示例/基准要先按 `.gitignore` 的配方生成 `moon.work`(CI 的 `example-smoke` 已如此)。
+
+<!-- 发布结果由 M6 回填 -->
+
 ## [0.2.1] - 2026-10-21
 
 **第三个发布版本,PATCH** —— 无公开 API 变更(`src/pkg.generated.mbti` 除 `VERSION` 一行外与 0.2.0 完全一致)。

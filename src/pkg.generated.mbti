@@ -7,14 +7,14 @@ import {
 }
 
 // Values
-pub const VERSION : String = "0.2.1"
+pub const VERSION : String = "0.2.2"
 
 // Errors
 
 // Types and methods
 pub enum Conflict[K] {
   UniqueViolation(String, K, RowId)
-  DuplicateInBatch(String, K, Int)
+  DuplicateInBatch(String, K, Int32)
 } derive(Eq, @debug.Debug)
 pub fn[K : Eq] Conflict::equal(Self[K], Self[K]) -> Bool
 pub impl[K : Show] Show for Conflict[K]
@@ -28,9 +28,9 @@ pub(all) enum IndexKind {
 pub impl Show for IndexKind
 
 pub struct IndexStats {
-  buckets : Int
-  entries : Int
-  longest_bucket : Int
+  buckets : Int32
+  entries : Int32
+  longest_bucket : Int32
   average_bucket : Double
 } derive(Eq, @debug.Debug)
 pub fn IndexStats::equal(Self, Self) -> Bool
@@ -48,8 +48,8 @@ pub struct Rejected[K, V] {
 pub impl[K : Show, V : Show] Show for Rejected[K, V]
 
 pub struct RowId {
-  slot : Int
-  gen : Int
+  slot : Int32
+  gen : Int32
 } derive(Eq, Hash, @debug.Debug)
 pub fn RowId::equal(Self, Self) -> Bool
 pub impl Show for RowId
@@ -74,7 +74,7 @@ pub fn[K, V] Table::iter(Self[K, V]) -> Iter2[RowId, V]
 pub fn[K, V] Table::iter_asc_by(Self[K, V], String) -> Iter2[RowId, V]
 pub fn[K : Hash + Eq + Compare, V] Table::iter_by(Self[K, V], String, K) -> Iter2[RowId, V]
 pub fn[K, V] Table::iter_desc_by(Self[K, V], String) -> Iter2[RowId, V]
-pub fn[K, V] Table::len(Self[K, V]) -> Int
+pub fn[K, V] Table::len(Self[K, V]) -> Int32
 pub fn[K : Hash + Eq + Compare, V] Table::modify(Self[K, V], RowId, (V) -> V) -> Result[Unit, UpdateRejected[K, V]]
 pub fn[K, V] Table::new() -> Self[K, V]
 pub fn[K : Compare, V] Table::range_by(Self[K, V], String, K, K) -> Iter2[RowId, V]
@@ -88,7 +88,7 @@ pub fn[K : Hash + Eq + Compare, V] Table::swap_remove(Self[K, V], RowId) -> V?
 pub fn[K, V : ToJson] Table::to_json(Self[K, V]) -> Json
 pub fn[K : Hash + Eq + Compare, V] Table::update(Self[K, V], RowId, V) -> Result[Unit, UpdateRejected[K, V]]
 pub fn[K : Eq + @debug.Debug, V] Table::verify_invariants(Self[K, V]) -> Result[Unit, String]
-pub fn[K, V] Table::with_capacity(Int) -> Self[K, V]
+pub fn[K, V] Table::with_capacity(Int32) -> Self[K, V]
 
 pub enum UpdateRejected[K, V] {
   StaleHandle(RowId, V?)

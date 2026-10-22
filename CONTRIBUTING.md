@@ -177,7 +177,9 @@ Every mutation funnels through exactly three private helpers; **no other code ma
 4. Add/extend an invariant in `property_test.mbt` (and I5/I7 if the feature touches indexes).
 5. Update the API table in `README.md` **and** the contract in `docs/SPEC.md`.
 6. Add a CHANGELOG entry.
-7. Run the six-step CI locally.
+7. Run the eight-check CI locally (the block in `AGENTS.md`). The example job is run through the
+   verified `moon.work` recipe recorded in [`.gitignore`](.gitignore) — `cmd/leaderboard` is a
+   standalone module, so without it you are running the published copy, not your changes.
 8. **Version bump follows the change's nature** — see the 版本策略 section in
    [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md). A backwards-compatible addition is a
    **MINOR** bump, a compatible fix is **PATCH**, and an incompatible change is **MAJOR**
@@ -199,7 +201,7 @@ Every mutation funnels through exactly three private helpers; **no other code ma
 | bump 版本 / `moon publish` 前 | `docs/RELEASE_CHECKLIST.md` 逐项全绿,并在 `CHANGELOG.md` 记一行勾选结果 |
 
 **收尾自检**:① 按上表联动更新;② `docs/README.md` 无孤儿条目;③ 全文 grep 不残留指向已删文件的链接;
-④ 六步 CI 全绿。
+④ 八项 CI(两个 job,含示例冒烟)全绿。
 
 ---
 

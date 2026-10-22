@@ -186,11 +186,14 @@ within noise. Absolute values drift 10–20 % between runs on this machine; only
    → measured in M8 and **rejected**: the least-boxed walk achievable on this toolchain is 1.70×, below
    the 2× gate (the cost is one boxed `Option` per element in `moonbitlang/core`'s `Iter`, ≈30 ns,
    not this library's tuple). See docs/SPEC.md §13 R2 — the candidate is closed, not pending.
-4. **`remove` is 30–70× more expensive than `insert` and grows with n.** Two effects stack: the
-   `order` array is compacted in place (O(len)) and every index drops a bucket entry.
-   **docs/SPEC.md §6 listed `remove` as O(I + Σ bucket), which ignored the order compaction** — this
-   curve is what exposed the gap (the SPEC was corrected to O(len + I + Σ log bucket), and S8c added
-   `swap_remove` as the O(1) alternative: 36.7× faster at k = 1, 3.4× at k = 8 on this fixture).
+4. **`remove` costs ~56× `insert` at k = 1 and ~6× at k = 8 (n = 20 000), and the ratio grows with n.**
+   Two effects stack: the `order` array is compacted in place (O(len)) and every index drops a bucket
+   entry. `insert` has no `len` term, so a larger n widens the gap; but `insert` also gets dearer per
+   index (0.98 → 11.6 µs, k = 1 → 8) while the compaction term does not, which is why the same ratio
+   *falls* along the k-curve (item 5). **docs/SPEC.md §6 listed `remove` as O(I + Σ bucket), which
+   ignored the order compaction** — this curve is what exposed the gap (the SPEC was corrected to
+   O(len + I + Σ log bucket), and S8c added `swap_remove` as the O(1) alternative: 36.7× faster at
+   k = 1, 3.4× at k = 8 on this fixture).
 5. **The k-curve mixes two effects.** k = 1…4 register indexes over *distinct* keys (one-record
    buckets); k = 5…8 add non-unique indexes over small key spaces (up to n/8 records per bucket).
    So "insert costs ~11× more at k = 8" is *not* a clean per-index law: it is eight indexes **plus**

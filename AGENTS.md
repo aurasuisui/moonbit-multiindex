@@ -19,22 +19,30 @@ Pure MoonBit; does **not** depend on `aurasuisui/bimap` or `aurasuisui/indexmap`
 ## Commands
 
 ```bash
-moon check          # type check
-moon test           # run all tests
-moon fmt            # format (CI enforces `moon fmt --check`)
-moon build          # build
+moon check               # type check
+moon test                # run all tests (default target only)
+moon test --target all   # all four backends: wasm / wasm-gc / js / native — what CI runs
+moon fmt                 # format (CI enforces `moon fmt --check`)
+moon build               # build
 
 moon test -f "*unique*"                  # only tests whose name matches the glob
 moon test -i 0 src/table_test.mbt        # only the 0-th test in one file
 moon test -u                             # regenerate snapshots (debug_inspect only)
 ```
 
-The six-step CI (`.github/workflows/ci.yml`) that must all stay green:
+The CI (`.github/workflows/ci.yml`) that must all stay green — eight checks in two jobs:
 
 ```
-moon fmt --check → moon check → moon check --deny-warn --target all
-  → interface check (normalized `moon info`) → moon test → moon build
+check-and-test:  moon fmt --check → moon check → moon check --deny-warn --target all
+  → interface check (normalized `moon info`) → moon test → moon test --target all → moon build
+example-smoke:   write moon.work (local workspace, gitignored) → cd cmd/leaderboard && moon run .
 ```
+
+> The example job is not decoration: `cmd/leaderboard` is standalone and its manifest names a
+> *published* version, so the job writes the verified `moon.work` recipe (no `[workspace]`
+> header) to make the workspace member win, then greps the demo's output for its landmarks and
+> for **this repo's** `VERSION` — the registry copy is an older version, so that line proves the
+> local source ran. The `trap` removes the file even when the run fails.
 
 > **CI installs the *latest* toolchain, and that is not a choice.** `cli.moonbitlang.com` serves
 > only `latest`: twelve spellings of the version we develop against all answer 403, so a pinned

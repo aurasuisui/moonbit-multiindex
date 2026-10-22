@@ -1359,7 +1359,7 @@ import {
 
 ### H.3 【中优先】常量命名 —— 我们已符合,建议在文档中固化
 
-现状:`src/table.mbt:34` 的 `const GEN_MAX : Int = 1073741824`、`src/lib.mbt:23` 的 `pub const VERSION : String = "0.1.0"`。**两者都是 `UPPER_SNAKE_CASE`,与 core 实践一致,无需改动。**
+现状:`src/table.mbt:34` 的 `const GEN_MAX : Int = 1073741824`、`src/lib.mbt:23` 的 `pub const VERSION : String`(当前发布版本,值以 `moon.mod` 为准)。**两者都是 `UPPER_SNAKE_CASE`,与 core 实践一致,无需改动。**
 
 建议补进 `CONTRIBUTING.md` 的 Style Guide 表(现在写的是 `UPPER_CASE`,与 `UPPER_SNAKE_CASE` 同义,可精确化):
 
