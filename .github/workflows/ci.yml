@@ -87,5 +87,56 @@ jobs:
       - name: Run tests
         run: moon test
 
+      # The README claims four backends (wasm / wasm-gc / js / native); the bare
+      # `moon test` above exercises only the default one. This is the step that
+      # makes "148/148 on every target" checkable in the log. It runs after the
+      # default target so a backend-specific failure stays distinguishable.
+      - name: Run tests (all targets)
+        run: moon test --target all
+
       - name: Build
         run: moon build
+
+  # The example is what a reader copies out of the README, so it gets its own job:
+  # it must actually *run*, not merely compile.
+  #
+  # `cmd/leaderboard` is a standalone module whose manifest names a *published*
+  # version, so a bare checkout would silently run the registry copy instead of
+  # this tree. `moon.work` is the verified local-workspace recipe (no `[workspace]`
+  # header, three members; it is gitignored). The trap removes it even when the run
+  # fails, so no workspace manifest can leak into the working tree.
+  example-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: Toolchain version (recorded in the log)
+        run: moon version
+
+      - name: Example run (cmd/leaderboard)
+        run: |
+          root="$PWD"
+          trap 'rm -f "$root/moon.work"' EXIT
+          printf 'members = [".", "bench", "cmd/leaderboard"]\n' > moon.work
+
+          cd cmd/leaderboard
+          moon run . > "$RUNNER_TEMP/example.log" 2>&1 || { cat "$RUNNER_TEMP/example.log"; exit 1; }
+          cat "$RUNNER_TEMP/example.log"
+
+          # A run that produced no output, or stopped halfway, must not pass: check
+          # for the demo's own landmarks, not just the exit code.
+          grep -q '^== aurasuisui/multiindex VERSION:' "$RUNNER_TEMP/example.log"
+          grep -q '^== adding players ==' "$RUNNER_TEMP/example.log"
+          grep -q 'verify_invariants: Ok' "$RUNNER_TEMP/example.log"
+
+          # The printed VERSION must be *this repo's* version. The registry copy is
+          # pinned at an older version in cmd/leaderboard/moon.mod, so this line is
+          # the proof that the workspace member won and the local source ran.
+          ver=$(sed -n 's/^version = "\(.*\)"/\1/p' "$root/moon.mod")
+          grep -q "VERSION: $ver (local workspace module)" "$RUNNER_TEMP/example.log"
+          echo "example ran against local source (version $ver)"
