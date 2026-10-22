@@ -5,6 +5,26 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 
 ---
 
+## [0.2.2] - 未发布
+
+**第四个发布版本,PATCH(进行中)** —— 无公开 API 变更(`src/pkg.generated.mbti` 只差 `VERSION` 一行)。
+本段随里程碑追加;版本号与发布结果由 M5 / M6 补齐。
+
+### Changed — 工具链与发布流程
+
+- **接口快照按当前工具链重新生成**(`9b1fbf1`):`moon 0.1.20261020` 把 `src/pkg.generated.mbti` 的
+  `Int` 印成 `Int32`(同一种类型,**纯拼写**,8 行)。提交生成物,使 `moon info` 之后工作树为空。
+- **发布流程决定**:`dev` 逐节点提交 → `moon publish` → 在仓库 HEAD 回填 `publish` / `产物` 两行 →
+  CI 绿 → `git read-tree --reset -u dev` **一次性**同步 `main`(只一个 commit)→ tag 打在回填后的
+  提交上 → push `main` / `dev` / tag。不重写历史;`main` 与 tag 只出现在 publish 之后,避免
+  「干净 clone 解析到未发布版本」的窗口。包内副本的 `publish` / `tag` 两行按定义只能是 📌
+  (口径见 `docs/RELEASE_CHECKLIST.md` 的 v0.2.2 表头)。
+
+### Notes / Deviations
+
+- **0.2.1 遗留**:已发布的 0.2.1 包内 `cmd/leaderboard/moon.mod` 与 `bench/moon.mod` 仍 pin `@0.2.0`
+  (发布提交 `c8e56fd` 的消息称已升,与实际不符);0.2.2 会在 M5 一并升到 `@0.2.2`。
+
 ## [0.2.1] - 2026-10-21
 
 **第三个发布版本,PATCH** —— 无公开 API 变更(`src/pkg.generated.mbti` 除 `VERSION` 一行外与 0.2.0 完全一致)。
