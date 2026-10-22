@@ -134,9 +134,11 @@ jobs:
           grep -q '^== adding players ==' "$RUNNER_TEMP/example.log"
           grep -q 'verify_invariants: Ok' "$RUNNER_TEMP/example.log"
 
-          # The printed VERSION must be *this repo's* version. The registry copy is
-          # pinned at an older version in cmd/leaderboard/moon.mod, so this line is
-          # the proof that the workspace member won and the local source ran.
+          # The printed VERSION must be *this repo's* version. The suffix alone is
+          # not evidence: the registry copy prints "(local workspace module)" too
+          # (measured), so only the version separates the two sources -- the registry
+          # copy is pinned to an older release in cmd/leaderboard/moon.mod, while the
+          # workspace member resolves to this repo's moon.mod.
           ver=$(sed -n 's/^version = "\(.*\)"/\1/p' "$root/moon.mod")
           grep -q "VERSION: $ver (local workspace module)" "$RUNNER_TEMP/example.log"
           echo "example ran against local source (version $ver)"

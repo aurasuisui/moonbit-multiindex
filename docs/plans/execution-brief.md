@@ -104,7 +104,7 @@
 - 同进程、同机、新旧路径对比:胖桶遍历与宽区间相对**现路径 ≥2×**;O(1) 删除变体相对现路径 **≥5×**。
   目标值开工时写进 `bench/README.md`,交付时贴实测数字。
 - `bench/README.md` 取舍表更新;README 的 API 表补新方法;SPEC 写清两套游走的取舍。
-- 六步 CI 全绿(含 `--deny-warn --target all`);测试数只增不减。
+- 八项 CI 全绿(两个 job;含 `--deny-warn --target all` 与 `moon test --target all`、example-smoke);测试数只增不减。
 
 ### 不在本轮
 

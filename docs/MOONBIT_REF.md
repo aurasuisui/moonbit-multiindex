@@ -206,16 +206,19 @@ import {
 
 ## §2 常用命令
 
-### 2.1 六步 CI(本项目门禁,与 `AGENTS.md` 一致)
+### 2.1 八项 CI(两个 job,本项目门禁,与 `AGENTS.md` 一致)
 
 ```bash
 moon fmt --check                              # 1. 格式检查
 moon check                                    # 2. 类型检查
 moon check --deny-warn --target all           # 3. 零警告门禁(含 missing_doc)
 moon info && git diff --exit-code             # 4. 公开接口快照必须已提交
-moon test                                     # 5. 测试
-moon build                                    # 6. 构建
+moon test                                     # 5. 测试(默认后端)
+moon test --target all                        # 6. 同一套测试 × 四个后端
+moon build                                    # 7. 构建
 ```
+
+第 8 项是**独立 job** `example-smoke`:在仓库根生成 `moon.work`(`members = [".", "bench", "cmd/leaderboard"]`,**没有** `[workspace]` 头),`cd cmd/leaderboard && moon run .`,断言演示输出的三处地标与 `VERSION`(必须等于本仓库 `moon.mod` 的版本 —— 注册表副本也打 `(local workspace module)` 后缀,只有版本能区分来源),结束时 `trap` 删除 `moon.work`。两个 job 都绿才算过。
 
 第 4 步是**承重**的:`moon info` 重新生成 `src/pkg.generated.mbti`,这是**入库的接口快照**。改了公开签名必须 `moon info` 并提交,否则 CI 红。这一步在 CI 里还附带两件事:① 比较前把 `Int32`/`Int` 两种拼写归一化(CI 与本机工具链打印不同);② 校验 `moon.mod` 的 `version` 与 `src/lib.mbt` 的 `VERSION` 相等。
 
