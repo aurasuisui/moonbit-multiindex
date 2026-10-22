@@ -66,32 +66,32 @@
 
 | Tier | 项 | 结果 | 证据 |
 |---|---|---|---|
-| 0 | `moon fmt --check` | ⏳ | 待填(M5) |
-| 0 | `moon check` | ⏳ | 待填(M5) |
-| 0 | `moon check --deny-warn --target all` | ⏳ | 待填(M5) |
-| 0 | 接口快照折叠比对(见上方注①) | ⏳ | 待填(M5) |
-| 0 | `moon test` | ⏳ | 待填(M5) |
-| 0 | `moon build` | ⏳ | 待填(M5) |
-| 0 | 版本单一真源 | ⏳ | 待填(M5:六处版本号一致) |
-| 0 | `moon.mod` 元数据 | ⏳ | 待填(M5) |
-| 0 | CI 工具链 | ⏳ | 待填(M5:无法固定,记 `moon version` 与漂移处置) |
-| 1 | 不变量 I1–I9 随机序列每步成立 | ⏳ | 待填(M5) |
-| 1 | 模型对拍逐步一致 | ⏳ | 待填(M5) |
-| 1 | 差分测试对参考实现一致 | ⏳ | 待填(M5) |
-| 1 | 回归钉子仍在 | ⏳ | 待填(M5) |
-| 2 | 每条公开 API 有测试 | ⏳ | 待填(M5:附测试计数) |
-| 2 | 行覆盖率 | ⏳ | 待填(M5) |
-| 2 | `abort` 守卫有断言 | ⏳ | 待填(M5) |
-| 2 | 边界:空表/单元素/槽位复用/代际回绕/超长桶/重名注册 | ⏳ | 待填(M5) |
-| 2 | 泛型:自定义键 / Int 边界 | ⏳ | 待填(M5) |
-| 2 | JSON 往返 | ⏳ | 待填(M5) |
-| 3 | 压力用例(10k+ 操作) | ⏳ | 待填(M5) |
-| 3 | 基准无回退 | ⏳ | 待填(M5) |
-| 4 | README API 表与 SPEC 一致 | ⏳ | 待填(M5) |
-| 4 | 至少一个可运行示例 | ⏳ | 待填(M5:带 `moon.work` 时跑本地源码) |
-| 4 | `docs/README.md` 地图无孤儿 | ⏳ | 待填(M5) |
-| 4 | `CHANGELOG.md` 有本版 entry | ⏳ | 待填(M5) |
-| 4 | 许可证与第三方来源齐备 | ⏳ | 待填(M5) |
+| 0 | `moon fmt --check` | ✅ | 2026-10-22 本机 `moon 0.1.20261020`:`moon fmt --check` → `Finished. moon: no work to do`,exit 0 |
+| 0 | `moon check` | ✅ | `moon check` → exit 0(`Finished. moon: no work to do`) |
+| 0 | `moon check --deny-warn --target all` | ✅ | exit 0,`moon: ran 12 tasks, now up to date`(wasm / wasm-gc / js / native 全查) |
+| 0 | 接口快照折叠比对(见上方注①) | ✅ | `moon info` 后 `git status --short -- src` 为空;101 行经 `\bInt32\b → Int` 折叠后与 HEAD 逐行一致(`Compare-Object` 无差异) |
+| 0 | `moon test` | ✅ | `Total tests: 148, passed: 148, failed: 0.`,exit 0 |
+| 0 | `moon build` | ✅ | exit 0(`moon: ran 1 task, now up to date`) |
+| 0 | 版本单一真源 | ✅ | 六处均 `0.2.2`:`moon.mod:3`、`src/lib.mbt:23`、`src/pkg.generated.mbti:10`(`moon info` 生成)、`cmd/leaderboard/moon.mod:2`、`bench/moon.mod:2`、`README.md:39`;CI 的 version single-source 步(`ci.yml:77-85`)比对 `moon.mod` 与 `src/lib.mbt` |
+| 0 | `moon.mod` 元数据 | ✅ | `name` / `version` / `readme` / `repository` / `license = "Apache-2.0"` / 5 个 `keywords` / `description` / `source = "src"` 齐备(`moon.mod:1-21`) |
+| 0 | CI 工具链 | ✅(不可固定) | 本机 `moon 0.1.20261020 (2284bd2 2026-10-20)`;`cli.moonbitlang.com` 只服务 latest,钉版本会 403,故 CI 装 latest、每步打印 `moon version`,漂移靠 `moon fmt --check` 与接口步「检测而非预防」(`AGENTS.md` Commands 注) |
+| 1 | 不变量 I1–I9 随机序列每步成立 | ✅ | `moon test -f "*qc:*"` 7/7;驱动 `src/property_wbtest.mbt:96`(随机 insert/remove 每步)、`:147`(I3/I4/I5/I7)、`:372`(update/modify);7 条 `the invariant guard is not vacuous` 元测试(`:214`–`:313`)证明守卫非空转 |
+| 1 | 模型对拍逐步一致 | ✅ | `moon test -f "*model differential*"` 2/2:`src/model_test.mbt:385`(脚本流)、`:436`(随机流),每步对 `Array[V]` 线性扫描 oracle |
+| 1 | 差分测试对参考实现一致 | ✅ | `moon test -f "*golden stream*"` 1/1:`src/differential_test.mbt:103` 回放 `src/differential_fixture_test.mbt` 的黄金序列(对 Rust `multi_index_map` 0.15.1) |
+| 1 | 回归钉子仍在 | ✅ | `moon test -f "*regression*"` 1/1:`src/table_test.mbt:597`(update 撞已占用 unique key 时表不变) |
+| 2 | 每条公开 API 有测试 | ✅ | 32 个 `pub fn Type::method` 全部在 `*test.mbt` 中被调用(脚本比对,missing=0);全量 148 条测试 |
+| 2 | 行覆盖率 | ✅ 784/805(97.4%) | `moon test --enable-coverage` → 148/148;`$env:MOON_COVE_REPORT_ENABLED='0'; moon coverage analyze -p aurasuisui/multiindex -- -f summary` → `src/table.mbt: 241/243`、`src/table_api.mbt: 258/277`、`Total: 784/805`,与 0.2.1 持平 ⇒ 无回退。缺口均为 `abort`/`Err` 分支(`-f caret` 21 行,如 `src/table.mbt:409`、`src/table_api.mbt:567-573` 的 I5 文本)。注:新 reporter 报 `conflicting trace metadata ...$index`,故用 legacy reporter |
+| 2 | `abort` 守卫有断言 | ✅ | `moon test -f "*panic*"` 20/20;`src/abort_guard_wbtest.mbt` 26 条 = 19 条 `test "panic …"` + 7 条 companion(`:701`/`:714`/`:720`/`:729`),每条 panic 夹具都被复跑 |
+| 2 | 边界:空表/单元素/槽位复用/代际回绕/超长桶/重名注册 | ✅ | `table_test.mbt:118`(空表)、`:1288`(删掉最后一条)、`:167`(回收槽拒绝旧 handle)、`table_wbtest.mbt:102`(I9 代际耗尽即退休)、`bench_test.mbt:10`(长桶 `n/4 → n/8`)、`table_test.mbt:252`/`:382`/`:403`(重名注册被拒且不改状态) |
+| 2 | 泛型:自定义键 / Int 边界 | ✅ | `table_test.mbt:199`(未注册索引时键类型无约束,用元组键)、`:913`(失败分类固定 abort 判据);`table_wbtest.mbt:102` 覆盖代际上限路径 |
+| 2 | JSON 往返 | ✅ | `json_test.mbt` 3 条:round-trip 保插入序(`:9`)、重注册后答案一致(`:40`)、畸形输入报错不静默(`:91`) |
+| 3 | 压力用例(10k+ 操作) | ✅ | `bench_test.mbt:10`:共 10 000 次操作(5 000 insert + 2 500 remove + 2 500 复用 insert,全程 `verify_invariants`) |
+| 3 | 基准无回退 | ✅(未改实现路径) | `git diff v0.2.1..HEAD -- src` 中 `src/*.mbt` 只有 `src/lib.mbt:23` 的 VERSION 一行(`pkg.generated.mbti` 的其余差异是 M2 的 `Int → Int32` 拼写重生成,无语义);沿用 `bench/README.md:154-171` 的实测:`get_by` 0.24 vs 59.3 µs、窄 range 6.4 vs 84.1 µs、`insert` k=1/8 = 0.98/11.6 µs、`remove` 54.5/69.4 µs |
+| 4 | README API 表与 SPEC 一致 | ✅ | 32 个公开方法名全部出现在 README;SPEC §11:697 以 `ToJson`/`FromJson` trait 登记 JSON 入口,README:174 写方法名 `to_json()`/`Table::from_json` —— trait↔method 表述差,已列报告 |
+| 4 | 至少一个可运行示例 | ✅ | 生成 `moon.work`(`members = [".", "bench", "cmd/leaderboard"]`)后 `cd cmd/leaderboard && moon run .` → exit 0、34 行、首行 `== aurasuisui/multiindex VERSION: 0.2.2 (local workspace module) ==`、含 `verify_invariants: Ok`;无 `moon.work` 时按注册表 0.2.0 运行(CI 的 example-smoke 覆盖 workspace 路径) |
+| 4 | `docs/README.md` 地图无孤儿 | ✅ | 20 个 md 文件全部在 `docs/README.md` 有对应行(脚本比对,unlisted=0);全仓相对链接 100 条、真实坏链 0(M4 检查) |
+| 4 | `CHANGELOG.md` 有本版 entry | ✅ | `f478c17` 写入 `## [0.2.2] - 2026-10-22`:含 D1–D11 修复、CI 八项、六处版本升版与 mbti 重生成,末行 `<!-- 发布结果由 M6 回填 -->` |
+| 4 | 许可证与第三方来源齐备 | ✅ | `LICENSE`(Apache-2.0 正文)、`third_party/LICENSES/multi_index_map-MIT.txt`、README「致谢与来源」:224、CHANGELOG 的 Notes/Deviations 归属 |
 | 发布 | 产物不含 PII / 开发态垃圾 | ⏳ | 待填(M6 回填) |
 | 发布 | `moon publish` 并确认 `build_status: success` | ⏳ | 待填(M6 回填,带 registry 证据) |
 | 发布 | 打 tag `v0.2.2` 并推送 | 📌 | 按本表表头的包内快照约定;tag sha 记入下一版的历史执行记录 |
