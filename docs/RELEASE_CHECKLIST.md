@@ -92,8 +92,8 @@
 | 4 | `docs/README.md` 地图无孤儿 | ✅ | 20 个 md 文件全部在 `docs/README.md` 有对应行(脚本比对,unlisted=0);全仓相对链接 100 条、真实坏链 0(M4 检查) |
 | 4 | `CHANGELOG.md` 有本版 entry | ✅ | `f478c17` 写入 `## [0.2.2] - 2026-10-22`:含 D1–D11 修复、CI 八项、六处版本升版与 mbti 重生成,末行 `<!-- 发布结果由 M6 回填 -->` |
 | 4 | 许可证与第三方来源齐备 | ✅ | `LICENSE`(Apache-2.0 正文)、`third_party/LICENSES/multi_index_map-MIT.txt`、README「致谢与来源」:224、CHANGELOG 的 Notes/Deviations 归属 |
-| 发布 | 产物不含 PII / 开发态垃圾 | ⏳ | 待填(M6 回填) |
-| 发布 | `moon publish` 并确认 `build_status: success` | ⏳ | 待填(M6 回填,带 registry 证据) |
+| 发布 | 产物不含 PII / 开发态垃圾 | ✅ | `moon package` 独立复跑:`_build/publish/aurasuisui-multiindex-0.2.2.zip` **55 项**(0.2.1 为 54 项,唯一新增 `docs/plans/v0.2.2.md`);PII 扫描 0 真命中;`moon.work` / `_build/` / `.exe` 命中 0;六处版本全为 `0.2.2` |
+| 发布 | `moon publish` 并确认 `build_status: success` | ✅ | 2026-10-22 `moon publish` → `Server status: 200 OK`,exit 0(单次发布,未重试);registry 复核(`https://mooncakes.io/api/v0/manifest/aurasuisui/multiindex`):`latest_version = 0.2.2`、`build_status: success`、`yanked: false`、`versions = 0.2.2, 0.2.1, 0.2.0, 0.1.0` |
 | 发布 | 打 tag `v0.2.2` 并推送 | 📌 | 按本表表头的包内快照约定;tag sha 记入下一版的历史执行记录 |
 
 ### M5 的 dry-run 与解包核对(2026-10-22)
