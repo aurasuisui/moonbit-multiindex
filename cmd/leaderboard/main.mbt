@@ -31,12 +31,36 @@ struct Player {
 } derive(Debug)
 
 ///|
+/// Register an index or stop the demo.
+///
+/// A failed registration is a **programming error**, not a bad input: the names
+/// and projections are fixed in this file, so `Err` can only mean the demo itself
+/// is wrong (a duplicated name, or a unique index over records that collide).
+/// There is nothing to recover from and no sensible "skip this index" behaviour —
+/// the demo would print three views while maintaining two. So it names the
+/// offending index and aborts, which makes the exit code non-zero instead of
+/// quietly printing a demo that is missing an index.
+fn must_register(
+  result : Result[Unit, @multiindex.RegisterError[Int32]],
+) -> Unit {
+  match result {
+    Ok(_) => ()
+    Err(@multiindex.DuplicateName(name)) =>
+      abort("cmd/leaderboard: index name `\{name}` is already registered")
+    Err(@multiindex.UniqueViolation(name, key)) =>
+      abort(
+        "cmd/leaderboard: unique index `\{name}` has two records under key \{key}",
+      )
+  }
+}
+
+///|
 /// Build the table every demo below shares: three indexes over the same records.
 fn new_table() -> @multiindex.Table[Int32, Player] {
   let t : @multiindex.Table[Int32, Player] = @multiindex.Table::new()
-  let _ = t.register_unique("id", fn(p) { p.id })
-  let _ = t.register_non_unique("team", fn(p) { p.team })
-  let _ = t.register_non_unique_ordered("score", fn(p) { p.score })
+  must_register(t.register_unique("id", fn(p) { p.id }))
+  must_register(t.register_non_unique("team", fn(p) { p.team }))
+  must_register(t.register_non_unique_ordered("score", fn(p) { p.score }))
   t
 }
 

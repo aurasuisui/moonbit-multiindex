@@ -54,32 +54,52 @@ fn make_rows(n : Int32) -> Array[Row] {
 }
 
 ///|
+/// Register one index or stop the run.
+///
+/// Every name and projection below is fixed in this file, so a failed
+/// registration is a **programming error**, not a bad input: the k-sweep would
+/// otherwise silently time a table that is missing an index and report a
+/// meaninglessly fast number. `abort` names the index and the reason; the exit
+/// code is non-zero, and no benchmark row is printed.
+fn must_register(
+  result : Result[Unit, @multiindex.RegisterError[Int32]],
+) -> Unit {
+  match result {
+    Ok(_) => ()
+    Err(@multiindex.DuplicateName(name)) =>
+      abort("bench: index name `\{name}` is already registered")
+    Err(@multiindex.UniqueViolation(name, key)) =>
+      abort("bench: unique index `\{name}` has two records under key \{key}")
+  }
+}
+
+///|
 /// A table with the first `k` indexes registered over `rows`.
 fn build(rows : Array[Row], k : Int32) -> @multiindex.Table[Int32, Row] {
   let t : @multiindex.Table[Int32, Row] = @multiindex.Table::new()
   if k > 0 {
-    let _ = t.register_unique("a", fn(r) { r.a })
+    must_register(t.register_unique("a", fn(r) { r.a }))
   }
   if k > 1 {
-    let _ = t.register_non_unique("b", fn(r) { r.b })
+    must_register(t.register_non_unique("b", fn(r) { r.b }))
   }
   if k > 2 {
-    let _ = t.register_unique_ordered("c", fn(r) { r.c })
+    must_register(t.register_unique_ordered("c", fn(r) { r.c }))
   }
   if k > 3 {
-    let _ = t.register_non_unique_ordered("d", fn(r) { r.d })
+    must_register(t.register_non_unique_ordered("d", fn(r) { r.d }))
   }
   if k > 4 {
-    let _ = t.register_non_unique("e", fn(r) { r.e })
+    must_register(t.register_non_unique("e", fn(r) { r.e }))
   }
   if k > 5 {
-    let _ = t.register_non_unique("f", fn(r) { r.f })
+    must_register(t.register_non_unique("f", fn(r) { r.f }))
   }
   if k > 6 {
-    let _ = t.register_non_unique("g", fn(r) { r.g })
+    must_register(t.register_non_unique("g", fn(r) { r.g }))
   }
   if k > 7 {
-    let _ = t.register_non_unique("h", fn(r) { r.h })
+    must_register(t.register_non_unique("h", fn(r) { r.h }))
   }
   let mut i = 0
   while i < rows.length() {
