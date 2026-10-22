@@ -12,7 +12,7 @@
 | 0 | `moon fmt --check` | ✅ | exit=0 |
 | 0 | `moon check` | ✅ | 0 error |
 | 0 | `moon check --deny-warn --target all` | ✅ | 0 warnings 0 errors,全后端 |
-| 0 | `moon info && git diff --exit-code` | ✅ | exit=0;`pkg.generated.mbti` 仅 `VERSION` 0.2.0→0.2.1 一行 |
+| 0 | 接口快照折叠比对(见下方注①) | ✅ | exit=0;`pkg.generated.mbti` 无差异(0.2.1 当次为 `VERSION` 0.2.0→0.2.1 一行) |
 | 0 | `moon test` | ✅ | **148/148** |
 | 0 | `moon build` | ✅ | exit=0 |
 | 0 | 版本单一真源 | ✅ | `moon.mod` 0.2.1 == `src/lib.mbt` 的 `VERSION` 0.2.1(该校验已折进 CI 接口步骤) |
@@ -38,6 +38,22 @@
 | 发布 | 产物不含 PII / 开发态垃圾 | ⏳ | 发布前执行 `moon publish --dry-run` 并解包核对(`202 Accepted` 时客户端 exit=1 属已知假警报,不能据此判断能否发布) |
 | 发布 | `moon publish` 并确认 `build_status: success` | ⏳ | 待执行 |
 | 发布 | 打 tag `v0.2.1` 并推送 | ⏳ | 待执行 |
+
+> **注① 接口快照的比较方式(2026-10-22 起)**:`moon info` 的拼写随工具链漂移 ——
+> `0.1.20261012` 印 `Int`,`0.1.20261016` 起印 canonical `Int32`(同一种类型,纯拼写)。
+> 因此本项与 `.github/workflows/ci.yml` 用**同一套折叠比对**,而不是裸 `git diff --exit-code`:
+>
+> ```bash
+> moon info
+> sed -E 's/\bInt32\b/Int/g' src/pkg.generated.mbti > /tmp/mbti.new
+> git show HEAD:src/pkg.generated.mbti | sed -E 's/\bInt32\b/Int/g' > /tmp/mbti.old
+> git checkout -- src/pkg.generated.mbti
+> diff -u /tmp/mbti.old /tmp/mbti.new     # 必须 exit 0
+> ```
+>
+> 折叠只吃掉拼写:**新增/删除/改名公开项、真实参数类型变化仍会被抓到**。
+> 仓库内提交的是 canonical `Int32`(见 `CHANGELOG.md` 0.2.2 段),所以折叠前后一致;
+> 若在旧工具链(印 `Int`)上跑,折叠同样把两侧拉到同一拼写。
 
 ## 历史执行记录
 
