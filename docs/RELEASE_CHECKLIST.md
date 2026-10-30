@@ -55,7 +55,7 @@
 > 仓库内提交的是 canonical `Int32`(见 `CHANGELOG.md` 0.2.2 段),所以折叠前后一致;
 > 若在旧工具链(印 `Int`)上跑,折叠同样把两侧拉到同一拼写。
 
-## v0.2.2(进行中)
+## v0.2.2(2026-10-22 发布)
 
 > **表头约定 —— 包内副本是发布前快照**:`moon publish` 打包的是**当时 HEAD 的快照**,因此**包里那份**
 > 的 `publish` / `tag` 两行按定义只能是 📌(它们只能在包生成之后才发生)。**仓库 HEAD** 在 publish
@@ -111,6 +111,65 @@
 > 这张表只证明「包能打、内容干净」,**不是**发布证据 —— `publish` / `产物` / `tag` 三行仍由 M6 填写。
 
 ## 历史执行记录
+
+### v0.2.2 验收彩排(2026-10-30,M7)
+
+> 按当前 `HEAD` 重填计划 §2.2 的官方十门槛。仓库 `dev` = `6aecc33`、`main` = `2dbd7b1`、`v0.2.2^{commit}` = `2dbd7b1`;工作树仅 `src/pkg.generated.mbti` 的 `autocrlf` 假阳(`git diff --quiet -- src` = 0)。本机 `moon 0.1.20261020 (2284bd2 2026-10-20)`;命令均在仓库根目录执行,可直接复制。
+
+| # | 门槛 | 结果 | 命令 | 关键输出摘录 |
+|---|---|---|---|---|
+| 1 | MoonBit 主体 | ✅ | `git ls-files src`;`Select-String -Path moon.mod -Pattern '^import'` | `.mbt 16`、`.pkg 1`、`.mbti 1`;`moon.mod` 无 `import` 行 |
+| 2 | 仓库公开且快照一致 | ✅ | `git rev-parse 'v0.2.2^{commit}'`;`git rev-parse main`;`git rev-parse dev`;`git diff --quiet v0.2.2 main; $LASTEXITCODE`(同 dev、main dev);`gh repo view --json visibility` | `2dbd7b1` / `2dbd7b1` / `6aecc33`;三条 diff 均 `0`;`"visibility":"PUBLIC"` |
+| 3 | 选题边界 | ✅ | `Select-String -Path README.md -Pattern '一张记录表'`;`Select-String -Path docs/SPEC.md -Pattern '一句话'` | README:3「一张记录表,**N 个二级索引**」;SPEC:132「`BiMap` 是…的特例;本库把它泛化为 **N 个彼此独立的索引**」 |
+| 4 | 核心 API | ✅(注①) | `(Select-String -Path src/pkg.generated.mbti -Pattern '^pub fn\[.*\] Table::').Count` | `32`;32 个方法名全部出现在 README API 表(`missing=0`) |
+| 5 | README 含目标 / 安装 / API / 示例 | ✅ | `Select-String -Path README.md -Pattern '^## '`;按 README 字面跑一遍(见下) | 命中 `:31` / `:51` / `:112` / `:123`;干净环境 `moon run .` exit 0,8 行与 README:99-107 逐字一致 |
+| 6 | CI 绿 | ✅ | `gh run list --branch main --limit 3`;`gh run list --branch dev --limit 3` | main `39785836950` / `39784911637` / `39383979438` 全 success;dev `39785643537` / `39784642076` / `39768595546` 全 success |
+| 7 | 示例可运行 | ✅ | 干净 clone(无 `moon.work`)后 `cd cmd/leaderboard; moon run .` | exit 0,34 行,含 `verify_invariants: Ok` |
+| 8 | 测试可运行 | ✅ | `moon test`;`moon test --target all` | `148/148` + `148/148` × wasm / wasm-gc / js / native |
+| 9 | mooncakes 已发布 | ✅ | `$m = Invoke-RestMethod 'https://mooncakes.io/api/v0/manifest/aurasuisui/multiindex'; $m.latest_version; $m.build_status; $m.yanked; $m.versions.version` | `0.2.2` / `success` / `False` / `0.2.2, 0.2.1, 0.2.0, 0.1.0` |
+| 10 | 许可与归属 | ✅ | `Get-Item LICENSE,NOTICE,third_party/LICENSES/*`;`Select-String -Path moon.mod -Pattern '^license'` | `LICENSE 10349`、`NOTICE 4782`、`multi_index_map-MIT.txt 1069`;`license = "Apache-2.0"` |
+
+> **注①(#4 的依据链有文档缺口)**:计划写「SPEC §4 有表」不成立 —— §4 是「核心不变量」(`docs/SPEC.md:526`),§10「完整 API 速查表」只有标题(`:715`)、没有表。核心 API 的完整性因此改由 `src/pkg.generated.mbti` 的 32 个方法与 README API 表互证(32/32 命中);**未改 SPEC** —— M7 只授权改本文件,此条列为「发现但未改」。
+
+**干净环境彩排(仓库外空目录)**
+
+```powershell
+moon new m7probe
+cd m7probe
+moon add aurasuisui/multiindex@0.2.2
+```
+
+`moon add` exit 0,stderr 摘要 `Registry index updated successfully` / `Symbols updated successfully` / `Downloading aurasuisui/multiindex@0.2.2`;写入 `moon.mod` 的行是 `import { "aurasuisui/multiindex@0.2.2" }`。按 README 在根 `moon.pkg` 补 `import { "aurasuisui/multiindex" }` + `pkgtype(kind: "executable")`,把 README:58-94 原样粘进根 `main.mbt`,再 `moon run .` → exit 0,8 行与 README:99-107 逐字一致。
+
+**干净 clone 示例**
+
+```powershell
+git clone --depth 1 --branch v0.2.2 https://github.com/aurasuisui/moonbit-multiindex.git m7-clone
+cd m7-clone/cmd/leaderboard
+moon run .
+```
+
+clone 后 `Test-Path moon.work` = `False`;`cmd/leaderboard/moon.mod` 钉 `aurasuisui/multiindex@0.2.2`;`moon run .` exit 0、34 行、`verify_invariants: Ok`。首行仍印 `(local workspace module)` —— 注册表副本也带这个后缀(实测),**不要拿它当本地源码的证据**,版本号才是。
+
+**跨表 `RowId` 探针(仓库外)**
+
+两张 `Table[Int32, String]`,A/B 首次 insert 都得 `RowId(0, 0)`;`B.get(A 的 RowId)` → `Some(B-record)`、`B.remove(A 的 RowId)` 删掉的是 B 的记录(B.len=0,A.len=1)。与 SPEC §2.1:165 的措辞一致:跨表**未定义**,`(0,0)` **可能命中**另一张表的首条记录,不承诺 `None`。
+
+**覆盖率(legacy reporter)**
+
+`moon test --enable-coverage` → `148/148`;默认新 reporter `moon coverage report -p aurasuisui/multiindex -f summary` 仍报 `error: conflicting trace metadata for file id 'aurasuisui/multiindex$index'`(exit 1,工具链问题,未改测试);`$env:MOON_COVE_REPORT_ENABLED='0'` 后同一命令 → `Total: 784/805`(`table.mbt 241/243`、`table_api.mbt 258/277`,与 0.2.1 持平)。
+
+**文档链接**
+
+`git ls-files '*.md'` = **20**(计划写 19,实际多出 `docs/plans/v0.2.2.md`);去掉围栏代码块与行内代码后,相对链接 **99 条、坏链 0**。3 条原始假阳性均为代码里的示例:`SortedMap[Int, String]([])`、`[HawkEye](…)`(TOML 围栏内与行内代码中各一次)。
+
+**三条 grep 门禁(照实分口径,不四舍五入)**
+
+- `20–44×` / `30–70×`:现役文档 `README.md` + `docs/SPEC.md` + `bench/README.md` 命中 **0**;全仓 **11**,全部是历史/自指(`CHANGELOG.md:29` 说明旧数字已归零、`:426` 的 0.1.0 历史段;`docs/plans/v0.1.0.md:87`、`v0.2.0.md:16`、`v0.2.2.md:96/110/113/195/196/213/215` 引用旧数字或门禁本身)。
+- `^'`(README):**0**。
+- `let _ = t.register`:代码(`cmd/`、`bench/`、`src/`)**0**;全仓 **2**,均在 `docs/plans/v0.2.2.md`(D8 定义 `:97` 与 M3 记录 `:214` 的引文)。
+
+**结论**:官方十门槛 **10/10**(#4 带注①);以上补充质量门单列,不计入 10/10。
 
 ### v0.2.0(2026-10-20)
 
