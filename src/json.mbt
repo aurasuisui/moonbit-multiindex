@@ -11,9 +11,10 @@
 
 ///|
 /// The wire shape: the records, in insertion order.
+#derive(ToJson, FromJson)
 priv struct TableJson[V] {
   records : Array[V]
-} derive(ToJson, FromJson)
+}
 
 ///|
 /// Serialize the records in insertion order (docs/SPEC.md §8).
