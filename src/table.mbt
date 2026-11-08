@@ -136,7 +136,10 @@ pub fn[K, V] Table::contains(self : Table[K, V], id : RowId) -> Bool {
 /// The record in a live slot as `(handle, value)`; `None` when the slot is empty.
 ///
 /// Reading the row copies the record value — the same shallow copy docs/SPEC.md
-/// §3.3 accepts for queries (a record's own containers stay shared).
+/// §3.3 accepts for queries (a record's own containers stay shared). A shared
+/// container mutated outside the API does not trigger index maintenance (contract:
+/// docs/SPEC.md §3.7); the removal / update paths tolerate and repair stale entries
+/// since 0.3.0.
 fn[K, V] Table::record_at(self : Table[K, V], slot : Int32) -> (RowId, V)? {
   if slot < 0 || slot >= self.rows.length() {
     return None

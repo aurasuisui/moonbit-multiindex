@@ -343,6 +343,7 @@ pub(all) enum IndexKind {
 | `register_unique_ordered(name, project) -> Result[Unit, RegisterError[K]]` (需 `K : Compare`) | **有序唯一**索引(`SortedMap[K, Int]`) |
 | `register_non_unique(name, project) -> Result[Unit, RegisterError[K]]` | **哈希非唯一**索引(`Map[K, SortedSet[Int]]`) |
 | `register_non_unique_ordered(name, project) -> Result[Unit, RegisterError[K]]` (需 `K : Compare`) | **有序非唯一**索引(`SortedMap[K, SortedSet[Int]]`) |
+| `unregister_index(name : String) -> Bool` | **删除索引注册**。返回是否真的删除;未注册返回 `false`、**不 abort**(§7.1 的显式例外)。只摘注册表:`len` / `order` / `gens` / `free` / 其它索引一个都不动,`version` 不 bump;名字立即可以重注册(可换投影) |
 | `has_index(name) -> Bool` / `index_names() -> Array[String]` / `index_entries() -> Array[(String, IndexKind)]` | 索引枚举;`index_names` 与 `index_entries` 都按 **MoonBit `String` 序**(长度优先的 shortlex)升序,已由测试钉死;`index_entries` 同时给出每个索引的象限(§2.7)—— `index_stats(name)` 必须先知道名字,而这是拿到名字的公开途径 |
 
 **2×2 四象限**(与主蓝本的 `hashed_unique` / `ordered_unique` / `hashed_non_unique` /
@@ -454,7 +455,7 @@ core 的 `SortedMap::range` / `SortedSet::range` 本身就是**双闭区间 `[lo
 
 > **查询统一返回 `(RowId, V)` 二元组**,理由:一次调用同时给出**身份**与**值**,不丢信息、
 > 不需要调用方决定"要不要再取一次",也避免为"只要值"和"只要身份"各开一套方法把 API 面积翻倍。
-> **代价**:MoonBit 不能返回元素内部的引用,取 `V` 是一次拷贝(记录内的容器是共享引用,通常不贵);
+> **代价**:MoonBit 不能返回元素内部的引用;读出 `V` 时,**值类型得到独立副本,内含 `Array` / `Ref` 等引用容器时与表内共享同一对象**(见 §3.7),这次复制通常是浅拷贝;
 > 若将来 profiling 证明热循环里这次拷贝有代价,再加 id-only 变体(v0.2 候选)。
 
 ### §3.4 诊断(拿分点,也是自测手段)
@@ -516,10 +517,32 @@ enum Index[K, V] {
 - 只提供 `modify(id, f : (V) -> V)`;
 - 实现内**逐索引对比新旧投影键**:键未变的索引**完全不动**(不删桶、不加桶),即自动获得
   `update_unindexed` 的 O(1) 效果;
-- 索引不变量由"新记录重新投影"保证,不存在"调用方拿到 `&mut` 后破坏不变量"的路径。
+- 索引不变量由"新记录重新投影"保证;但**存在绕过的入口**:记录内含共享引用时,调用方可在库之外改坏投影。契约与恢复路径见 §3.7。
 
 > 代价:即使只改一个未索引字段,也要构造一条新记录(`f` 是纯变换 `(V) -> V`)。
 > 收益:API 只有一条更新路径,少一个能破坏不变量的入口。
+
+---
+
+### §3.7 记录可变性与索引一致性(v0.3.0)
+
+本节是**契约**,不是建议。索引条目只存槽位号,桶的可信度依赖「记录投影 == 桶键」(I4);记录在库外被改动后,这份一致性就失去保证。
+
+**值的边界**
+
+- `V` 只含 `Int32` / `String` 等**值类型**时,`get` / `get_by` / `iter*` / `range_*` 返回的记录是独立副本,随意修改不影响表。
+- `V` 内含 `Array` / `Ref` / 其他可变对象时,表内与调用方**共享同一对象**;`get` / `get_by` / `iter*` / `range_*` 返回的记录与表内共享这些容器。复制的是记录值本身,不是容器内容。
+
+**契约**
+
+- 共享容器**视为只读**。要改被索引字段,必须走 `update` / `modify`:它们先做唯一性预检,再按投影维护索引。
+- 违反后果(0.2.2 实测):旧键仍命中、新键漏查、`verify_invariants` 报 I4(桶键与投影不符)或 I7(记录不在任何桶里);`insert` 的唯一性预检还可能被绕过。
+- 恢复路径:`unregister_index(name)` 摘掉脏索引 → 重新 `register_*`(对非空表自动回填)→ `verify_invariants` 复检;或 `clear()` 后重新载入。0.3.0 起 `remove` / `swap_remove` / `update` 对已存在的脏条目做慢路径修复,但**不替代**上述契约。
+
+**`modify` 的闭包契约**
+
+- `f` 可以**就地修改**共享容器;库在调用 `f` **之前**对每个索引的旧投影做快照,提交时用快照下线旧桶、用 `project(value)` 上线新桶(`src/table.mbt` 的 `projection_snapshot`)。0.3.0 之前这里会静默写坏索引(旧桶不动、新键不加),已修。
+- `f` 不得在调用之外被并发修改:本库是单线程假设,没有锁;跨线程共享同一张表属于未定义行为。
 
 ---
 
@@ -657,17 +680,18 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 3. 守卫的**判据**由只读分类器单测(`is_ordered` / `has_index` / `replace_target`)钉死 ——
    `panic` 覆盖"会不会炸",分类器覆盖"该不该炸"。
 
-落实:`src/abort_guard_wbtest.mbt`(26 条)覆盖 19 条可达守卫 + 3 条可达防御分支。
+落实:`src/abort_guard_wbtest.mbt`(21 条 = 14 条 `test "panic …"` + 7 条伴生),每条可达 `abort` 守卫一条 panic 测试。
 
 #### §7.3 覆盖率的已知缺口:报告标出的 21 行
 
-`moon coverage analyze -p aurasuisui/multiindex -- -f summary` 当前 **784/805**。`-f caret` 标出 21 行:
-`src/table.mbt:409` / `:676`;`src/table_api.mbt:203` / `:210` / `:228` / `:243` / `:259` / `:273` /
-`:566-572` / `:588-592` / `:663-674`。
+`moon coverage analyze -p aurasuisui/multiindex -- -f summary` 当前 **847/868**。`-f caret` 标出 **21 行**
+(报告把条件行与其失败分支成组标记,故逐条位置为 20 个):
+`src/table.mbt:409` / `:484` / `:712`;`src/table_api.mbt:203` / `:210` / `:244` / `:260` / `:273` /
+`:597-603` / `:619-623` / `:694-704`。
 
 **这些行号不能直接当"没执行"读。** 抽查:报告把 `src/table_api.mbt:228`(`require_index` 的
 `Some(index) => index`)标为未覆盖,但 `get_by` / `iter_by` / `index_entries` / `index_stats` 全都经由它,
-且它们的测试是绿的;把 `abort` 探针插到 `verify_indexes` 的桶循环(`:565` 之后),`json_test` 立刻炸 ——
+且它们的测试是绿的;把 `abort` 探针插到 `verify_indexes` 的桶循环(`:594-595`),`json_test` 立刻炸 ——
 证明该循环确实执行。即:**报告会把条件行与其失败分支成组标记,行号偏保守**。
 
 因此按**失败分支**归因:
@@ -714,7 +738,7 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 
 ## §10 完整 API 速查表
 
-> 实现落定后由本节汇总全部公开签名(与 `README.md` 的 API 表同源)。
+> 本节**不再维护第二份签名表**:完整签名以 [`src/pkg.generated.mbti`](../src/pkg.generated.mbti) 为机器可读真源、[`README.md`](../README.md) 的 API 表为人读版本;两处与 §3 同源。
 
 ---
 

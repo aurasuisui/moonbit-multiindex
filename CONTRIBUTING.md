@@ -250,7 +250,7 @@ test "descriptive english name" {
   moon coverage clean
   ```
 
-  Current: **784/805**. `-f caret` flags 21 lines, most of which are *failure branches* rather than
+  Current: **847/868**. `-f caret` flags 21 lines, most of which are *failure branches* rather than
   code that never ran — the reporter groups a condition line with its failure branch, so read the
   table in [`docs/SPEC.md` §7.3](docs/SPEC.md) rather than the raw line numbers. A new uncovered
   line must either get a test or a row in that table: **no silent drift**.
