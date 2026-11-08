@@ -137,7 +137,7 @@ moon run .
 所有 `register_*` 返回 `Result[Unit, RegisterError[K]]`:重名 `Err(DuplicateName)`(**不覆盖**);
 对**非空表**注册会**回填扫描**已有记录,回填唯一索引遇冲突则 `Err(UniqueViolation)` 且**完全不注册**。
 
-**写入**(冲突一律在**任何变更之前**检查;失败时表零变更,记录原样归还)
+**写入**(冲突一律在**任何变更之前**检查;失败时表零变更,记录原样归还)——对值类型 / 未被 `modify` 闭包就地修改的记录成立;共享容器的 Err 边界见 [`docs/SPEC.md`](docs/SPEC.md) §3.7。
 
 | 方法 | 说明 |
 |---|---|
@@ -181,9 +181,10 @@ moon run .
 - **`from_json` 没有行数上限**:读多大就解析多大;超大文件请自行分批,避免一次性内存峰值。
 - **约束擦除(异构枚举)不做**:`K` 必须满足方法所需的 `Hash + Eq + Compare`,不能在注册时擦成闭包 ——
   否则擦除后无法继续逐步校验 I3 / I4 / I5 / I7(理由见 [`docs/SPEC.md`](docs/SPEC.md) §11)。
-- **可变记录契约**:值类型随便改;`V` 内含 `Array` / `Ref` 时,`get` / `get_by` / `iter*` / `range_*` 返回的记录与表内
-  **共享容器**,这些容器视为只读。改被索引字段必须走 `update` / `modify`;否则旧键命中 / 新键漏查,
-  `verify_invariants` 会报 I4 / I7。恢复:`unregister_index` + 重新 `register_*`(见 [`docs/SPEC.md`](docs/SPEC.md) §3.7)。
+- **可变记录契约(读写两侧)**:值类型随便改;`V` 内含 `Array` / `Ref` 时,`get` / `get_by` / `iter*` / `range_*` 返回的记录与表内
+  **共享容器**,这些容器视为只读。`insert` / `update` / `modify` 存进去的 `V` 也与调用方共享容器:插入后再改自己手里的对象,
+  同样会写脏索引。改被索引字段必须走 `update` / `modify`;否则旧键命中 / 新键漏查,`verify_invariants` 会报 I4 / I7。
+  恢复三步:`unregister_index` → 用 `update` / `remove` 拆开重复投影 → 重新 `register_*`(见 [`docs/SPEC.md`](docs/SPEC.md) §3.7)。
 
 ## 与生态中已有项目的关系
 
@@ -223,7 +224,7 @@ moon run .
   [`bench/README.md`](bench/README.md)。
 - **JSON 不携带索引**:`from_json` 返回的表**注册表为空**,载入后需自己 `register_*` 回填
   (§3.1 的"对非空表注册即回填"会顺势把索引建好,不需要第二个机制)。
-- **冲突不会让调用方丢数据**:`insert` / `insert_many` / `update` / `modify` 失败时,记录随 `Err` 原样归还。
+- **冲突不会让调用方丢数据**:`insert` / `insert_many` / `update` / `modify` 失败时,记录随 `Err` 归还;但 `modify` 的闭包若已就地修改共享容器,返回的已是改后记录,无法回滚(见 [`docs/SPEC.md`](docs/SPEC.md) §3.7)。
 - **`clear()` 保留索引注册**:清空的是记录与索引条目,不是"架构";清空后插入仍会被索引。
 
 ## 致谢与来源

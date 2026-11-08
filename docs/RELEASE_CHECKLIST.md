@@ -125,7 +125,7 @@
 | 0 | `moon check` | ✅ | `moon check` → exit 0 |
 | 0 | `moon check --deny-warn --target all` | ✅ | exit 0(`moon: ran 12 tasks, now up to date`,wasm / wasm-gc / js / native 全查) |
 | 0 | 接口快照(见上方注①的口径) | ✅ | `moon info` 后 mbti diff **只有 VERSION 一行**(0.2.2 → 0.3.0);提交后 `git diff --quiet -- src` = 0 |
-| 0 | `moon test` | ✅ | `Total tests: 165, passed: 165, failed: 0.`,exit 0 |
+| 0 | `moon test` | ✅ | `Total tests: 169, passed: 169, failed: 0.`,exit 0 |
 | 0 | `moon build` | ✅ | exit 0 |
 | 0 | 版本单一真源 | ✅ | 六处均 `0.3.0`:`moon.mod:3`、`src/lib.mbt:23`、`src/pkg.generated.mbti:10`、`cmd/leaderboard/moon.mod:2`、`bench/moon.mod:2`、`README.md:39` |
 | 0 | `moon.mod` 元数据 | ✅ | `name` / `version = "0.3.0"` / `repository` / `license = "Apache-2.0"` / 5 个 `keywords` / `source = "src"` |
@@ -133,9 +133,9 @@
 | 1 | 不变量 I1–I9 随机序列每步成立 | ✅ | `moon test -f "*qc:*"` **7/7**;`property_wbtest.mbt` 的 `check_invariants` 委托公开 `verify_invariants` |
 | 1 | 模型对拍逐步一致 | ✅ | `moon test -f "*model differential*"` **2/2**(`src/model_test.mbt`) |
 | 1 | 差分测试对参考实现一致 | ✅ | `moon test -f "*golden stream*"` **1/1**(`src/differential_test.mbt` 回放 `multi_index_map` 0.15.1 黄金序列) |
-| 1 | 回归钉子仍在 | ✅ | `moon test -f "*regression*"` **1/1**;update 撞唯一键零变更、`modify` 双冲突零变更、`insert_or_replace` 双撞键 abort |
-| 2 | 每条公开 API 有测试 | ✅ | `src/pkg.generated.mbti` 的 **33** 个 `pub fn Table::*` 全部出现在 README(missing=0);全量 **165** 条测试 |
-| 2 | 行覆盖率 | ✅ **847/868(97.58%)** | `moon test --enable-coverage` → 165/165;`$env:MOON_COVE_REPORT_ENABLED='0'; moon coverage analyze -p aurasuisui/multiindex -- -f summary` → `src/table.mbt: 257/260`、`src/table_api.mbt: 266/284`、`Total: 847/868`;`src/index.mbt` 269/269 满覆盖 |
+| 1 | 回归钉子仍在 | ✅ | `moon test -f "*regression*"` **1/1**;update 撞唯一键零变更、`modify` 双冲突(不就地改共享容器)零变更、`insert_or_replace` 双撞键 abort |
+| 2 | 每条公开 API 有测试 | ✅ | `src/pkg.generated.mbti` 的 **33** 个 `pub fn Table::*` 全部出现在 README(missing=0);全量 **169** 条测试 |
+| 2 | 行覆盖率 | ✅ **847/868(97.58%)** | `moon test --enable-coverage` → 169/169;`$env:MOON_COVE_REPORT_ENABLED='0'; moon coverage analyze -p aurasuisui/multiindex -- -f summary` → `src/table.mbt: 257/260`、`src/table_api.mbt: 266/284`、`Total: 847/868`;`src/index.mbt` 269/269 满覆盖 |
 | 2 | `abort` 守卫有断言 | ✅ | `src/abort_guard_wbtest.mbt` **21 条 = 14 条 `test "panic …"` + 7 条伴生**;`moon test -f "*panic*"` **15/15**(含 table_test 的 1 条) |
 | 2 | 边界:空表/单元素/槽位复用/代际回绕/超长桶/重名注册 | ✅ | `table_test.mbt` 的空表 / 删最后一条 / 回收槽拒绝旧 handle;`table_wbtest.mbt` 的 I9 代际耗尽退休;`bench_test.mbt` 长桶 `n/4 → n/8`;重名注册被拒且不改状态 |
 | 2 | 泛型:自定义键 / Int 边界 | ✅ | 元组键 `(String, Int)`、`(Int, Int, Int)`;未注册索引时键类型无约束;`with_capacity(0/-5)`;I9 代际上限路径 |
@@ -144,7 +144,7 @@
 | 3 | 基准无回退 | ✅(未改快路径) | 本版只改 `modify` 旧投影快照与脏索引容错:正常路径的桶操作不变,慢路径只在「按投影键取不到槽」时触发;沿用 `bench/README.md:154-171` 的实测数字,不新编测量值 |
 | 4 | README API 表与 SPEC 一致 | ✅ | 33 个公开方法名全部出现在 README;SPEC §3.1 增 `unregister_index`、§3.7 增契约、§10 改为指向 mbti + README 的指针(`to_json` 在 SPEC 以 `ToJson` trait 登记) |
 | 4 | 至少一个可运行示例 | ✅ | 生成 `moon.work`(`members = [".", "bench", "cmd/leaderboard"]`)后 `cd cmd/leaderboard && moon run .` → exit 0、34 行、首行 `== aurasuisui/multiindex VERSION: 0.3.0 (local workspace module) ==`、含 `verify_invariants: Ok`;**0.3.0 未上架前无 `moon.work` 会解析失败**(实测 `version 0.3.0 was not found in the registry`),M6 发布后回落到注册表版本;CI 的 example-smoke 覆盖 workspace 路径 |
-| 4 | `docs/README.md` 地图无孤儿 | ✅ | 21 个 md 文件全部在地图中有对应行(`unlisted=0`);全仓相对链接 104 条、真实坏链 0 |
+| 4 | `docs/README.md` 地图无孤儿 | ✅ | 21 个 md 文件全部在地图中有对应行(`unlisted=0`);全仓相对链接 107 条、真实坏链 0 |
 | 4 | `CHANGELOG.md` 有本版 entry | ✅ | `## [0.3.0] - 2026-11-08`(Fixed 在前:modify 静默损坏、脏索引 panic;Added:`unregister_index`) |
 | 4 | 许可证与第三方来源齐备 | ✅ | `LICENSE`(Apache-2.0 正文)、`NOTICE`、`third_party/LICENSES/multi_index_map-MIT.txt`、README「致谢与来源」 |
 | 发布 | 产物不含 PII / 开发态垃圾 | ⏳ | 待 M6 回填;M5 的 `moon package` 自查见下方小节 |
@@ -156,10 +156,11 @@
 | 项 | 实测 |
 |---|---|
 | 命令 | `moon publish --dry-run`(本机 `moon 0.1.20261104`) |
+| 干净树 | `git status --porcelain` 只允许 autocrlf 假阳(内容 `git diff --quiet` = 0);根目录无未跟踪 `*.coverage` |
 | 服务端 | `Server status: 202 Accepted`;客户端 exit **0**,未重试 |
 | 打包内容 | `moon package` → `_build/publish/aurasuisui-multiindex-0.3.0.zip`,**56 项** |
 | 差异 | 相对 `v0.2.2` 的 55 项只多 `docs/plans/v0.3.0.md`(另一条 `docs/申报书.md` 是 git C-quote 转义假象),无删除 |
-| PII / 垃圾 | 手机号 + 邮箱扫描 **0 真命中**;`moon.work` / `_build/` / `.exe` 命中 **0** |
+| PII / 垃圾 | 手机号 + 邮箱扫描 **0 真命中**;`moon.work` / `_build/` / `.exe` / `.coverage` 命中 **0** |
 | 包内版本 | 六处版本全为 `0.3.0` |
 
 > 这张表只证明「包能打、内容干净」,**不是**发布证据 —— `产物` / `publish` / `tag` 三行仍由 M6 填写。
@@ -288,7 +289,7 @@ MoonBit 的包管理遵循**语义化版本**:每个模块必须以 `MAJOR.MINOR
 - [ ] 模型对拍(`model_test.mbt`)与朴素实现逐步一致
 - [ ] 差分测试(`differential_test.mbt`)对参考实现的观测序列一致
 - [ ] 回归测试钉子(特别是 update 冲突漏洞)仍在
-- [ ] 冲突路径:**返回 `Err` 后表与调用前完全一致**
+- [ ] 冲突路径:**返回 `Err` 后表与调用前完全一致** —— 对值类型 / 未被 `modify` 闭包就地修改的记录成立;共享容器的 Err 边界见 `docs/SPEC.md` §3.7
 
 ## Tier 2 — 覆盖面
 

@@ -71,6 +71,7 @@ Table[K, V]
 ├── gens    : Array[Int]                 ← per-slot generation, +1 on recycle
 ├── free    : Array[Int]                 ← free-slot stack (LIFO); retired slots NEVER re-enter (I9)
 ├── order   : Array[Int]                 ← live slots in insertion order
+├── positions : Array[Int]               ← inverse of order (slot -> order index, -1 when dead)
 ├── indexes : Map[String, Index[K, V]]   ← the 2x2 index registry
 ├── mut len : Int
 └── mut version : Int                    ← mutation counter (fail-fast iterators)
@@ -110,7 +111,7 @@ looping `remove_impl` would be O(n²) through the `order` compaction.)
 
 **Four high-risk paths (probe- and source-validated):**
 1. `update` must conflict-check **excluding self**.
-2. Conflict checks run **before any mutation** — on `Err` the table is unchanged.
+2. Conflict checks run **before any mutation** — on `Err` the table is unchanged **for value records**; a `modify` closure that already mutated shared containers cannot be rolled back (SPEC §3.7).
 3. No observable intermediate state between bucket-del and bucket-add (fast-path equal keys).
 4. `modify` must finish **all** uniqueness pre-checks before committing any index change.
    The reference implementation removes-then-inserts and **panics mid-way, leaving dirty indexes**

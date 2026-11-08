@@ -1860,3 +1860,127 @@ test "remove tolerates stale entries in all four quadrants" {
   @test.assert_eq(t.len(), 0)
   assert_invariants(t)
 }
+
+// ---------------------------------------------------------------------------
+// M5b (v0.3.0): the documented Err boundary of modify and the recovery path
+// ---------------------------------------------------------------------------
+
+///|
+/// Contract test: mutating an indexed field through a record read back from the
+/// table is detected by the checker (this is the documented consequence, not an
+/// operation that is supposed to succeed).
+test "external mutation of an indexed field is caught by verify_invariants" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let id = insert_ok(t, { tags: [1], note: 0, })
+  match t.get(id) {
+    Some(r) => r.tags[0] = 2
+    None => @test.fail("the fixture record must exist")
+  }
+  match t.verify_invariants() {
+    Ok(_) => @test.fail("verify must report I4 after external mutation")
+    Err(message) => @test.assert_eq(message.contains("I4"), true)
+  }
+}
+
+///|
+/// Pins the documented Err boundary: `f` already mutated the shared container, so
+/// the refused `modify` cannot restore the record; the old bucket still hits the
+/// record whose projection is now the new value, and the new key's bucket also hits.
+test "modify Err path leaves the record mutated and the index stale" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let a = insert_ok(t, { tags: [1], note: 0, })
+  let _ = insert_ok(t, { tags: [2], note: 0, })
+  match
+    t.modify(a, fn(r) {
+      r.tags[0] = 2
+      r
+    }) {
+    Ok(_) => @test.fail("the duplicate projection must be reported as Err")
+    Err(_) => ()
+  }
+  match t.verify_invariants() {
+    Ok(_) => @test.fail("verify must report I4 after the Err path")
+    Err(message) => @test.assert_eq(message.contains("I4"), true)
+  }
+  // the old bucket (key 1) still names the mutated record, whose projection is 2
+  match t.get_by("first", 1) {
+    Some((_, r)) => @test.assert_eq(r.tags[0], 2)
+    None => @test.fail("the old bucket must still hit the mutated record")
+  }
+  // the new key's bucket (key 2) hits the other record
+  match t.get_by("first", 2) {
+    Some((_, r)) => @test.assert_eq(r.tags[0], 2)
+    None => @test.fail("the new key's bucket must still hit its record")
+  }
+}
+
+///|
+/// Two records now project to 2: re-registering the unique index must fail. This is
+/// the two-step recovery attempted in the old docs; it is not enough.
+test "recovery in two steps fails while duplicate projections exist" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let a = insert_ok(t, { tags: [1], note: 0, })
+  let _ = insert_ok(t, { tags: [2], note: 0, })
+  match
+    t.modify(a, fn(r) {
+      r.tags[0] = 2
+      r
+    }) {
+    Ok(_) => @test.fail("the fixture must start on the Err path")
+    Err(_) => ()
+  }
+  @test.assert_eq(t.unregister_index("first"), true)
+  match t.register_unique("first", fn(r) { r.tags[0] }) {
+    Ok(_) => @test.fail("two records project to 2, so registration must fail")
+    Err(UniqueViolation(_, _)) => ()
+    Err(DuplicateName(_)) =>
+      @test.fail("the name must be free after unregister")
+  }
+}
+
+///|
+/// The documented recovery path is three steps: unregister, split the duplicate
+/// projections with update/remove, then re-register.
+test "recovery in three steps succeeds" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let a = insert_ok(t, { tags: [1], note: 0, })
+  let b = insert_ok(t, { tags: [2], note: 0, })
+  match
+    t.modify(a, fn(r) {
+      r.tags[0] = 2
+      r
+    }) {
+    Ok(_) => @test.fail("the fixture must start on the Err path")
+    Err(_) => ()
+  }
+  @test.assert_eq(t.unregister_index("first"), true)
+  match t.update(a, { tags: [3], note: 0, }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("splitting the duplicate projection must succeed")
+  }
+  match t.register_unique("first", fn(r) { r.tags[0] }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("registration must succeed after the split")
+  }
+  match t.get_by("first", 1) {
+    None => ()
+    Some(_) => @test.fail("the old key must not reappear")
+  }
+  match t.get_by("first", 2) {
+    Some((id, r)) => {
+      @test.assert_eq(id, b)
+      @test.assert_eq(r.tags[0], 2)
+    }
+    None => @test.fail("the untouched record must still be indexed")
+  }
+  match t.get_by("first", 3) {
+    Some((_, r)) => @test.assert_eq(r.tags[0], 3)
+    None => @test.fail("the moved record must be indexed under its new key")
+  }
+  @test.assert_eq(t.len(), 2)
+  assert_invariants(t)
+}
