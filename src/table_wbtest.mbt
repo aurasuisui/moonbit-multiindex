@@ -1217,3 +1217,173 @@ test "replace_target agrees with update's excluding-self pre-check" {
   }
   check_invariants(t)
 }
+
+// ---------------------------------------------------------------------------
+// M3b (v0.3.0): the tolerant Index::remove / detach_any false branches
+// ---------------------------------------------------------------------------
+
+///|
+test "Index::remove reports false for a hash-unique bucket naming another slot" {
+  let t = wb_indexed_table()
+  let id = wb_insert_indexed(t, (1, 10, 7))
+  let index = match t.indexes.get("lo") {
+    Some(index) => index
+    None => @test.fail("lo vanished")
+  }
+  match index {
+    HashUnique(_, buckets) => buckets.set(1, 9)
+    _ => @test.fail("lo must be the hash-unique quadrant")
+  }
+  @test.assert_eq(index.remove(id.slot, 1), false)
+  match index {
+    HashUnique(_, buckets) => @test.assert_eq(buckets.get(1), Some(9))
+    _ => @test.fail("lo must be the hash-unique quadrant")
+  }
+}
+
+///|
+test "Index::remove reports false for a sorted-unique bucket naming another slot" {
+  let t = wb_indexed_table()
+  let id = wb_insert_indexed(t, (1, 10, 7))
+  let index = match t.indexes.get("hi") {
+    Some(index) => index
+    None => @test.fail("hi vanished")
+  }
+  match index {
+    SortedUnique(_, buckets) => buckets.set(10, 9)
+    _ => @test.fail("hi must be the sorted-unique quadrant")
+  }
+  @test.assert_eq(index.remove(id.slot, 10), false)
+  match index {
+    SortedUnique(_, buckets) => @test.assert_eq(buckets.get(10), Some(9))
+    _ => @test.fail("hi must be the sorted-unique quadrant")
+  }
+}
+
+///|
+test "Index::remove reports false for a hash-multi bucket without the slot" {
+  let t = wb_indexed_table()
+  let id = wb_insert_indexed(t, (1, 10, 7))
+  let index = match t.indexes.get("shared") {
+    Some(index) => index
+    None => @test.fail("shared vanished")
+  }
+  match index {
+    HashMulti(_, buckets) => buckets.set(7, @sorted_set.SortedSet([9]))
+    _ => @test.fail("shared must be the hash-multi quadrant")
+  }
+  @test.assert_eq(index.remove(id.slot, 7), false)
+  match index {
+    HashMulti(_, buckets) =>
+      match buckets.get(7) {
+        Some(set) => assert_ints(set.to_array(), [9])
+        None => @test.fail("the multi bucket must keep its foreign slot")
+      }
+    _ => @test.fail("shared must be the hash-multi quadrant")
+  }
+}
+
+///|
+test "Index::remove reports false for a sorted-multi bucket without the slot" {
+  let t = wb_indexed_table()
+  let id = wb_insert_indexed(t, (1, 10, 7))
+  let index = match t.indexes.get("shared_sorted") {
+    Some(index) => index
+    None => @test.fail("shared_sorted vanished")
+  }
+  match index {
+    SortedMulti(_, buckets) => buckets.set(7, @sorted_set.SortedSet([9]))
+    _ => @test.fail("shared_sorted must be the sorted-multi quadrant")
+  }
+  @test.assert_eq(index.remove(id.slot, 7), false)
+  match index {
+    SortedMulti(_, buckets) =>
+      match buckets.get(7) {
+        Some(set) => assert_ints(set.to_array(), [9])
+        None => @test.fail("the multi bucket must keep its foreign slot")
+      }
+    _ => @test.fail("shared_sorted must be the sorted-multi quadrant")
+  }
+}
+
+///|
+test "Index::remove reports false when a hash-multi bucket is missing" {
+  let t = wb_indexed_table()
+  let id = wb_insert_indexed(t, (1, 10, 7))
+  let index = match t.indexes.get("shared") {
+    Some(index) => index
+    None => @test.fail("shared vanished")
+  }
+  match index {
+    HashMulti(_, buckets) => buckets.remove(7)
+    _ => @test.fail("shared must be the hash-multi quadrant")
+  }
+  @test.assert_eq(index.remove(id.slot, 7), false)
+  match index {
+    HashMulti(_, buckets) =>
+      match buckets.get(7) {
+        None => ()
+        Some(_) => @test.fail("the missing bucket must stay missing")
+      }
+    _ => @test.fail("shared must be the hash-multi quadrant")
+  }
+}
+
+///|
+test "Index::remove reports false when a sorted-multi bucket is missing" {
+  let t = wb_indexed_table()
+  let id = wb_insert_indexed(t, (1, 10, 7))
+  let index = match t.indexes.get("shared_sorted") {
+    Some(index) => index
+    None => @test.fail("shared_sorted vanished")
+  }
+  match index {
+    SortedMulti(_, buckets) => buckets.remove(7)
+    _ => @test.fail("shared_sorted must be the sorted-multi quadrant")
+  }
+  @test.assert_eq(index.remove(id.slot, 7), false)
+  match index {
+    SortedMulti(_, buckets) =>
+      match buckets.get(7) {
+        None => ()
+        Some(_) => @test.fail("the missing bucket must stay missing")
+      }
+    _ => @test.fail("shared_sorted must be the sorted-multi quadrant")
+  }
+}
+
+///|
+test "Index::detach_any reports false when the slot is in no bucket" {
+  let t = wb_indexed_table()
+  let _id = wb_insert_indexed(t, (1, 10, 7))
+  let index = match t.indexes.get("lo") {
+    Some(index) => index
+    None => @test.fail("lo vanished")
+  }
+  @test.assert_eq(index.detach_any(9), false)
+  match index {
+    HashUnique(_, buckets) => @test.assert_eq(buckets.get(1), Some(0))
+    _ => @test.fail("lo must be the hash-unique quadrant")
+  }
+}
+
+///|
+test "Index::holds reports false when the bucket is missing" {
+  let t = wb_indexed_table()
+  let id = wb_insert_indexed(t, (1, 10, 7))
+  let hi = match t.indexes.get("hi") {
+    Some(index) => index
+    None => @test.fail("hi vanished")
+  }
+  let shared = match t.indexes.get("shared") {
+    Some(index) => index
+    None => @test.fail("shared vanished")
+  }
+  let shared_sorted = match t.indexes.get("shared_sorted") {
+    Some(index) => index
+    None => @test.fail("shared_sorted vanished")
+  }
+  @test.assert_eq(hi.holds(id.slot, 999), false)
+  @test.assert_eq(shared.holds(id.slot, 999), false)
+  @test.assert_eq(shared_sorted.holds(id.slot, 999), false)
+}
