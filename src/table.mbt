@@ -457,6 +457,31 @@ fn[K : Hash + Eq + Compare, V] Table::remove_impl(
 }
 
 ///|
+/// Snapshot every registered index's projection of the live record in `slot`,
+/// keyed by index name.
+///
+/// `modify` takes this **before** running the caller's closure. The closure can
+/// mutate a container the record shares with the caller, in which case the record
+/// still in the table is no longer a reliable source for the *old* keys — reading
+/// them after the closure would retarget the wrong bucket (docs/SPEC.md §3.2).
+/// A vacant slot yields an empty map; `modify_impl` aborts on it before consulting
+/// the map.
+fn[K, V] Table::projection_snapshot(
+  self : Table[K, V],
+  slot : Int32,
+) -> Map[String, K] {
+  let snapshot : Map[String, K] = Map([])
+  match self.rows[slot] {
+    Some(record) =>
+      for name, index in self.indexes {
+        snapshot.set(name, index.project()(record))
+      }
+    None => ()
+  }
+  snapshot
+}
+
+///|
 /// CHOKEPOINT (update): swap the record in `slot` for `value`, retargeting only
 /// the index buckets whose projected key really changes.
 ///
@@ -472,6 +497,7 @@ fn[K : Hash + Eq + Compare, V] Table::modify_impl(
   self : Table[K, V],
   slot : Int32,
   value : V,
+  old_keys : Map[String, K],
 ) -> V {
   let previous = match self.rows[slot] {
     Some(record) => record
@@ -480,9 +506,13 @@ fn[K : Hash + Eq + Compare, V] Table::modify_impl(
         "Table::modify_impl: slot " + slot.to_string() + " holds no live record",
       )
   }
-  for _, index in self.indexes {
+  for name, index in self.indexes {
     let project = index.project()
-    index.retarget(slot, project(previous), project(value)) |> ignore
+    let old_key = match old_keys.get(name) {
+      Some(key) => key
+      None => abort("Table::modify_impl: no old projection for index " + name)
+    }
+    index.retarget(slot, old_key, project(value)) |> ignore
   }
   self.rows[slot] = Some(value)
   self.version = self.version + 1
@@ -676,7 +706,8 @@ pub fn[K : Hash + Eq + Compare, V] Table::insert_or_replace(
       match self.find_conflict_excluding(value, slot) {
         Some(conflict) => Err({ conflict, record: value, })
         None => {
-          let displaced = self.modify_impl(slot, value)
+          let old_keys = self.projection_snapshot(slot)
+          let displaced = self.modify_impl(slot, value, old_keys)
           let id : RowId = { slot, gen: self.gens[slot], }
           Ok((id, Some(displaced)))
         }
@@ -704,7 +735,8 @@ pub fn[K : Hash + Eq + Compare, V] Table::update(
       match self.find_conflict_excluding(value, id.slot) {
         Some(conflict) => Err(Conflict(conflict, value))
         None => {
-          self.modify_impl(id.slot, value) |> ignore
+          let old_keys = self.projection_snapshot(id.slot)
+          self.modify_impl(id.slot, value, old_keys) |> ignore
           Ok(())
         }
       }
@@ -727,11 +759,14 @@ pub fn[K : Hash + Eq + Compare, V] Table::modify(
   match self.get(id) {
     None => Err(StaleHandle(id, None))
     Some(previous) => {
+      // Snapshot the *old* projections before the closure runs: it may mutate a
+      // container the record shares with the caller (docs/SPEC.md §3.2).
+      let old_keys = self.projection_snapshot(id.slot)
       let value = f(previous)
       match self.find_conflict_excluding(value, id.slot) {
         Some(conflict) => Err(Conflict(conflict, value))
         None => {
-          self.modify_impl(id.slot, value) |> ignore
+          self.modify_impl(id.slot, value, old_keys) |> ignore
           Ok(())
         }
       }

@@ -625,7 +625,16 @@ test "panic remove_impl aborts when the slot holds no live record" {
 /// away.
 test "panic modify_impl aborts when the slot holds no live record" {
   let (t, slot) = ag_fx_vacant_slot()
-  t.modify_impl(slot, 42) |> ignore
+  t.modify_impl(slot, 42, Map([])) |> ignore
+}
+
+///|
+/// Negative property: with the old-projection snapshot missing, the commit half
+/// would fall back to reading `previous` — the very record the closure may have
+/// mutated — instead of refusing the write.
+test "panic modify_impl aborts when the old projection snapshot is incomplete" {
+  let (t, id) = ag_one_record(AgHashUnique)
+  t.modify_impl(id.slot, 9, Map([])) |> ignore
 }
 
 // ---------------------------------------------------------------------------

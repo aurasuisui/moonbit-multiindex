@@ -1614,3 +1614,128 @@ test "unregister_index frees the name for a new projection" {
   @test.assert_eq(t.get_by("k", 20), Some((b, (2, 20))))
   assert_invariants(t)
 }
+
+// ---------------------------------------------------------------------------
+// M2 (v0.3.0): modify must snapshot old projections before the closure runs
+// ---------------------------------------------------------------------------
+
+///|
+/// A record whose indexed field lives inside a shared container. Mutating it in a
+/// `modify` closure also mutates the record the table still holds, which is why
+/// the old keys must be snapshotted before the closure is called.
+struct Rec {
+  tags : Array[Int32]
+  note : Int32
+}
+
+///|
+test "modify snapshots the old projection before the closure mutates shared state" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let id = insert_ok(t, { tags: [1], note: 0, })
+  match t.get_by("first", 1) {
+    Some(_) => ()
+    None => @test.fail("the old key must start out indexed")
+  }
+  match
+    t.modify(id, fn(r) {
+      r.tags[0] = 5
+      r
+    }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("modify must succeed when keys are free")
+  }
+  match t.get_by("first", 1) {
+    None => ()
+    Some(_) => @test.fail("the old key must stop matching")
+  }
+  match t.get_by("first", 5) {
+    Some((_, r)) => @test.assert_eq(r.tags[0], 5)
+    None => @test.fail("the new key must match")
+  }
+  assert_invariants(t)
+}
+
+///|
+test "modify touching an unindexed field leaves the bucket untouched" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let id = insert_ok(t, { tags: [1], note: 0, })
+  let before = t.index_stats("first")
+  match t.modify(id, fn(r) { { ..r, note: 7, } }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("modify must succeed when keys are free")
+  }
+  let after = t.index_stats("first")
+  @test.assert_eq(after.buckets, before.buckets)
+  @test.assert_eq(after.entries, before.entries)
+  match t.get_by("first", 1) {
+    Some((_, r)) => @test.assert_eq(r.note, 7)
+    None => @test.fail("an unindexed field change must keep the indexed key")
+  }
+  assert_invariants(t)
+}
+
+///|
+test "modify with a fresh record keeps the ordinary retarget behaviour" {
+  let t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32)] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("k", fn(p) { p.0 }))
+  let id = insert_ok(t, (1, 10))
+  match t.modify(id, fn(_) { (2, 20) }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("modify must succeed when keys are free")
+  }
+  match t.get_by("k", 1) {
+    None => ()
+    Some(_) => @test.fail("the old key must stop matching")
+  }
+  @test.assert_eq(t.get_by("k", 2), Some((id, (2, 20))))
+  @test.assert_eq(t.get(id), Some((2, 20)))
+  assert_invariants(t)
+}
+
+///|
+test "modify snapshots every index, not just the mutated one" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  assert_registered(t.register_non_unique("note", fn(r) { r.note }))
+  let id = insert_ok(t, { tags: [1], note: 10, })
+  match
+    t.modify(id, fn(r) {
+      r.tags[0] = 5
+      r
+    }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("modify must succeed when keys are free")
+  }
+  match t.get_by("first", 1) {
+    None => ()
+    Some(_) => @test.fail("the old key must stop matching")
+  }
+  match t.get_by("first", 5) {
+    Some(_) => ()
+    None => @test.fail("the new key must match")
+  }
+  match t.get_by("note", 10) {
+    Some((_, r)) => @test.assert_eq(r.tags[0], 5)
+    None => @test.fail("the untouched index must keep its key")
+  }
+  assert_invariants(t)
+}
+
+///|
+test "modify with unchanged projected keys does not rebuild the bucket" {
+  let t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32)] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("k", fn(p) { p.0 }))
+  let id = insert_ok(t, (1, 10))
+  let before = t.index_stats("k")
+  match t.modify(id, fn(p) { (p.0, 99) }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("modify must succeed when keys are free")
+  }
+  let after = t.index_stats("k")
+  @test.assert_eq(after.buckets, before.buckets)
+  @test.assert_eq(after.entries, before.entries)
+  @test.assert_eq(t.get_by("k", 1), Some((id, (1, 99))))
+  assert_invariants(t)
+}
