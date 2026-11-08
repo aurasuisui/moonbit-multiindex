@@ -400,15 +400,15 @@ test "fast path: an update with unchanged keys performs no bucket work" {
 }
 
 ///|
-test "fast path: a sabotaged bucket proves the equal-key update never consults it" {
+test "fast path: an equal-key update leaves a foreign bucket alone" {
   let t = wb_indexed_table()
   let id = wb_insert_indexed(t, (1, 10, 7))
   check_invariants(t)
-  // sabotage: empty the "lo" bucket behind the table\u2019s back. A slow path would
-  // call `Index::remove` on it — which aborts on a missing bucket — or repopulate
-  // it through `add`; the fast path must leave it exactly as it was.
+  // sabotage: add a foreign entry under another key. The equal-key fast path only
+  // checks membership in bucket(1); it must not scan the other buckets and repair
+  // this one (that is the slow path's job, and only on a miss).
   match t.indexes.get("lo") {
-    Some(HashUnique(_, buckets)) => buckets.clear()
+    Some(HashUnique(_, buckets)) => buckets.set(99, 0)
     _ => @test.fail("the index vanished")
   }
   match t.update(id, (1, 10, 7)) {
@@ -417,7 +417,10 @@ test "fast path: a sabotaged bucket proves the equal-key update never consults i
       @test.fail("rewriting a record with its own keys is not a conflict")
   }
   match t.indexes.get("lo") {
-    Some(index) => @test.assert_eq(index.slots(1).length(), 0)
+    Some(index) => {
+      @test.assert_eq(index.slots(1).length(), 1)
+      @test.assert_eq(index.slots(99).length(), 1)
+    }
     _ => @test.fail("the index vanished")
   }
 }

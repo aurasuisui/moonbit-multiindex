@@ -439,7 +439,12 @@ fn[K : Hash + Eq + Compare, V] Table::remove_impl(
   }
   for _, index in self.indexes {
     let key = index.project()(value)
-    index.remove(slot, key)
+    // Tolerant removal: a record mutated outside the API no longer projects to
+    // the bucket that still holds it. Only then does the slow scan run; the
+    // normal path never reaches `detach_any` (docs/SPEC.md §3.2).
+    if !index.remove(slot, key) {
+      index.detach_any(slot) |> ignore
+    }
   }
   self.rows[slot] = None
   if self.gens[slot] < GEN_MAX {

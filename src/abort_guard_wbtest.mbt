@@ -59,15 +59,6 @@ fn[T] ag_some(value : T?) -> Bool {
 }
 
 ///|
-/// The four index quadrants, as a fixture selector.
-priv enum AgQuadrant {
-  AgHashUnique
-  AgSortedUnique
-  AgHashMulti
-  AgSortedMulti
-}
-
-///|
 /// Insert value, failing if a table the fixture just built refuses the write.
 fn ag_insert(t : Table[Int32, Int32], value : Int32) -> RowId raise {
   match t.insert(value) {
@@ -77,22 +68,14 @@ fn ag_insert(t : Table[Int32, Int32], value : Int32) -> RowId raise {
 }
 
 ///|
-/// A table with exactly one live record (7, slot 0) and one index u over its key,
-/// in the given quadrant.
+/// A table with exactly one live record (7, slot 0) and one hash-unique index u
+/// over its key.
 ///
-/// This is the legal state every Index::remove fixture starts from; each caller
-/// then sabotages exactly one thing. check_invariants proves the table really is
-/// legal before the sabotage, so no guard can be reached through an
-/// already-broken table.
-fn ag_one_record(quadrant : AgQuadrant) -> (Table[Int32, Int32], RowId) raise {
+/// check_invariants proves the table is legal before the caller sabotages it, so a
+/// guard can never be reached through an already-broken table.
+fn ag_one_record() -> (Table[Int32, Int32], RowId) raise {
   let t : Table[Int32, Int32] = Table::new()
-  let registered = match quadrant {
-    AgHashUnique => t.register_unique("u", fn(value) { value })
-    AgSortedUnique => t.register_unique_ordered("u", fn(value) { value })
-    AgHashMulti => t.register_non_unique("u", fn(value) { value })
-    AgSortedMulti => t.register_non_unique_ordered("u", fn(value) { value })
-  }
-  match registered {
+  match t.register_unique("u", fn(value) { value }) {
     Ok(_) => ()
     Err(_) => @test.fail("fixture: registration on an empty table must succeed")
   }
@@ -105,289 +88,6 @@ fn ag_one_record(quadrant : AgQuadrant) -> (Table[Int32, Int32], RowId) raise {
   @test.assert_eq(t.indexes.length(), 1)
   @test.assert_eq(ag_some(t.get(id)), true)
   (t, id)
-}
-
-///|
-/// Slot the unique bucket for key currently names (unique quadrants only).
-fn ag_holder(t : Table[Int32, Int32], key : Int32) -> Int32? raise {
-  match t.indexes.get("u") {
-    Some(index) => index.holder(key)
-    None => @test.fail("fixture: index u vanished")
-  }
-}
-
-///|
-/// Slots stored under key, ascending: the quadrant-agnostic view of a bucket.
-fn ag_slots(t : Table[Int32, Int32], key : Int32) -> Array[Int32] raise {
-  match t.indexes.get("u") {
-    Some(index) => index.slots(key)
-    None => @test.fail("fixture: index u vanished")
-  }
-}
-
-///|
-/// Whether a MULTI bucket for key still exists, whatever it holds.
-fn ag_has_multi_bucket(t : Table[Int32, Int32], key : Int32) -> Bool raise {
-  match t.indexes.get("u") {
-    Some(HashMulti(_, buckets)) => ag_some(buckets.get(key))
-    Some(SortedMulti(_, buckets)) => ag_some(buckets.get(key))
-    _ => @test.fail("fixture: u must be one of the multi quadrants here")
-  }
-}
-
-///|
-/// Whether a MULTI bucket for key holds slot.
-fn ag_multi_bucket_holds(
-  t : Table[Int32, Int32],
-  key : Int32,
-  slot : Int32,
-) -> Bool raise {
-  match t.indexes.get("u") {
-    Some(HashMulti(_, buckets)) =>
-      match buckets.get(key) {
-        Some(set) => set.contains(slot)
-        None => false
-      }
-    Some(SortedMulti(_, buckets)) =>
-      match buckets.get(key) {
-        Some(set) => set.contains(slot)
-        None => false
-      }
-    _ => @test.fail("fixture: u must be one of the multi quadrants here")
-  }
-}
-
-// ---------------------------------------------------------------------------
-// index.mbt: Index::remove refuses a bucket that disagrees with the row
-// ---------------------------------------------------------------------------
-
-///|
-/// Hash-unique bucket for key 7 names slot 9, not the record's own slot 0.
-fn ag_fx_hash_unique_foreign_slot() -> (Table[Int32, Int32], RowId) raise {
-  let (t, id) = ag_one_record(AgHashUnique)
-  match ag_holder(t, 7) {
-    Some(slot) => @test.assert_eq(slot, 0)
-    None => @test.fail("fixture: the unique bucket must hold the record's slot")
-  }
-  // sabotage: the bucket names a slot that is not the record's
-  match t.indexes.get("u") {
-    Some(HashUnique(_, buckets)) => buckets.set(7, 9)
-    _ => @test.fail("fixture: u must be the hash-unique quadrant")
-  }
-  match ag_holder(t, 7) {
-    Some(slot) => @test.assert_eq(slot, 9)
-    None => @test.fail("fixture: the sabotaged bucket must still exist")
-  }
-  @test.assert_eq(t.len(), 1)
-  @test.assert_eq(ag_some(t.get(id)), true)
-  (t, id)
-}
-
-///|
-/// Negative property (framework): with the guard gone, remove would delete the
-/// foreign bucket, return Some 7 and leak slot 9's entry, so this test would fail
-/// with "panic is expected".
-test "panic Index::remove aborts when a hash-unique bucket names a foreign slot" {
-  let (t, id) = ag_fx_hash_unique_foreign_slot()
-  t.remove(id) |> ignore
-}
-
-///|
-/// Hash-unique bucket for key 7 is gone although the record is still live.
-fn ag_fx_hash_unique_missing() -> (Table[Int32, Int32], RowId) raise {
-  let (t, id) = ag_one_record(AgHashUnique)
-  match ag_holder(t, 7) {
-    Some(slot) => @test.assert_eq(slot, 0)
-    None => @test.fail("fixture: the unique bucket must hold the record's slot")
-  }
-  // sabotage: the bucket is gone, the record is not
-  match t.indexes.get("u") {
-    Some(HashUnique(_, buckets)) => buckets.remove(7)
-    _ => @test.fail("fixture: u must be the hash-unique quadrant")
-  }
-  @test.assert_eq(ag_none(ag_holder(t, 7)), true)
-  @test.assert_eq(ag_slots(t, 7).length(), 0)
-  @test.assert_eq(t.len(), 1)
-  @test.assert_eq(ag_some(t.get(id)), true)
-  (t, id)
-}
-
-///|
-/// Negative property (framework): with the guard gone, remove would silently
-/// succeed and leave the reverse lookup lying, so this test would fail with
-/// "panic is expected".
-test "panic Index::remove aborts when a hash-unique bucket is missing" {
-  let (t, id) = ag_fx_hash_unique_missing()
-  t.remove(id) |> ignore
-}
-
-///|
-/// Sorted-unique bucket for key 7 names slot 9.
-fn ag_fx_sorted_unique_foreign_slot() -> (Table[Int32, Int32], RowId) raise {
-  let (t, id) = ag_one_record(AgSortedUnique)
-  match ag_holder(t, 7) {
-    Some(slot) => @test.assert_eq(slot, 0)
-    None => @test.fail("fixture: the unique bucket must hold the record's slot")
-  }
-  match t.indexes.get("u") {
-    Some(SortedUnique(_, buckets)) => buckets.set(7, 9)
-    _ => @test.fail("fixture: u must be the sorted-unique quadrant")
-  }
-  match ag_holder(t, 7) {
-    Some(slot) => @test.assert_eq(slot, 9)
-    None => @test.fail("fixture: the sabotaged bucket must still exist")
-  }
-  @test.assert_eq(t.len(), 1)
-  @test.assert_eq(ag_some(t.get(id)), true)
-  (t, id)
-}
-
-///|
-/// Negative property (framework): a deleted guard leaves the foreign bucket in
-/// the sorted map and remove returns Some 7, so this test fails with
-/// "panic is expected".
-test "panic Index::remove aborts when a sorted-unique bucket names a foreign slot" {
-  let (t, id) = ag_fx_sorted_unique_foreign_slot()
-  t.remove(id) |> ignore
-}
-
-///|
-/// Sorted-unique bucket for key 7 is gone although the record is still live.
-fn ag_fx_sorted_unique_missing() -> (Table[Int32, Int32], RowId) raise {
-  let (t, id) = ag_one_record(AgSortedUnique)
-  match ag_holder(t, 7) {
-    Some(slot) => @test.assert_eq(slot, 0)
-    None => @test.fail("fixture: the unique bucket must hold the record's slot")
-  }
-  match t.indexes.get("u") {
-    Some(SortedUnique(_, buckets)) => buckets.remove(7)
-    _ => @test.fail("fixture: u must be the sorted-unique quadrant")
-  }
-  @test.assert_eq(ag_none(ag_holder(t, 7)), true)
-  @test.assert_eq(ag_slots(t, 7).length(), 0)
-  @test.assert_eq(t.len(), 1)
-  @test.assert_eq(ag_some(t.get(id)), true)
-  (t, id)
-}
-
-///|
-/// Negative property (framework): without the guard the removal succeeds although
-/// the index has nothing to drop, so this test fails with "panic is expected".
-test "panic Index::remove aborts when a sorted-unique bucket is missing" {
-  let (t, id) = ag_fx_sorted_unique_missing()
-  t.remove(id) |> ignore
-}
-
-///|
-/// Hash-multi bucket for key 7 exists but no longer lists the record's slot 0.
-fn ag_fx_hash_multi_membership() -> (Table[Int32, Int32], RowId) raise {
-  let (t, id) = ag_one_record(AgHashMulti)
-  @test.assert_eq(ag_multi_bucket_holds(t, 7, 0), true)
-  @test.assert_eq(ag_slots(t, 7).length(), 1)
-  // sabotage: the bucket stays, only its membership is broken
-  match t.indexes.get("u") {
-    Some(HashMulti(_, buckets)) =>
-      match buckets.get(7) {
-        Some(set) => set.remove(0)
-        None => @test.fail("fixture: the multi bucket must exist")
-      }
-    _ => @test.fail("fixture: u must be the hash-multi quadrant")
-  }
-  @test.assert_eq(ag_has_multi_bucket(t, 7), true)
-  @test.assert_eq(ag_multi_bucket_holds(t, 7, 0), false)
-  @test.assert_eq(ag_slots(t, 7).length(), 0)
-  @test.assert_eq(t.len(), 1)
-  @test.assert_eq(ag_some(t.get(id)), true)
-  (t, id)
-}
-
-///|
-/// Negative property (framework): a deleted guard would silently leave the record
-/// in no bucket at all and return Some 7, so this test fails with
-/// "panic is expected".
-test "panic Index::remove aborts when a hash-multi bucket does not hold the slot" {
-  let (t, id) = ag_fx_hash_multi_membership()
-  t.remove(id) |> ignore
-}
-
-///|
-/// Hash-multi bucket for key 7 is gone although the record is still live.
-fn ag_fx_hash_multi_missing() -> (Table[Int32, Int32], RowId) raise {
-  let (t, id) = ag_one_record(AgHashMulti)
-  @test.assert_eq(ag_multi_bucket_holds(t, 7, 0), true)
-  match t.indexes.get("u") {
-    Some(HashMulti(_, buckets)) => buckets.remove(7)
-    _ => @test.fail("fixture: u must be the hash-multi quadrant")
-  }
-  @test.assert_eq(ag_has_multi_bucket(t, 7), false)
-  @test.assert_eq(ag_slots(t, 7).length(), 0)
-  @test.assert_eq(t.len(), 1)
-  @test.assert_eq(ag_some(t.get(id)), true)
-  (t, id)
-}
-
-///|
-/// Negative property (framework): without the guard the removal succeeds and the
-/// missing reverse entry stays missing, so this test fails with
-/// "panic is expected".
-test "panic Index::remove aborts when a hash-multi bucket is missing" {
-  let (t, id) = ag_fx_hash_multi_missing()
-  t.remove(id) |> ignore
-}
-
-///|
-/// Sorted-multi bucket for key 7 exists but no longer lists slot 0.
-fn ag_fx_sorted_multi_membership() -> (Table[Int32, Int32], RowId) raise {
-  let (t, id) = ag_one_record(AgSortedMulti)
-  @test.assert_eq(ag_multi_bucket_holds(t, 7, 0), true)
-  @test.assert_eq(ag_slots(t, 7).length(), 1)
-  match t.indexes.get("u") {
-    Some(SortedMulti(_, buckets)) =>
-      match buckets.get(7) {
-        Some(set) => set.remove(0)
-        None => @test.fail("fixture: the multi bucket must exist")
-      }
-    _ => @test.fail("fixture: u must be the sorted-multi quadrant")
-  }
-  @test.assert_eq(ag_has_multi_bucket(t, 7), true)
-  @test.assert_eq(ag_multi_bucket_holds(t, 7, 0), false)
-  @test.assert_eq(ag_slots(t, 7).length(), 0)
-  @test.assert_eq(t.len(), 1)
-  @test.assert_eq(ag_some(t.get(id)), true)
-  (t, id)
-}
-
-///|
-/// Negative property (framework): a deleted guard would leave the bucket without
-/// the record and return Some 7, so this test fails with "panic is expected".
-test "panic Index::remove aborts when a sorted-multi bucket does not hold the slot" {
-  let (t, id) = ag_fx_sorted_multi_membership()
-  t.remove(id) |> ignore
-}
-
-///|
-/// Sorted-multi bucket for key 7 is gone although the record is still live.
-fn ag_fx_sorted_multi_missing() -> (Table[Int32, Int32], RowId) raise {
-  let (t, id) = ag_one_record(AgSortedMulti)
-  @test.assert_eq(ag_multi_bucket_holds(t, 7, 0), true)
-  match t.indexes.get("u") {
-    Some(SortedMulti(_, buckets)) => buckets.remove(7)
-    _ => @test.fail("fixture: u must be the sorted-multi quadrant")
-  }
-  @test.assert_eq(ag_has_multi_bucket(t, 7), false)
-  @test.assert_eq(ag_slots(t, 7).length(), 0)
-  @test.assert_eq(t.len(), 1)
-  @test.assert_eq(ag_some(t.get(id)), true)
-  (t, id)
-}
-
-///|
-/// Negative property (framework): without the guard the removal succeeds although
-/// the sorted map has no bucket to drop, so this test fails with
-/// "panic is expected".
-test "panic Index::remove aborts when a sorted-multi bucket is missing" {
-  let (t, id) = ag_fx_sorted_multi_missing()
-  t.remove(id) |> ignore
 }
 
 // ---------------------------------------------------------------------------
@@ -633,7 +333,7 @@ test "panic modify_impl aborts when the slot holds no live record" {
 /// would fall back to reading `previous` — the very record the closure may have
 /// mutated — instead of refusing the write.
 test "panic modify_impl aborts when the old projection snapshot is incomplete" {
-  let (t, id) = ag_one_record(AgHashUnique)
+  let (t, id) = ag_one_record()
   t.modify_impl(id.slot, 9, Map([])) |> ignore
 }
 
@@ -742,19 +442,6 @@ test "panic unregister_index makes iter_by abort on the removed name" {
 // fixtures are rebuilt here, under ordinary names. If any assertion inside a
 // builder stops holding, one of these tests fails and the suite is red.
 // ---------------------------------------------------------------------------
-
-///|
-/// Rebuild every Index::remove fixture.
-test "every Index::remove fixture builds the state its guard describes" {
-  ag_fx_hash_unique_foreign_slot() |> ignore
-  ag_fx_hash_unique_missing() |> ignore
-  ag_fx_sorted_unique_foreign_slot() |> ignore
-  ag_fx_sorted_unique_missing() |> ignore
-  ag_fx_hash_multi_membership() |> ignore
-  ag_fx_hash_multi_missing() |> ignore
-  ag_fx_sorted_multi_membership() |> ignore
-  ag_fx_sorted_multi_missing() |> ignore
-}
 
 ///|
 /// Rebuild the cursor fixture.

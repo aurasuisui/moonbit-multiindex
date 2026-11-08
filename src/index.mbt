@@ -126,105 +126,127 @@ fn[K : Hash + Eq + Compare, V] Index::add(
 }
 
 ///|
-/// Drop `slot` from the bucket of `key`, removing a bucket that becomes empty.
+/// Drop `slot` from the bucket of `key`, returning whether an entry was removed.
 ///
-/// The bucket must exist and (for a unique quadrant) must name this very slot:
-/// anything else means an upstream invariant is already broken, and a silent
-/// no-op would hide it, so this aborts instead.
+/// This is the **tolerant** form used by the removal path. A missing bucket, or a
+/// bucket that does not list `slot`, means the index is already inconsistent
+/// (docs/SPEC.md §3.2 records the mutable-record caveat); the caller can then fall
+/// back to `detach_any`. It is not a silent no-op: the caller decides what to do
+/// with `false`.
 fn[K : Hash + Eq + Compare, V] Index::remove(
   self : Index[K, V],
   slot : Int32,
   key : K,
-) -> Unit {
-  let index_name = self.name()
+) -> Bool {
   match self {
     HashUnique(_, buckets) =>
       match buckets.get(key) {
-        Some(holder) => {
-          if holder != slot {
-            abort(
-              "Index::remove(" +
-              index_name +
-              "): unique bucket for a key holds slot " +
-              holder.to_string() +
-              ", not " +
-              slot.to_string(),
-            )
+        Some(holder) =>
+          if holder == slot {
+            buckets.remove(key)
+            true
+          } else {
+            false
           }
-          buckets.remove(key)
-        }
-        None =>
-          abort(
-            "Index::remove(" +
-            index_name +
-            "): no unique bucket for the removed record",
-          )
+        None => false
       }
     SortedUnique(_, buckets) =>
       match buckets.get(key) {
-        Some(holder) => {
-          if holder != slot {
-            abort(
-              "Index::remove(" +
-              index_name +
-              "): unique bucket for a key holds slot " +
-              holder.to_string() +
-              ", not " +
-              slot.to_string(),
-            )
+        Some(holder) =>
+          if holder == slot {
+            buckets.remove(key)
+            true
+          } else {
+            false
           }
-          buckets.remove(key)
-        }
-        None =>
-          abort(
-            "Index::remove(" +
-            index_name +
-            "): no unique bucket for the removed record",
-          )
+        None => false
       }
     HashMulti(_, buckets) =>
       match buckets.get(key) {
-        Some(set) => {
-          if !set.contains(slot) {
-            abort(
-              "Index::remove(" +
-              index_name +
-              "): multi bucket does not hold the removed slot",
-            )
+        Some(set) =>
+          if set.contains(slot) {
+            set.remove(slot)
+            if set.is_empty() {
+              buckets.remove(key)
+            }
+            true
+          } else {
+            false
           }
-          set.remove(slot)
-          if set.is_empty() {
-            buckets.remove(key)
-          }
-        }
-        None =>
-          abort(
-            "Index::remove(" +
-            index_name +
-            "): no multi bucket for the removed record",
-          )
+        None => false
       }
     SortedMulti(_, buckets) =>
       match buckets.get(key) {
-        Some(set) => {
-          if !set.contains(slot) {
-            abort(
-              "Index::remove(" +
-              index_name +
-              "): multi bucket does not hold the removed slot",
-            )
+        Some(set) =>
+          if set.contains(slot) {
+            set.remove(slot)
+            if set.is_empty() {
+              buckets.remove(key)
+            }
+            true
+          } else {
+            false
           }
-          set.remove(slot)
-          if set.is_empty() {
-            buckets.remove(key)
-          }
-        }
-        None =>
-          abort(
-            "Index::remove(" +
-            index_name +
-            "): no multi bucket for the removed record",
-          )
+        None => false
+      }
+  }
+}
+
+///|
+/// Find `slot` in **any** bucket of this index and drop that entry, returning
+/// whether one was found.
+///
+/// This is the slow path: it materializes the buckets, and it is only called after
+/// the tolerant `remove(slot, key)` reported `false` — i.e. when the record's
+/// current projection no longer names a live bucket because the record was mutated
+/// outside `update`/`modify`. The normal path never reaches it.
+fn[K : Hash + Eq + Compare, V] Index::detach_any(
+  self : Index[K, V],
+  slot : Int32,
+) -> Bool {
+  let buckets = self.buckets()
+  let mut i = 0
+  while i < buckets.length() {
+    let (key, slots) = buckets[i]
+    if slots.contains(slot) {
+      self.remove(slot, key) |> ignore
+      return true
+    }
+    i = i + 1
+  }
+  false
+}
+
+///|
+/// Whether `slot` is the entry stored under `key` in this index.
+///
+/// Allocation-free: it is the membership check behind the equal-key fast path of
+/// `retarget` (a materialized `slots(key)` would defeat the point).
+fn[K : Hash + Eq + Compare, V] Index::holds(
+  self : Index[K, V],
+  slot : Int32,
+  key : K,
+) -> Bool {
+  match self {
+    HashUnique(_, buckets) =>
+      match buckets.get(key) {
+        Some(holder) => holder == slot
+        None => false
+      }
+    SortedUnique(_, buckets) =>
+      match buckets.get(key) {
+        Some(holder) => holder == slot
+        None => false
+      }
+    HashMulti(_, buckets) =>
+      match buckets.get(key) {
+        Some(set) => set.contains(slot)
+        None => false
+      }
+    SortedMulti(_, buckets) =>
+      match buckets.get(key) {
+        Some(set) => set.contains(slot)
+        None => false
       }
   }
 }
@@ -233,11 +255,13 @@ fn[K : Hash + Eq + Compare, V] Index::remove(
 /// Point `slot` at `new_key` instead of `old_key`, and report whether any bucket
 /// moved.
 ///
-/// **Equal keys are the fast path** of docs/SPEC.md §5 rule 3: the bucket already
-/// names this slot and the record's remaining fields are not indexed, so nothing
-/// is deleted and re-added — no intermediate state exists to observe. Returns
-/// `false` exactly in that case (the white-box tests observe this with a key
-/// type that counts hashing).
+/// **Equal keys stay the fast path** (docs/SPEC.md §5 rule 3) only after the index
+/// confirms that `slot` really sits in `bucket(old_key)`. If it does, nothing is
+/// deleted and re-added — no intermediate state exists to observe. If the bucket is
+/// missing because the record was mutated outside `update`/`modify`, the stale
+/// entry is found by `detach_any` and the new key is added: the repair is total
+/// instead of a panic. Unequal keys use the tolerant `remove` and fall back to
+/// `detach_any` on failure; both scans run only on those failure branches.
 fn[K : Hash + Eq + Compare, V] Index::retarget(
   self : Index[K, V],
   slot : Int32,
@@ -245,9 +269,16 @@ fn[K : Hash + Eq + Compare, V] Index::retarget(
   new_key : K,
 ) -> Bool {
   if old_key == new_key {
-    return false
+    if self.holds(slot, old_key) {
+      return false
+    }
+    self.detach_any(slot) |> ignore
+    self.add(slot, new_key)
+    return true
   }
-  self.remove(slot, old_key)
+  if !self.remove(slot, old_key) {
+    self.detach_any(slot) |> ignore
+  }
   self.add(slot, new_key)
   true
 }

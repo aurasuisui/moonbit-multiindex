@@ -1739,3 +1739,124 @@ test "modify with unchanged projected keys does not rebuild the bucket" {
   @test.assert_eq(t.get_by("k", 1), Some((id, (1, 99))))
   assert_invariants(t)
 }
+
+// ---------------------------------------------------------------------------
+// M3 (v0.3.0): remove / swap_remove / update tolerate records mutated outside
+// ---------------------------------------------------------------------------
+
+///|
+test "remove tolerates a record mutated outside the API" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let id = insert_ok(t, { tags: [1], note: 0, })
+  match t.get(id) {
+    Some(r) => r.tags[0] = 5
+    None => @test.fail("the fixture record must exist")
+  }
+  // The bucket still names key 1, but the record now projects 5.
+  match t.remove(id) {
+    Some(r) => @test.assert_eq(r.tags[0], 5)
+    None => @test.fail("remove must return the record despite the stale bucket")
+  }
+  @test.assert_eq(t.len(), 0)
+  assert_invariants(t)
+}
+
+///|
+test "swap_remove tolerates a record mutated outside the API" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let a = insert_ok(t, { tags: [1], note: 0, })
+  let b = insert_ok(t, { tags: [2], note: 0, })
+  match t.get(a) {
+    Some(r) => r.tags[0] = 5
+    None => @test.fail("the fixture record must exist")
+  }
+  match t.swap_remove(a) {
+    Some(r) => @test.assert_eq(r.tags[0], 5)
+    None =>
+      @test.fail("swap_remove must return the record despite the stale bucket")
+  }
+  @test.assert_eq(t.len(), 1)
+  match t.get(b) {
+    Some(r) => @test.assert_eq(r.tags[0], 2)
+    None => @test.fail("the surviving record must keep its handle")
+  }
+  assert_invariants(t)
+}
+
+///|
+test "update tolerates a record mutated outside the API" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  assert_registered(t.register_non_unique("note", fn(r) { r.note }))
+  let id = insert_ok(t, { tags: [1], note: 10, })
+  match t.get(id) {
+    Some(r) => r.tags[0] = 5
+    None => @test.fail("the fixture record must exist")
+  }
+  match t.update(id, { tags: [7], note: 20, }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("update must succeed despite the stale bucket")
+  }
+  match t.get_by("first", 1) {
+    None => ()
+    Some(_) => @test.fail("the stale bucket key must be gone")
+  }
+  match t.get_by("first", 7) {
+    Some(_) => ()
+    None => @test.fail("the new key must be indexed")
+  }
+  match t.get_by("note", 20) {
+    Some(_) => ()
+    None => @test.fail("the untouched index must have moved to its new key")
+  }
+  assert_invariants(t)
+}
+
+///|
+test "modify tolerates a record mutated outside the API" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let id = insert_ok(t, { tags: [1], note: 10, })
+  match t.get(id) {
+    Some(r) => r.tags[0] = 5
+    None => @test.fail("the fixture record must exist")
+  }
+  // Same projected key as the mutated record: the equal-key branch must notice
+  // the bucket is missing and repair it instead of taking the untouched fast path.
+  match t.modify(id, fn(_) { { tags: [5], note: 20, } }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("modify must succeed despite the stale bucket")
+  }
+  match t.get_by("first", 1) {
+    None => ()
+    Some(_) => @test.fail("the stale bucket key must be gone")
+  }
+  match t.get_by("first", 5) {
+    Some(_) => ()
+    None => @test.fail("the repaired key must be indexed")
+  }
+  assert_invariants(t)
+}
+
+///|
+test "remove tolerates stale entries in all four quadrants" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("uh", fn(r) { r.tags[0] }))
+  assert_registered(t.register_unique_ordered("us", fn(r) { r.tags[0] }))
+  assert_registered(t.register_non_unique("mh", fn(r) { r.note }))
+  assert_registered(t.register_non_unique_ordered("ms", fn(r) { r.note }))
+  let id = insert_ok(t, { tags: [1], note: 10, })
+  match t.get(id) {
+    Some(r) => r.tags[0] = 5
+    None => @test.fail("the fixture record must exist")
+  }
+  match t.remove(id) {
+    Some(r) => @test.assert_eq(r.tags[0], 5)
+    None =>
+      @test.fail("remove must return the record despite four stale buckets")
+  }
+  @test.assert_eq(t.len(), 0)
+  assert_invariants(t)
+}
