@@ -1529,3 +1529,88 @@ test "index_entries lists every index with its quadrant, in name order" {
   @test.assert_eq(t.index_stats("ab").entries, 2)
   assert_invariants(t)
 }
+
+// ---------------------------------------------------------------------------
+// M1 (v0.3.0): unregister_index — removing an index must touch nothing else
+// ---------------------------------------------------------------------------
+
+///|
+test "unregister_index drops only the registry entry" {
+  let t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32)] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("id", fn(p) { p.0 }))
+  assert_registered(t.register_non_unique("team", fn(p) { p.1 }))
+  let a = insert_ok(t, (1, 10))
+  let b = insert_ok(t, (2, 10))
+  let c = insert_ok(t, (3, 20))
+  let before = t.iter().to_array()
+  let len_before = t.len()
+  // `iter_by` snapshotted the bucket when it was created; removing the index must
+  // not bump `version`, so the iterator still drains instead of aborting.
+  let team_iter = t.iter_by("team", 10)
+  @test.assert_eq(t.unregister_index("team"), true)
+  @test.assert_eq(t.has_index("team"), false)
+  @test.assert_eq(t.index_names(), ["id"])
+  @test.assert_eq(t.len(), len_before)
+  assert_values(t.iter().to_array(), before)
+  let drained = team_iter.to_array()
+  @test.assert_eq(drained.length(), 2)
+  @test.assert_eq(drained[0].0, a)
+  @test.assert_eq(drained[1].0, b)
+  @test.assert_eq(t.get_by("id", 1), Some((a, (1, 10))))
+  @test.assert_eq(t.get_by("id", 2), Some((b, (2, 10))))
+  @test.assert_eq(t.get_by("id", 3), Some((c, (3, 20))))
+  assert_invariants(t)
+}
+
+///|
+test "unregister_index is idempotent and answers false for unknown names" {
+  let t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32)] = @aurasuisui/multiindex.Table::new()
+  // empty table, unknown name: false, not abort
+  @test.assert_eq(t.unregister_index("ghost"), false)
+  assert_registered(t.register_unique("id", fn(p) { p.0 }))
+  let _ = insert_ok(t, (1, 10))
+  @test.assert_eq(t.unregister_index("id"), true)
+  let before = t.iter().to_array()
+  // idempotent: the second removal finds nothing and changes nothing
+  @test.assert_eq(t.unregister_index("id"), false)
+  @test.assert_eq(t.unregister_index("ghost"), false)
+  @test.assert_eq(t.len(), 1)
+  @test.assert_eq(t.has_index("id"), false)
+  assert_values(t.iter().to_array(), before)
+  assert_invariants(t)
+}
+
+///|
+test "unregister_index releases a unique constraint" {
+  let t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32)] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("id", fn(p) { p.0 }))
+  let a = insert_ok(t, (1, 10))
+  match t.insert((1, 20)) {
+    Ok(_) => @test.fail("the unique index must reject a duplicate key")
+    Err(rejected) => @test.assert_eq(rejected.record, (1, 20))
+  }
+  @test.assert_eq(t.unregister_index("id"), true)
+  // the constraint went with the index: the same key is now legal
+  let b = insert_ok(t, (1, 20))
+  @test.assert_eq(t.len(), 2)
+  @test.assert_eq(t.get(a), Some((1, 10)))
+  @test.assert_eq(t.get(b), Some((1, 20)))
+  assert_invariants(t)
+}
+
+///|
+test "unregister_index frees the name for a new projection" {
+  let t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32)] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("k", fn(p) { p.0 }))
+  let a = insert_ok(t, (1, 10))
+  let b = insert_ok(t, (2, 20))
+  @test.assert_eq(t.get_by("k", 1), Some((a, (1, 10))))
+  @test.assert_eq(t.unregister_index("k"), true)
+  // same name, new projection: registration backfills, old keys stop matching.
+  assert_registered(t.register_unique("k", fn(p) { p.1 }))
+  @test.assert_eq(t.has_index("k"), true)
+  @test.assert_eq(t.get_by("k", 1), None)
+  @test.assert_eq(t.get_by("k", 10), Some((a, (1, 10))))
+  @test.assert_eq(t.get_by("k", 20), Some((b, (2, 20))))
+  assert_invariants(t)
+}

@@ -691,6 +691,44 @@ test "panic register_non_unique_ordered aborts when order names a slot with no r
 }
 
 // ---------------------------------------------------------------------------
+// table_api.mbt: unregister_index drops the name, so lookups become unknown
+// ---------------------------------------------------------------------------
+
+///|
+/// A legal one-record table whose only index was removed: `get_by` / `iter_by`
+/// through "u" now reach the unknown-index guard (the explicit exception is only
+/// for `unregister_index` itself).
+fn ag_fx_unregistered_lookup() -> (Table[Int32, Int32], RowId) raise {
+  let t : Table[Int32, Int32] = Table::new()
+  match t.register_unique("u", fn(value) { value }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("fixture: registration on an empty table must succeed")
+  }
+  let id = ag_insert(t, 7)
+  check_invariants(t)
+  @test.assert_eq(t.unregister_index("u"), true)
+  @test.assert_eq(t.has_index("u"), false)
+  @test.assert_eq(t.len(), 1)
+  @test.assert_eq(ag_some(t.get(id)), true)
+  check_invariants(t)
+  (t, id)
+}
+
+///|
+/// Negative property: without the unknown-name guard, this would answer `None`.
+test "panic unregister_index makes get_by abort on the removed name" {
+  let (t, _id) = ag_fx_unregistered_lookup()
+  t.get_by("u", 7) |> ignore
+}
+
+///|
+/// Negative property: without the unknown-name guard, this would iterate nothing.
+test "panic unregister_index makes iter_by abort on the removed name" {
+  let (t, _id) = ag_fx_unregistered_lookup()
+  t.iter_by("u", 7).to_array() |> ignore
+}
+
+// ---------------------------------------------------------------------------
 // Companion executions: a panic test cannot fail on a broken fixture, so the
 // fixtures are rebuilt here, under ordinary names. If any assertion inside a
 // builder stops holding, one of these tests fails and the suite is red.
@@ -728,4 +766,13 @@ test "every chokepoint fixture builds the state its guard describes" {
 /// Rebuild the registration fixture.
 test "every registration fixture puts a dangling slot in order" {
   ag_fx_dangling_order_entry() |> ignore
+}
+
+///|
+/// Rebuild the unregistered-lookup fixture.
+test "every unregistered-lookup fixture really removes the index" {
+  let (t, id) = ag_fx_unregistered_lookup()
+  @test.assert_eq(t.index_names().length(), 0)
+  @test.assert_eq(t.len(), 1)
+  @test.assert_eq(ag_some(t.get(id)), true)
 }

@@ -382,6 +382,36 @@ pub fn[K, V] Table::has_index(self : Table[K, V], name : String) -> Bool {
   self.indexes.contains(name)
 }
 
+///|
+/// Remove the index registered under `name`, reporting whether one was removed.
+///
+/// This is the **explicit exception** to docs/SPEC.md §7.1 ("an unknown index name
+/// aborts"): an unknown name answers `false` instead of panicking, so a caller can
+/// probe the registry without turning a lookup into a panic. Every other *query*
+/// entry point that takes an index name (get_by / iter_by / range_* / index_stats)
+/// keeps aborting on an unknown name.
+///
+/// Only the registry entry is dropped. Records, insertion order, generations, the
+/// free-slot stack and every other index are untouched, so `len` and `iter()` are
+/// unchanged. `version` is **not** bumped either: I8 counts *record* changes, and
+/// removing an index changes no record. An iterator obtained from `iter_by` before
+/// the call therefore keeps walking the slot set it snapshotted at creation (see
+/// `Table::iter_by`).
+///
+/// The name is free immediately and may be registered again, possibly with a
+/// different projection. An old name never means "the same index": after a
+/// re-registration, lookups through it answer from the new projection and the old
+/// keys no longer match.
+pub fn[K, V] Table::unregister_index(self : Table[K, V], name : String) -> Bool {
+  match self.indexes.get(name) {
+    Some(_) => {
+      self.indexes.remove(name) |> ignore
+      true
+    }
+    None => false
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Diagnostics (docs/SPEC.md §3.4)
 // ---------------------------------------------------------------------------
