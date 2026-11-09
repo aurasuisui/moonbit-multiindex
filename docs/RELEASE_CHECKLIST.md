@@ -135,7 +135,7 @@
 | 1 | 差分测试对参考实现一致 | ✅ | `moon test -f "*golden stream*"` **1/1**(`src/differential_test.mbt` 回放 `multi_index_map` 0.15.1 黄金序列) |
 | 1 | 回归钉子仍在 | ✅ | `moon test -f "*regression*"` **1/1**;update 撞唯一键零变更、`modify` 双冲突(不就地改共享容器)零变更、`insert_or_replace` 双撞键 abort |
 | 2 | 每条公开 API 有测试 | ✅ | `src/pkg.generated.mbti` 的 **33** 个 `pub fn Table::*` 全部出现在 README(missing=0);全量 **175** 条测试 |
-| 2 | 行覆盖率 | ✅ **847/868(97.58%)** | `moon test --enable-coverage` → 175/175;`$env:MOON_COVE_REPORT_ENABLED='0'; moon coverage analyze -p aurasuisui/multiindex -- -f summary` → `src/table.mbt: 257/260`、`src/table_api.mbt: 266/284`、`Total: 847/868`;`src/index.mbt` 269/269 满覆盖 |
+| 2 | 行覆盖率 | ✅ **850/868(97.70%)** | `moon test --enable-coverage` → 175/175;`$env:MOON_COVE_REPORT_ENABLED='0'; moon coverage analyze -p aurasuisui/multiindex -- -f summary` → `src/table.mbt: 257/260`、`src/table_api.mbt: 269/284`、`Total: 850/868`;`src/index.mbt` 269/269 满覆盖 |
 | 2 | `abort` 守卫有断言 | ✅ | `src/abort_guard_wbtest.mbt` **27 条 = 17 条 `test "panic …"` + 10 条伴生**;`moon test -f "*panic*"` **18/18**(含 table_test 的 1 条) |
 | 2 | 边界:空表/单元素/槽位复用/代际回绕/超长桶/重名注册 | ✅ | `table_test.mbt` 的空表 / 删最后一条 / 回收槽拒绝旧 handle;`table_wbtest.mbt` 的 I9 代际耗尽退休;`bench_test.mbt` 长桶 `n/4 → n/8`;重名注册被拒且不改状态 |
 | 2 | 泛型:自定义键 / Int 边界 | ✅ | 元组键 `(String, Int)`、`(Int, Int, Int)`;未注册索引时键类型无约束;`with_capacity(0/-5)`;I9 代际上限路径 |
@@ -166,6 +166,85 @@
 > 这张表只证明「包能打、内容干净」,**不是**发布证据 —— `产物` / `publish` / `tag` 三行仍由 M6 填写。
 
 ## 历史执行记录
+
+### v0.3.0 验收彩排(2026-11-09,M7)
+
+> 按当前 `HEAD` 重填官方十门槛。仓库 `dev` = `d08b9cf`(本节提交前)、`main` = `7f161c7`、`v0.3.0^{commit}` = `7f161c7`;工作树 `git status --short` 空、`git diff --quiet` = 0。本机 `moon 0.1.20261104 (940aa18 2026-11-04)`;命令均在仓库根目录执行,可直接复制。**本节只改这一份文件;源码 / 版本 / tag 全未动。**
+
+#### A. 官方十门槛
+
+| # | 门槛 | 结果 | 命令 | 关键输出摘录 |
+|---|---|---|---|---|
+| 1 | MoonBit 主体 | ✅ | `git ls-files src`;按扩展名计数;`Select-String moon.mod '^import'` | `.mbt 16`、`.pkg 1`、`.mbti 1`;`moon.mod` 的 import 行 **0** |
+| 2 | 仓库公开且快照一致 | ✅ | `git rev-parse 'v0.3.0^{commit}'`;同 `main` / `dev`;`git diff --quiet v0.3.0 main`(同 dev、main dev);`gh repo view --json visibility` | `7f161c7` / `7f161c7` / `d08b9cf`;三条 diff 均 `0`;`{"visibility":"PUBLIC"}` |
+| 3 | 选题边界 | ✅ | `Select-String README '一张记录表'`;`Select-String docs/SPEC.md 'N 个彼此独立的索引'` | README:3「一张记录表,**N 个二级索引**」;SPEC:132「把它泛化为 **N 个彼此独立的索引**」 |
+| 4 | 核心 API | ✅ | `(Select-String src/pkg.generated.mbti -Pattern '^pub fn\[.*\] Table::').Count`;33 个方法名在 README 中检索 | `33`;README 缺失 **0** |
+| 5 | README 四节 + 空目录走通 | ✅ | `Select-String README '^## '`;仓库外 `moon new m7probe` → `moon add aurasuisui/multiindex@0.3.0` → 按 README 粘 `main.mbt` → `moon run .` | 安装 / 快速开始 / 运行示例 / API 在 `:31` / `:51` / `:112` / `:123`;`moon add` exit 0;示例 exit 0,8 行 |
+| 6 | CI 绿 | ✅ | `gh run list --branch main --limit 2`;`gh run list --branch dev --limit 2` | main `42553885298`(7f161c7)success;dev `42553803310`(d08b9cf)success |
+| 7 | 干净 clone 跑示例 | ✅ | `git clone --depth 1 --branch v0.3.0 …`;确认无 `moon.work`;`cd cmd/leaderboard; moon run .` | exit 0,**34 行**,首行 `VERSION: 0.3.0`,含 `verify_invariants: Ok` |
+| 8 | 测试可运行 | ✅ | `moon test`;`moon test --target all` | `175/175` + `175/175` × wasm / wasm-gc / js / native |
+| 9 | mooncakes 已发布 | ✅ | `Invoke-RestMethod https://mooncakes.io/api/v0/manifest/aurasuisui/multiindex` | `latest_version=0.3.0`、`build_status=success`、`yanked=False`、versions `0.3.0,0.2.2,0.2.1,0.2.0,0.1.0` |
+| 10 | 许可与归属 | ✅ | `Get-Item LICENSE,NOTICE,third_party/LICENSES/*`;`Select-String moon.mod '^license'` | `LICENSE 10349`、`NOTICE 4782`、`multi_index_map-MIT.txt 1069`;`license = "Apache-2.0"` |
+
+#### B. 计划 §四 的 10 条验收场景
+
+| # | 场景 | 结果 | 证据(命令 / 输出) |
+|---|---|---|---|
+| 1 | 删除正常 | ✅ | `moon test -f "*unregister_index*"` → **6/6**;`unregister_index drops only the registry entry`:返回 `true`、`has_index=false`、`len` / `iter` 不变、`verify=Ok` |
+| 2 | 删除幂等 | ✅ | 同上 6/6;`unregister_index is idempotent and answers false for unknown names`:再删同名 `false`,不 abort |
+| 3 | 删除未知 | ✅ | 同上;`unregister_index("ghost")` → `false`,不 abort |
+| 4 | 重注册 | ✅ | 同上;`unregister_index frees the name for a new projection`:回填成功、旧键不命中、新键命中、`verify=Ok` |
+| 5 | 约束释放 | ✅ | 同上;`unregister_index releases a unique constraint`:删唯一索引后重复键从 `Err` 变 `Ok` |
+| 6 | 可变 V 检测 | ✅ | `moon test -f "*external mutation*"` → **1/1**;`get` 后改被索引字段 → `verify` 返回 `Err`,消息含 `I4`(契约写明不承诺修复外部别名) |
+| 7 | `modify` 就地改 | ✅ | `moon test -f "*modify snapshots*"` → **2/2**;旧键不命中、新键命中、`verify=Ok` |
+| 8 | 脏索引删除(脏的是被删的那条) | ✅ | `moon test -f "*remove tolerates a record*"` → **2/2**;返回记录、不 panic、`verify=Ok`;含唯一索引 + 四象限 |
+| 9 | 脏索引更新(脏的是被更新的那条) | ✅ | `moon test -f "*update tolerates a record*"` → **1/1**;成功、新键命中、旧桶清掉 |
+| 10 | 兼容 | ✅ | `moon test` **175/175**;33 个公开方法仍齐;mbti 增 `unregister_index` 与 `VERSION`(另有工具链 `#derive` 拼写,见 M5 记录) |
+| 残余 | 脏的是**另一条**记录 / 脏表 `insert` 预检 | 记录,不要求通过 | 见 `docs/SPEC.md` §3.7「拒绝路径的边界」与 README「限制」;本版不承诺顺带修复其他记录的脏条目 |
+
+#### C. 附加证据
+
+**跨表 `RowId`(仓库外 `m7probe`,已删)**
+
+```text
+A.id=RowId(0, 0) B.id=RowId(0, 0)
+B.get(A.id) -> Some(B-record)
+A.len=1 B.len=1
+```
+
+两张 `Table[Int32, String]` 首条都是 `RowId(0, 0)`;`B.get(A.id)` **命中 B 的记录**。与 `docs/SPEC.md` §2.1 的措辞一致:跨表**未定义**,`(0,0)` 可能命中另一张表的首条记录,不承诺 `None`。
+
+**覆盖率(legacy reporter)**
+
+`moon clean` → `$env:MOON_COVE_REPORT_ENABLED='0'` → `moon coverage analyze -p aurasuisui/multiindex -- -f summary`:
+
+```text
+src\table.mbt: 257/260
+src\table_api.mbt: 269/284
+Total: 850/868
+```
+
+`src/index.mbt` 269/269(满覆盖);850/868 = 97.70%。比 M5b 记录的 847 多 3 行,正是 M5c 新增三条守卫测试覆盖的 `iter_by` / `ordered_index` / `cursor_iter` 守卫行;没有新增未覆盖行。
+
+**干净 clone 安装(仓库外)**
+
+```text
+moon new m7probe            → exit 0
+moon add aurasuisui/multiindex@0.3.0 → exit 0(Using cached …@0.3.0)
+按 README 粘 main.mbt;moon run . → exit 0,8 行,与 README:100-107 逐字一致
+```
+
+**文档链接**
+
+`git ls-files '*.md'` = **21**;去掉围栏代码块与行内代码后,相对链接 **108 条、坏链 0**。
+
+```text
+md_files=21 unlisted=0
+relative_links=108
+broken=0
+```
+
+**结论**:官方十门槛 **10/10**;计划 §四 10 条场景 **10/10**;残余边界仅记录、不要求通过。所有探针均在仓库外,已删除。
 
 ### v0.2.2 验收彩排(2026-10-30,M7)
 
