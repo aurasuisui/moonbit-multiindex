@@ -144,7 +144,7 @@ unique bucket held two holders.
 
 ### Chokepoint discipline (the #1 source of bugs)
 
-Every mutation funnels through exactly three private helpers; **no other code may touch
+Every mutation funnels through exactly four private helpers; **no other code may touch
 `rows` + `order` + `indexes` + `gens` + `free` together**:
 
 | Helper | Steps |
@@ -159,7 +159,9 @@ Every mutation funnels through exactly three private helpers; **no other code ma
 1. **`update` must conflict-check *excluding itself*.** The probe showed that omitting this lets
    a record take a unique key already held by another record, silently breaking I5.
 2. **Conflict checks happen before any mutation.** On `Err`, the table must be byte-for-byte
-   equivalent to before the call (mirrors bimap's `insert_no_overwrite`).
+   equivalent to before the call for **value records** (mirrors bimap's `insert_no_overwrite`).
+   A `modify` closure that already mutated a shared container cannot be rolled back — see
+   [`docs/SPEC.md`](docs/SPEC.md) §3.7 「拒绝路径的边界」.
 3. **No observable intermediate state between old-bucket-removal and new-bucket-insertion.**
    When the key is unchanged, take a fast path instead of delete-then-add.
 4. **`modify` must finish all uniqueness pre-checks before committing any index change.**

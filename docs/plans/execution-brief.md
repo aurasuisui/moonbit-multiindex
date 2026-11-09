@@ -26,7 +26,7 @@
 
 1. [`../../AGENTS.md`](../../AGENTS.md) — 命令、架构、不变量、测试约定、代码风格
 2. [`../SPEC.md`](../SPEC.md) — **API 唯一真源**(签名/语义有疑问以此为准)
-3. [`../DEVPLAN.md`](../DEVPLAN.md) — 数据布局、三条汇聚点、四条高危路径
+3. [`../DEVPLAN.md`](../DEVPLAN.md) — 数据布局、四条汇聚点、四条高危路径
 4. [`v0.1.0.md`](v0.1.0.md) — 里程碑与**出口条件**、§一"不是移植"
 5. [`../SESSION_PLAYBOOK.md`](../SESSION_PLAYBOOK.md) — 卡住时的决策规则
 

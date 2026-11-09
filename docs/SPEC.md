@@ -343,7 +343,7 @@ pub(all) enum IndexKind {
 | `register_unique_ordered(name, project) -> Result[Unit, RegisterError[K]]` (需 `K : Compare`) | **有序唯一**索引(`SortedMap[K, Int]`) |
 | `register_non_unique(name, project) -> Result[Unit, RegisterError[K]]` | **哈希非唯一**索引(`Map[K, SortedSet[Int]]`) |
 | `register_non_unique_ordered(name, project) -> Result[Unit, RegisterError[K]]` (需 `K : Compare`) | **有序非唯一**索引(`SortedMap[K, SortedSet[Int]]`) |
-| `unregister_index(name : String) -> Bool` | **删除索引注册**。返回是否真的删除;未注册返回 `false`、**不 abort**(§7.1 的显式例外)。只摘注册表:`len` / `order` / `gens` / `free` / 其它索引一个都不动,`version` 不 bump;名字立即可以重注册(可换投影) |
+| `unregister_index(name : String) -> Bool` | **删除索引注册**。返回是否真的删除;未注册返回 `false`、**不 abort**(§7.1 的显式例外)。只摘注册表:`len` / `order` / `gens` / `free` / 其它索引一个都不动,`version` 不 bump;名字立即可以重注册(可换投影);删除前创建的有序游标(`range_by` / `iter_asc_by` / `iter_desc_by`)仍按各自快照走完,不会 abort |
 | `has_index(name) -> Bool` / `index_names() -> Array[String]` / `index_entries() -> Array[(String, IndexKind)]` | 索引枚举;`index_names` 与 `index_entries` 都按 **MoonBit `String` 序**(长度优先的 shortlex)升序,已由测试钉死;`index_entries` 同时给出每个索引的象限(§2.7)—— `index_stats(name)` 必须先知道名字,而这是拿到名字的公开途径 |
 
 **2×2 四象限**(与主蓝本的 `hashed_unique` / `ordered_unique` / `hashed_non_unique` /
@@ -369,7 +369,7 @@ pub(all) enum IndexKind {
 | 方法 | 返回 | 说明 |
 |---|---|---|
 | `insert(v : V) -> Result[RowId, Rejected[K, V]]` | 新记录句柄 | 冲突时**表零变更**,记录原样归还 |
-| `insert_many(vs : Array[V]) -> ...` | 批量 | 先全部落库,再**每索引一次性构建**(把 N×k 次索引插入降为 k 次批量构建);**遇重复键的胜出规则须在实现时明确并测试钉死**(主蓝本是"第一个胜出",§0.4-6) |
+| `insert_many(vs : Array[V]) -> ...` | 批量 | **先全量预检**(含批内互相冲突),全部通过后再**逐条 `insert_impl` 落库**;任一条冲突 → 整批 `Err(Rejected)`、**整批零变更**。**没有"胜出规则"**(主蓝本是 first-wins,§0.4-6),由测试钉死 |
 | `insert_or_replace(v : V) -> Result[(RowId, V?), Rejected[K, V]]` | 记录句柄 + 被顶替的旧值 | **覆盖式 upsert**:恰好一条记录在新值的某个**唯一**索引上撞键 → 原地替换并**保留它的 `RowId`**(外部句柄继续有效),返回 `Ok((该 RowId, Some(旧值)))`;无冲突 → 等价于 `insert`(`Ok((新 RowId, None))`);两条**不同**记录分别在不同唯一索引上撞键 → `abort`,表零变更(三条裁定见 §3.2.2) |
 | `update(id : RowId, v : V) -> Result[Unit, UpdateRejected[K, V]]` | 成功/失败 | **排除自身**的冲突检查;陈旧 id → `Err(StaleHandle(id, Some(v)))` |
 | `modify(id : RowId, f : (V) -> V) -> Result[Unit, UpdateRejected[K, V]]` | 成功/失败 | 用 `f` 变换记录后重索引;**逐索引对比新旧投影键,只动真正变化的桶**(见 §5 规则 4);陈旧 id → `Err(StaleHandle(id, None))` |
@@ -478,7 +478,7 @@ core 的 `SortedMap::range` / `SortedSet::range` 本身就是**双闭区间 `[lo
 > **返回 `Result` 而不是 `Bool` 的理由**:一个只会说"false"的校验器,对它的目标用户(需要定位一致性问题的调用方)
 > 几乎没有价值 —— 而"公开自检"的全部意义就是**可诊断**。`Result` 的 `Err` 携带首个违反点的描述。
 >
-> **与测试侧校验器的关系**:`property_wbtest.mbt` 的 `check_invariants` 应**委托**给这个公开实现(避免两份实现漂移),
+> **与测试侧校验器的关系**:`property_wbtest.mbt` 的 `check_invariants` **已委托**给这个公开实现(避免两份实现漂移),
 > 但**"非空转"元测试必须保留** —— 它们是对校验器本身的独立检验,委托之后反而更重要。
 > 这与 bimap 的 `check_bijection`(仅测试内)不同 —— 多索引的一致性更难自查,值得公开。
 
@@ -491,7 +491,7 @@ core 的 `SortedMap::range` / `SortedSet::range` 本身就是**双闭区间 `[lo
 | 非唯一 + 哈希 | `Map[K, SortedSet[Int]]` | 桶为**有序集合** |
 | 非唯一 + 有序 | `SortedMap[K, SortedSet[Int]]` | 支持范围查询 |
 
-注册表形态(**待实现时用探针确认后再锁定**):
+注册表形态(**已由探针确认并在 mbti 中锁定**):
 
 ```moonbit
 enum Index[K, V] {
@@ -536,13 +536,14 @@ enum Index[K, V] {
 **契约**
 
 - 共享容器**视为只读**。要改被索引字段,必须走 `update` / `modify`:它们先做唯一性预检,再按投影维护索引。
-- 违反后果(0.2.2 实测):旧键仍命中、新键漏查、`verify_invariants` 报 I4(桶键与投影不符)或 I7(记录不在任何桶里);`insert` 的唯一性预检还可能被绕过。
-- 恢复路径(三步):`unregister_index(name)` → 用 `update` / `remove` 把重复投影拆开 → 重新 `register_*`(对非空表自动回填)→ `verify_invariants` 复检;或 `clear()` 后重新载入。0.3.0 起 `remove` / `swap_remove` / `update` 对已存在的脏条目做慢路径修复,但**不替代**上述契约。
+- 违反后果(0.2.2 实测):旧键仍命中、新键漏查、`verify_invariants` 报 I4(桶键与投影不符)或 I7(记录不在任何桶里);脏表上 `insert` 的唯一性预检还可能被绕过(**干净表不存在此行为**):预检只看「当前投影对应的桶」,不会为别的记录做全表扫描。
+- 恢复路径(三步):`unregister_index(name)` → 用 `update` / `remove` 把重复投影拆开 → 重新 `register_*`(对非空表自动回填)→ `verify_invariants` 复检;或 `clear()` 后重新载入。0.3.0 起 `remove` / `swap_remove` / `update` 会对**被操作的那条记录自身**的陈旧条目做慢路径修复;**其他记录的脏条目不会被顺带修好**,仍由 `verify_invariants` 指出、逐条修或 `clear()` 重载。这些修复**不替代**上述契约。
 
 **`modify` 的闭包契约**
 
 - `f` 可以**就地修改**共享容器;库在调用 `f` **之前**对每个索引的旧投影做快照,提交时用快照下线旧桶、用 `project(value)` 上线新桶(`src/table.mbt` 的 `projection_snapshot`)。0.3.0 之前这里会静默写坏索引(旧桶不动、新键不加);0.3.0 起对**成功路径**修复,若 `f` 已就地改坏而预检返回 `Err`,`Err` 不回滚记录,见下「拒绝路径的边界」。
 - `f` 不得在调用之外被并发修改:本库是单线程假设,没有锁;跨线程共享同一张表属于未定义行为。
+- `f` **不得重入表**:在闭包里 `register_*` / `remove` / `clear` 会破坏本次提交的假设(旧投影快照可能对不上注册表),属于未定义行为,现有实现会 `abort`。需要改 schema 或删别的记录,请先结束本次 `modify`。
 
 #### 拒绝路径的边界(Err 不会回滚)
 
@@ -593,7 +594,7 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 
 ---
 
-## §5 变更汇聚点与三条高危路径
+## §5 变更汇聚点与四条高危路径
 
 **汇聚点**:`insert_impl` / `remove_impl` / `modify_impl` / **`clear_impl`** 是**唯一**允许同时触碰
 `rows` + `order` + `positions` + `indexes` + `gens` + `free` 的地方。
@@ -619,7 +620,7 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 | `range_by` | O(log n + k) |
 | `remove` | **O(len + I + Σ log 桶)** —— 见下方警告,`len` 项来自 `order` 保序压缩 |
 | `swap_remove` | **O(I + Σ log 桶)** —— `order` 只做一次末位交换 + 两次 `positions` 写,无 `len` 项 |
-| `update` / `modify` | O(I + Σ log 桶);**键未变的索引不参与** |
+| `update` / `modify` | O(I + Σ log 桶);**键未变的索引不增删桶**,但等键路径仍对该桶做一次成员检查(`Index::holds`) |
 | `insert_many` | O(n·I + n·Σ log 桶) |
 | `iter` | O(len) |
 | `verify_invariants` | O(桶数 × len) —— **诊断 API,不在热路径** |
@@ -651,6 +652,8 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 | **可预期的运行时条件** | 唯一冲突、陈旧句柄、键查不到 | 正常业务结果 | 返回 `Err` / `None` / **空迭代器**;**绝不 panic** |
 | **编程错误:名字写错** | 查询一个从未注册的索引名 | 调用方 bug | **`abort`** |
 | **编程错误:问题问错了** | 在**哈希**索引上做 `range_by` / `iter_asc_by` / `iter_desc_by` | 该索引**根本没有序**,不存在"空结果"这一说 | **`abort`** |
+
+> **唯一例外**:`unregister_index(name)` 对未注册的名字返回 `false`、**不 abort**(§3.1);其余所有以索引名为参数的**查询**仍按上表 `abort`。
 
 **关键区分**:"空结果"只应表示"**查得到,但没有**"。若索引名不存在、或该索引是哈希索引(无全序),
 返回空会把**调用方的 bug** 伪装成"没有数据",让人在生产环境里排查很久。故这两类一律 `abort`。
@@ -693,7 +696,7 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 
 `moon coverage analyze -p aurasuisui/multiindex -- -f summary` 当前 **847/868**。`-f caret` 标出 **21 行**
 (报告把条件行与其失败分支成组标记,故逐条位置为 20 个):
-`src/table.mbt:409` / `:484` / `:712`;`src/table_api.mbt:203` / `:210` / `:244` / `:260` / `:273` /
+`src/table.mbt:412` / `:487` / `:715`;`src/table_api.mbt:203` / `:210` / `:244` / `:260` / `:273` /
 `:597-603` / `:619-623` / `:694-704`。
 
 **这些行号不能直接当"没执行"读。** 抽查:报告把 `src/table_api.mbt:228`(`require_index` 的

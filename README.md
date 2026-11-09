@@ -185,6 +185,7 @@ moon run .
   **共享容器**,这些容器视为只读。`insert` / `update` / `modify` 存进去的 `V` 也与调用方共享容器:插入后再改自己手里的对象,
   同样会写脏索引。改被索引字段必须走 `update` / `modify`;否则旧键命中 / 新键漏查,`verify_invariants` 会报 I4 / I7。
   恢复三步:`unregister_index` → 用 `update` / `remove` 拆开重复投影 → 重新 `register_*`(见 [`docs/SPEC.md`](docs/SPEC.md) §3.7)。
+- **脏表的残余边界**:上述修复只针对**被操作的那条记录**;其他脏条目仍由 `verify_invariants` 指出。脏表上 `insert` 的唯一性预检也可能被绕过(干净表没有这个问题)——`verify` 一报错就按恢复路径重建索引。
 
 ## 与生态中已有项目的关系
 
