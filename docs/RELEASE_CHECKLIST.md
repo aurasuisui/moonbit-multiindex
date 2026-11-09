@@ -55,7 +55,7 @@
 > 仓库内提交的是 canonical `Int32`(见 `CHANGELOG.md` 0.2.2 段),所以折叠前后一致;
 > 若在旧工具链(印 `Int`)上跑,折叠同样把两侧拉到同一拼写。
 
-## 最近一次已完成:v0.2.2(2026-10-22 发布)
+## v0.2.2(2026-10-22 发布,历史)
 
 > **表头约定 —— 包内副本是发布前快照**:`moon publish` 打包的是**当时 HEAD 的快照**,因此**包里那份**
 > 的 `publish` / `tag` 两行按定义只能是 📌(它们只能在包生成之后才发生)。**仓库 HEAD** 在 publish
@@ -110,7 +110,7 @@
 
 > 这张表只证明「包能打、内容干净」,**不是**发布证据 —— `publish` / `产物` / `tag` 三行仍由 M6 填写。
 
-## v0.3.0(进行中)
+## 最近一次已完成:v0.3.0(2026-11-09 发布)
 
 > **表头约定 —— 包内副本是发布前快照**:`moon publish` 打包的是**当时 HEAD 的快照**,因此**包里那份**
 > 的 `publish` / `tag` 两行按定义只能是 📌(它们只能在包生成之后才发生)。**仓库 HEAD** 在 publish
@@ -147,8 +147,8 @@
 | 4 | `docs/README.md` 地图无孤儿 | ✅ | 21 个 md 文件全部在地图中有对应行(`unlisted=0`);全仓相对链接 107 条、真实坏链 0 |
 | 4 | `CHANGELOG.md` 有本版 entry | ✅ | `## [0.3.0] - 2026-11-08`(Fixed 在前:modify 静默损坏、脏索引 panic;Added:`unregister_index`) |
 | 4 | 许可证与第三方来源齐备 | ✅ | `LICENSE`(Apache-2.0 正文)、`NOTICE`、`third_party/LICENSES/multi_index_map-MIT.txt`、README「致谢与来源」 |
-| 发布 | 产物不含 PII / 开发态垃圾 | ⏳ | 待 M6 回填;M5 的 `moon package` 自查见下方小节 |
-| 发布 | `moon publish` 并确认 `build_status: success` | ⏳ | 待 M6 回填(本单不 publish) |
+| 发布 | 产物不含 PII / 开发态垃圾 | ✅ | 2026-11-09 `moon package` → `_build/publish/aurasuisui-multiindex-0.3.0.zip` **56 项**;PII 真 0;`moon.work` / `_build/` / `.coverage` / `.exe` 命中 0 |
+| 发布 | `moon publish` 并确认 `build_status: success` | ✅ | 2026-11-09 单次 `moon publish` → `Server status: 200 OK`,exit 0(未重试);registry 复核:`latest_version = 0.3.0`、`build_status: success`、`yanked: false`、versions 含 0.3.0 |
 | 发布 | 打 tag `v0.3.0` 并推送 | 📌 | 按表头约定;tag sha 记入下一版历史执行记录 |
 
 ### M5 的 dry-run 与解包核对(2026-11-08)
