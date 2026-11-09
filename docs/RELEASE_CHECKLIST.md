@@ -3,7 +3,7 @@
 > **每次 `moon publish` / bump `moon.mod` 版本之前,逐项跑到全绿。**
 > 勾选结果记一行到 `CHANGELOG.md`。任何一项不绿 = 不发版。
 
-## 最近一次已完成:v0.2.1(2026-10-21)
+## v0.2.1(2026-10-21,历史)
 
 > PATCH 发布:无公开 API 变更,只含文档纪律修复与测试覆盖补齐。下表按当前 HEAD 逐项重跑。
 
@@ -55,7 +55,7 @@
 > 仓库内提交的是 canonical `Int32`(见 `CHANGELOG.md` 0.2.2 段),所以折叠前后一致;
 > 若在旧工具链(印 `Int`)上跑,折叠同样把两侧拉到同一拼写。
 
-## v0.2.2(进行中)
+## v0.2.2(2026-10-22 发布,历史)
 
 > **表头约定 —— 包内副本是发布前快照**:`moon publish` 打包的是**当时 HEAD 的快照**,因此**包里那份**
 > 的 `publish` / `tag` 两行按定义只能是 📌(它们只能在包生成之后才发生)。**仓库 HEAD** 在 publish
@@ -110,7 +110,123 @@
 
 > 这张表只证明「包能打、内容干净」,**不是**发布证据 —— `publish` / `产物` / `tag` 三行仍由 M6 填写。
 
+## 最近一次已完成:v0.3.0(2026-11-09 发布)
+
+> **表头约定 —— 包内副本是发布前快照**:`moon publish` 打包的是**当时 HEAD 的快照**,因此**包里那份**
+> 的 `publish` / `tag` 两行按定义只能是 📌(它们只能在包生成之后才发生)。**仓库 HEAD** 在 publish
+> 完成后回填 `publish` + `产物` 两行为 ✅(带 registry 证据),`tag` 行在仓库 HEAD 也保持 📌:tag 打在
+> **回填后的那个 commit** 上,它的 sha 记进**下一版**的「历史执行记录」—— 不回填,也不为 tag 再造一个提交
+> (沿用 v0.2.2 的表头约定)。
+> 行由 **M5**(版本与发布准备)填写;`publish` / `tag` 等 **M6**。
+
+| Tier | 项 | 结果 | 证据 |
+|---|---|---|---|
+| 0 | `moon fmt --check` | ✅ | 2026-11-08 本机 `moon 0.1.20261104`:`moon fmt --check` → exit 0 |
+| 0 | `moon check` | ✅ | `moon check` → exit 0 |
+| 0 | `moon check --deny-warn --target all` | ✅ | exit 0(`moon: ran 12 tasks, now up to date`,wasm / wasm-gc / js / native 全查) |
+| 0 | 接口快照(见上方注①的口径) | ✅ | `moon info` 后 mbti diff **只有 VERSION 一行**(0.2.2 → 0.3.0);提交后 `git diff --quiet -- src` = 0 |
+| 0 | `moon test` | ✅ | `Total tests: 175, passed: 175, failed: 0.`,exit 0 |
+| 0 | `moon build` | ✅ | exit 0 |
+| 0 | 版本单一真源 | ✅ | 六处均 `0.3.0`:`moon.mod:3`、`src/lib.mbt:23`、`src/pkg.generated.mbti:10`、`cmd/leaderboard/moon.mod:2`、`bench/moon.mod:2`、`README.md:39` |
+| 0 | `moon.mod` 元数据 | ✅ | `name` / `version = "0.3.0"` / `repository` / `license = "Apache-2.0"` / 5 个 `keywords` / `source = "src"` |
+| 0 | CI 工具链 | ✅(不可固定) | 本机 `moon 0.1.20261104 (940aa18 2026-11-04)`;CI 装 latest、每步打印 `moon version`,漂移靠 fmt 与接口步「检测而非预防」 |
+| 1 | 不变量 I1–I9 随机序列每步成立 | ✅ | `moon test -f "*qc:*"` **7/7**;`property_wbtest.mbt` 的 `check_invariants` 委托公开 `verify_invariants` |
+| 1 | 模型对拍逐步一致 | ✅ | `moon test -f "*model differential*"` **2/2**(`src/model_test.mbt`) |
+| 1 | 差分测试对参考实现一致 | ✅ | `moon test -f "*golden stream*"` **1/1**(`src/differential_test.mbt` 回放 `multi_index_map` 0.15.1 黄金序列) |
+| 1 | 回归钉子仍在 | ✅ | `moon test -f "*regression*"` **1/1**;update 撞唯一键零变更、`modify` 双冲突(不就地改共享容器)零变更、`insert_or_replace` 双撞键 abort |
+| 2 | 每条公开 API 有测试 | ✅ | `src/pkg.generated.mbti` 的 **33** 个 `pub fn Table::*` 全部出现在 README(missing=0);全量 **175** 条测试 |
+| 2 | 行覆盖率 | ✅ **847/868(97.58%)** | `moon test --enable-coverage` → 175/175;`$env:MOON_COVE_REPORT_ENABLED='0'; moon coverage analyze -p aurasuisui/multiindex -- -f summary` → `src/table.mbt: 257/260`、`src/table_api.mbt: 266/284`、`Total: 847/868`;`src/index.mbt` 269/269 满覆盖 |
+| 2 | `abort` 守卫有断言 | ✅ | `src/abort_guard_wbtest.mbt` **27 条 = 17 条 `test "panic …"` + 10 条伴生**;`moon test -f "*panic*"` **18/18**(含 table_test 的 1 条) |
+| 2 | 边界:空表/单元素/槽位复用/代际回绕/超长桶/重名注册 | ✅ | `table_test.mbt` 的空表 / 删最后一条 / 回收槽拒绝旧 handle;`table_wbtest.mbt` 的 I9 代际耗尽退休;`bench_test.mbt` 长桶 `n/4 → n/8`;重名注册被拒且不改状态 |
+| 2 | 泛型:自定义键 / Int 边界 | ✅ | 元组键 `(String, Int)`、`(Int, Int, Int)`;未注册索引时键类型无约束;`with_capacity(0/-5)`;I9 代际上限路径 |
+| 2 | JSON 往返 | ✅ | `json_test.mbt` 3 条:round-trip 保插入序、重注册后答案一致、畸形输入报错不静默 |
+| 3 | 压力用例(10k+ 操作) | ✅ | `bench_test.mbt`:10 000 次操作(5 000 insert + 2 500 remove + 2 500 复用 insert,全程 `verify_invariants`) |
+| 3 | 基准无回退 | ✅(未改快路径) | 本版只改 `modify` 旧投影快照与脏索引容错:正常路径的桶操作不变,慢路径只在「按投影键取不到槽」时触发;沿用 `bench/README.md:154-171` 的实测数字,不新编测量值 |
+| 4 | README API 表与 SPEC 一致 | ✅ | 33 个公开方法名全部出现在 README;SPEC §3.1 增 `unregister_index`、§3.7 增契约、§10 改为指向 mbti + README 的指针(`to_json` 在 SPEC 以 `ToJson` trait 登记) |
+| 4 | 至少一个可运行示例 | ✅ | 生成 `moon.work`(`members = [".", "bench", "cmd/leaderboard"]`)后 `cd cmd/leaderboard && moon run .` → exit 0、34 行、首行 `== aurasuisui/multiindex VERSION: 0.3.0 (local workspace module) ==`、含 `verify_invariants: Ok`;**0.3.0 未上架前无 `moon.work` 会解析失败**(实测 `version 0.3.0 was not found in the registry`),M6 发布后回落到注册表版本;CI 的 example-smoke 覆盖 workspace 路径 |
+| 4 | `docs/README.md` 地图无孤儿 | ✅ | 21 个 md 文件全部在地图中有对应行(`unlisted=0`);全仓相对链接 107 条、真实坏链 0 |
+| 4 | `CHANGELOG.md` 有本版 entry | ✅ | `## [0.3.0] - 2026-11-08`(Fixed 在前:modify 静默损坏、脏索引 panic;Added:`unregister_index`) |
+| 4 | 许可证与第三方来源齐备 | ✅ | `LICENSE`(Apache-2.0 正文)、`NOTICE`、`third_party/LICENSES/multi_index_map-MIT.txt`、README「致谢与来源」 |
+| 发布 | 产物不含 PII / 开发态垃圾 | ✅ | 2026-11-09 `moon package` → `_build/publish/aurasuisui-multiindex-0.3.0.zip` **56 项**;PII 真 0;`moon.work` / `_build/` / `.coverage` / `.exe` 命中 0 |
+| 发布 | `moon publish` 并确认 `build_status: success` | ✅ | 2026-11-09 单次 `moon publish` → `Server status: 200 OK`,exit 0(未重试);registry 复核:`latest_version = 0.3.0`、`build_status: success`、`yanked: false`、versions 含 0.3.0 |
+| 发布 | 打 tag `v0.3.0` 并推送 | 📌 | 按表头约定;tag sha 记入下一版历史执行记录 |
+
+### M5 的 dry-run 与解包核对(2026-11-08)
+
+| 项 | 实测 |
+|---|---|
+| 命令 | `moon publish --dry-run`(本机 `moon 0.1.20261104`) |
+| 干净树 | `git status --porcelain` 只允许 autocrlf 假阳(内容 `git diff --quiet` = 0);根目录无未跟踪 `*.coverage` |
+| 服务端 | `Server status: 202 Accepted`;客户端 exit **0**,未重试 |
+| 打包内容 | `moon package` → `_build/publish/aurasuisui-multiindex-0.3.0.zip`,**56 项** |
+| 差异 | 相对 `v0.2.2` 的 55 项只多 `docs/plans/v0.3.0.md`(另一条 `docs/申报书.md` 是 git C-quote 转义假象),无删除 |
+| PII / 垃圾 | 手机号 + 邮箱扫描 **0 真命中**;`moon.work` / `_build/` / `.exe` / `.coverage` 命中 **0** |
+| 包内版本 | 六处版本全为 `0.3.0` |
+
+> 这张表只证明「包能打、内容干净」,**不是**发布证据 —— `产物` / `publish` / `tag` 三行仍由 M6 填写。
+
 ## 历史执行记录
+
+### v0.2.2 验收彩排(2026-10-30,M7)
+
+> 按当前 `HEAD` 重填计划 §2.2 的官方十门槛。仓库 `dev` = `6aecc33`、`main` = `2dbd7b1`、`v0.2.2^{commit}` = `2dbd7b1`;工作树仅 `src/pkg.generated.mbti` 的 `autocrlf` 假阳(`git diff --quiet -- src` = 0)。本机 `moon 0.1.20261020 (2284bd2 2026-10-20)`;命令均在仓库根目录执行,可直接复制。
+
+| # | 门槛 | 结果 | 命令 | 关键输出摘录 |
+|---|---|---|---|---|
+| 1 | MoonBit 主体 | ✅ | `git ls-files src`;`Select-String -Path moon.mod -Pattern '^import'` | `.mbt 16`、`.pkg 1`、`.mbti 1`;`moon.mod` 无 `import` 行 |
+| 2 | 仓库公开且快照一致 | ✅ | `git rev-parse 'v0.2.2^{commit}'`;`git rev-parse main`;`git rev-parse dev`;`git diff --quiet v0.2.2 main; $LASTEXITCODE`(同 dev、main dev);`gh repo view --json visibility` | `2dbd7b1` / `2dbd7b1` / `6aecc33`;三条 diff 均 `0`;`"visibility":"PUBLIC"` |
+| 3 | 选题边界 | ✅ | `Select-String -Path README.md -Pattern '一张记录表'`;`Select-String -Path docs/SPEC.md -Pattern '一句话'` | README:3「一张记录表,**N 个二级索引**」;SPEC:132「`BiMap` 是…的特例;本库把它泛化为 **N 个彼此独立的索引**」 |
+| 4 | 核心 API | ✅(注①) | `(Select-String -Path src/pkg.generated.mbti -Pattern '^pub fn\[.*\] Table::').Count` | `32`;32 个方法名全部出现在 README API 表(`missing=0`) |
+| 5 | README 含目标 / 安装 / API / 示例 | ✅ | `Select-String -Path README.md -Pattern '^## '`;按 README 字面跑一遍(见下) | 命中 `:31` / `:51` / `:112` / `:123`;干净环境 `moon run .` exit 0,8 行与 README:99-107 逐字一致 |
+| 6 | CI 绿 | ✅ | `gh run list --branch main --limit 3`;`gh run list --branch dev --limit 3` | main `39785836950` / `39784911637` / `39383979438` 全 success;dev `39785643537` / `39784642076` / `39768595546` 全 success |
+| 7 | 示例可运行 | ✅ | 干净 clone(无 `moon.work`)后 `cd cmd/leaderboard; moon run .` | exit 0,34 行,含 `verify_invariants: Ok` |
+| 8 | 测试可运行 | ✅ | `moon test`;`moon test --target all` | `148/148` + `148/148` × wasm / wasm-gc / js / native |
+| 9 | mooncakes 已发布 | ✅ | `$m = Invoke-RestMethod 'https://mooncakes.io/api/v0/manifest/aurasuisui/multiindex'; $m.latest_version; $m.build_status; $m.yanked; $m.versions.version` | `0.2.2` / `success` / `False` / `0.2.2, 0.2.1, 0.2.0, 0.1.0` |
+| 10 | 许可与归属 | ✅ | `Get-Item LICENSE,NOTICE,third_party/LICENSES/*`;`Select-String -Path moon.mod -Pattern '^license'` | `LICENSE 10349`、`NOTICE 4782`、`multi_index_map-MIT.txt 1069`;`license = "Apache-2.0"` |
+
+> **注①(#4 的依据链有文档缺口)**:计划写「SPEC §4 有表」不成立 —— §4 是「核心不变量」(`docs/SPEC.md:526`),§10「完整 API 速查表」只有标题(`:715`)、没有表。核心 API 的完整性因此改由 `src/pkg.generated.mbti` 的 32 个方法与 README API 表互证(32/32 命中);**未改 SPEC** —— M7 只授权改本文件,此条列为「发现但未改」。
+
+**干净环境彩排(仓库外空目录)**
+
+```powershell
+moon new m7probe
+cd m7probe
+moon add aurasuisui/multiindex@0.2.2
+```
+
+`moon add` exit 0,stderr 摘要 `Registry index updated successfully` / `Symbols updated successfully` / `Downloading aurasuisui/multiindex@0.2.2`;写入 `moon.mod` 的行是 `import { "aurasuisui/multiindex@0.2.2" }`。按 README 在根 `moon.pkg` 补 `import { "aurasuisui/multiindex" }` + `pkgtype(kind: "executable")`,把 README:58-94 原样粘进根 `main.mbt`,再 `moon run .` → exit 0,8 行与 README:99-107 逐字一致。
+
+**干净 clone 示例**
+
+```powershell
+git clone --depth 1 --branch v0.2.2 https://github.com/aurasuisui/moonbit-multiindex.git m7-clone
+cd m7-clone/cmd/leaderboard
+moon run .
+```
+
+clone 后 `Test-Path moon.work` = `False`;`cmd/leaderboard/moon.mod` 钉 `aurasuisui/multiindex@0.2.2`;`moon run .` exit 0、34 行、`verify_invariants: Ok`。首行仍印 `(local workspace module)` —— 注册表副本也带这个后缀(实测),**不要拿它当本地源码的证据**,版本号才是。
+
+**跨表 `RowId` 探针(仓库外)**
+
+两张 `Table[Int32, String]`,A/B 首次 insert 都得 `RowId(0, 0)`;`B.get(A 的 RowId)` → `Some(B-record)`、`B.remove(A 的 RowId)` 删掉的是 B 的记录(B.len=0,A.len=1)。与 SPEC §2.1:165 的措辞一致:跨表**未定义**,`(0,0)` **可能命中**另一张表的首条记录,不承诺 `None`。
+
+**覆盖率(legacy reporter)**
+
+`moon test --enable-coverage` → `148/148`;默认新 reporter `moon coverage report -p aurasuisui/multiindex -f summary` 仍报 `error: conflicting trace metadata for file id 'aurasuisui/multiindex$index'`(exit 1,工具链问题,未改测试);`$env:MOON_COVE_REPORT_ENABLED='0'` 后同一命令 → `Total: 784/805`(`table.mbt 241/243`、`table_api.mbt 258/277`,与 0.2.1 持平)。
+
+**文档链接**
+
+`git ls-files '*.md'` = **20**(计划写 19,实际多出 `docs/plans/v0.2.2.md`);去掉围栏代码块与行内代码后,相对链接 **99 条、坏链 0**。3 条原始假阳性均为代码里的示例:`SortedMap[Int, String]([])`、`[HawkEye](…)`(TOML 围栏内与行内代码中各一次)。
+
+**三条 grep 门禁(照实分口径,不四舍五入)**
+
+- `20–44×` / `30–70×`:现役文档 `README.md` + `docs/SPEC.md` + `bench/README.md` 命中 **0**;全仓 **11**,全部是历史/自指(`CHANGELOG.md:29` 说明旧数字已归零、`:426` 的 0.1.0 历史段;`docs/plans/v0.1.0.md:87`、`v0.2.0.md:16`、`v0.2.2.md:96/110/113/195/196/213/215` 引用旧数字或门禁本身)。
+- `^'`(README):**0**。
+- `let _ = t.register`:代码(`cmd/`、`bench/`、`src/`)**0**;全仓 **2**,均在 `docs/plans/v0.2.2.md`(D8 定义 `:97` 与 M3 记录 `:214` 的引文)。
+
+**结论**:官方十门槛 **10/10**(#4 带注①);以上补充质量门单列,不计入 10/10。
+
+> **快照口径**:本节取证于 `dev = 6aecc33`(本文件这一提交之前的 HEAD)。**发布快照以 `v0.2.2` ↔ `main` 为准(长期为 0)**;`dev` 在发布后继续前进属正常,`git diff --quiet v0.2.2 dev` 之后的差异只会是发布后新增的文档提交(先是本文件,再是台账)。
 
 ### v0.2.0(2026-10-20)
 
@@ -173,7 +289,7 @@ MoonBit 的包管理遵循**语义化版本**:每个模块必须以 `MAJOR.MINOR
 - [ ] 模型对拍(`model_test.mbt`)与朴素实现逐步一致
 - [ ] 差分测试(`differential_test.mbt`)对参考实现的观测序列一致
 - [ ] 回归测试钉子(特别是 update 冲突漏洞)仍在
-- [ ] 冲突路径:**返回 `Err` 后表与调用前完全一致**
+- [ ] 冲突路径:**返回 `Err` 后表与调用前完全一致** —— 对值类型 / 未被 `modify` 闭包就地修改的记录成立;共享容器的 Err 边界见 `docs/SPEC.md` §3.7
 
 ## Tier 2 — 覆盖面
 

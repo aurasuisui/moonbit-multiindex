@@ -71,6 +71,7 @@ Table[K, V]
 ├── gens    : Array[Int]                 ← per-slot generation, +1 on recycle
 ├── free    : Array[Int]                 ← free-slot stack (LIFO); retired slots NEVER re-enter (I9)
 ├── order   : Array[Int]                 ← live slots in insertion order
+├── positions : Array[Int]               ← inverse of order (slot -> order index, -1 when dead)
 ├── indexes : Map[String, Index[K, V]]   ← the 2x2 index registry
 ├── mut len : Int
 └── mut version : Int                    ← mutation counter (fail-fast iterators)
@@ -110,7 +111,7 @@ looping `remove_impl` would be O(n²) through the `order` compaction.)
 
 **Four high-risk paths (probe- and source-validated):**
 1. `update` must conflict-check **excluding self**.
-2. Conflict checks run **before any mutation** — on `Err` the table is unchanged.
+2. Conflict checks run **before any mutation** — on `Err` the table is unchanged **for value records**; a `modify` closure that already mutated shared containers cannot be rolled back (SPEC §3.7).
 3. No observable intermediate state between bucket-del and bucket-add (fast-path equal keys).
 4. `modify` must finish **all** uniqueness pre-checks before committing any index change.
    The reference implementation removes-then-inserts and **panics mid-way, leaving dirty indexes**
@@ -148,7 +149,8 @@ the official `moonbitlang/core` repository). Language-level facts live in
   `remove` / `swap_remove`).
 - `src/index.mbt` — the `Index[K, V]` four-quadrant enum + bucket add/remove/slots.
 - `src/extends.mbt` — official-style `pub extend` promotions (keeps `[0079]` at zero).
-- `src/table_api.mbt` — `register_*` (atomic backfill), the query family (`get_by` / `iter_by` /
+- `src/table_api.mbt` — `register_*` (atomic backfill) / `unregister_index` (drop an index; unknown
+  name answers `false`, never aborts), the query family (`get_by` / `iter_by` /
   `iter_asc_by` / `iter_desc_by` / `range_by` / `range_half_open_by`), and diagnostics
   (`index_names` / `index_entries` / `has_index` / `index_stats` / `verify_invariants`).
 - `src/property_wbtest.mbt` — invariant driver over `verify_invariants`, plus the

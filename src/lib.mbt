@@ -20,7 +20,7 @@
 
 ///|
 /// Library version string.
-pub const VERSION : String = "0.2.2"
+pub const VERSION : String = "0.3.0"
 
 ///|
 /// A stable handle to a stored record: a slot index plus a generation counter.
@@ -29,10 +29,11 @@ pub const VERSION : String = "0.2.2"
 /// outlives its record can never silently resolve to a *different* record
 /// (the ABA problem). Operations on a stale handle return `None` / `false`
 /// rather than touching the new occupant of the slot.
+#derive(Eq, Hash, Debug)
 pub struct RowId {
   slot : Int32
   gen : Int32
-} derive(Eq, Hash, Debug)
+}
 
 ///|
 /// Display form: `RowId(slot, gen)`.
@@ -59,10 +60,11 @@ pub impl Show for RowId with fn output(self : RowId, logger : &Logger) {
 ///   the position of the **earlier** member in that batch. No record is live at
 ///   `key`: the whole batch is rejected atomically (docs/SPEC.md §11), so a handle
 ///   would have been a lie — the batch position is the honest answer.
+#derive(Debug, Eq)
 pub enum Conflict[K] {
   UniqueViolation(String, K, RowId)
   DuplicateInBatch(String, K, Int32)
-} derive(Debug, Eq)
+}
 
 ///|
 /// Display form: `UniqueViolation(index, key, holder)`.
@@ -106,10 +108,11 @@ pub impl[K : Show] Show for Conflict[K] with fn output(
 ///   Err(rejected) => retry_with(rejected.record)
 /// }
 /// ```
+#derive(Debug)
 pub struct Rejected[K, V] {
   conflict : Conflict[K]
   record : V
-} derive(Debug)
+}
 
 ///|
 /// Display form: `Rejected(conflict=..., record=...)`.
@@ -136,10 +139,11 @@ pub impl[K : Show, V : Show] Show for Rejected[K, V] with fn output(
 ///   live records projecting to the same key. The key travels as itself, so
 ///   registering a unique index adds **no** `Show` bound on `K` (it mirrors
 ///   `Conflict[K]`).
+#derive(Debug, Eq)
 pub enum RegisterError[K] {
   DuplicateName(String)
   UniqueViolation(String, K)
-} derive(Debug, Eq)
+}
 
 ///|
 /// Why an update was refused (docs/SPEC.md §2.5).
@@ -151,10 +155,11 @@ pub enum RegisterError[K] {
 ///   record's keys; the record always comes back.
 ///
 /// Same principle as `Rejected`: a refused write never swallows the caller's data.
+#derive(Debug, Eq)
 pub enum UpdateRejected[K, V] {
   StaleHandle(RowId, V?)
   Conflict(Conflict[K], V)
-} derive(Debug, Eq)
+}
 
 ///|
 /// How the buckets of one index are distributed (docs/SPEC.md §3.4).
@@ -162,12 +167,13 @@ pub enum UpdateRejected[K, V] {
 /// A degenerating projection shows up here: `longest_bucket` climbing while
 /// `average_bucket` stays near 1 means many records pile into one bucket. An index
 /// with no entries reports zero for everything (including the average).
+#derive(Debug, Eq)
 pub struct IndexStats {
   buckets : Int32
   entries : Int32
   longest_bucket : Int32
   average_bucket : Double
-} derive(Debug, Eq)
+}
 
 ///|
 /// Which of the four quadrants a registered index lives in — the public shadow of
@@ -180,12 +186,13 @@ pub struct IndexStats {
 /// Deliberately **not** folded into `IndexStats`: that struct's fields are public,
 /// so adding a name or a kind to it would break every external construction site
 /// (a MAJOR break — Issue #4). A separate enum keeps `IndexStats` at MINOR.
+#derive(Debug)
 pub(all) enum IndexKind {
   HashUnique
   SortedUnique
   HashMulti
   SortedMulti
-} derive(Debug)
+}
 
 ///|
 /// Display form: the bare variant name (`HashUnique`, `SortedMulti`, ...).

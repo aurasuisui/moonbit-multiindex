@@ -5,6 +5,33 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 
 ---
 
+## [0.3.0] - 2026-11-08
+
+**第五个发布版本,MINOR** —— 新增 `Table::unregister_index`,并修复 0.2.2 带着的两个正确性缺陷。按项目 semver 口径,新增公开方法必须 MINOR;但本版的主体是修复,不是新功能。
+
+### Fixed
+
+- **`modify` 静默写坏索引**:闭包就地修改共享容器(如 `Array`)时,旧投影在闭包返回后才读,于是 `retarget(old == new)` 走等值快路径 —— 旧桶不动、新键不加,`verify_invariants` 报 I4。0.3.0 起在调用 `f` **之前**快照每个索引的旧投影(`projection_snapshot`),提交时用快照下线旧桶;**该修复只覆盖返回 `Ok` 的路径**:若 `f` 已就地改坏而唯一性预检返回 `Err`,`Err` 不回滚记录,契约见 SPEC §3.7「拒绝路径的边界」。
+- **脏记录使删除 / 更新 panic**:记录在库外被改动后,`Index::remove` / `retarget` 找不到对应桶,直接 `RuntimeError: unreachable`;`remove`、`swap_remove`、`update` 全部不可用。0.3.0 起 `Index::remove` 返回 `Bool` 的宽容版,失败时由 `detach_any` 慢路径扫描摘除脏条目;`retarget` 等键先 `holds` 校验,正常路径不扫描。
+
+### Added
+
+- **`Table::unregister_index(name : String) -> Bool`**:从注册表删除一个索引;未注册返回 `false`、不 abort(§7.1 的显式例外);只摘注册表,`len` / `order` / `gens` / `free` / 其他索引不动,`version` 不 bump;名字立即可重注册(可换投影,自动回填)。
+
+### Changed
+
+- `Index::remove` 改为宽容版(桶缺失 / 槽不在桶返回 `false`);`Index::retarget` 等键先校验 `holds`;新增 `Index::detach_any` 慢路径;
+- 新增契约 [`docs/SPEC.md`](docs/SPEC.md) §3.7「记录可变性与索引一致性」;README「限制」、API 表与 §10 指针同步;恢复路径修正为三步;`docs/申报书.md` 改写;
+- 六处版本 0.2.2 → 0.3.0。
+
+### Notes / Deviations
+
+- **0.2.2(已发布)带有上述两个缺陷**:本版是修复版本,不是新功能版;升级到 0.3.0 后按新契约执行。
+- **`modify` 的 Err 路径不回滚**:`f` 就地修改共享容器后若唯一性预检失败,记录无法恢复;恢复路径为 `unregister_index` → `update` / `remove` 拆开重复投影 → 重新 `register_*`,详见 SPEC §3.7。
+- 工具链对齐 `moon 0.1.20261104`(`#derive` 语法与 mbti 的 `@json.Json` 拼写,纯生成物)。
+- 退役 8 条 `Index::remove` 的 abort 守卫(语义改变导致不可达),对应 9 条测试已在 M3 删除并逐条记录;`abort_guard_wbtest.mbt` 现为 27 条(17 条 `test "panic …"` + 10 条伴生)。
+- 覆盖率 **847/868 = 97.58%**,测试 **175**(含 17 条 abort 守卫的 panic 测试)。
+
 ## [0.2.2] - 2026-10-22
 
 **第四个发布版本,PATCH** —— 无公开 API 变更:相对 0.2.1,`src/pkg.generated.mbti` 的 diff 是 **9 行**(`VERSION` 一行 + 8 行 `Int` → `Int32` 的**拼写**重生成,同一种类型,无语义变化);相对本版 HEAD 跑 `moon info` 只差 `VERSION` 一行。

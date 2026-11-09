@@ -20,3 +20,5 @@ bench/pkg.generated.mbti
 cmd/*/pkg.generated.mbti
 # Local tool state (the gh CLI drops its state here when run from the repo)
 .local/
+# Coverage artifacts (e.g. bisect.coverage) must never enter the published package
+*.coverage

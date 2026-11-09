@@ -30,13 +30,13 @@ ECS 式实体索引;配置项多路检索。
 
 ## 安装
 
-**工具链**:本文实测于 `moon 0.1.20261020 (2284bd2 2026-10-20)`,`moon 0.1.20261020` 或更新均可
+**工具链**:本文实测于 `moon 0.1.20261104 (940aa18 2026-11-04)`,`moon 0.1.20261104` 或更新均可
 (`moon version` 自查)。新建模块并加入依赖:
 
 ```powershell
 moon new hello-multiindex
 cd hello-multiindex
-moon add aurasuisui/multiindex@0.2.2
+moon add aurasuisui/multiindex@0.3.0
 ```
 
 `moon add` 只写 `moon.mod`。**还要在 `moon.pkg` 里声明包入口**,否则第一次写 `@multiindex.`
@@ -131,12 +131,13 @@ moon run .
 | `register_unique_ordered(name, project)` (需 `K : Compare`) | 有序唯一(`SortedMap[K, Int]`) |
 | `register_non_unique(name, project)` | 哈希非唯一(`Map[K, SortedSet[Int]]`) |
 | `register_non_unique_ordered(name, project)` (需 `K : Compare`) | 有序非唯一 |
+| `unregister_index(name)` | 删除索引注册:返回 `Bool`,未注册 `false` 不 abort;只摘注册表,记录 / 其它索引 / 插入序不变 |
 | `has_index(name)` / `index_names()` / `index_entries()` | 注册表查询(名字升序);`index_entries()` 额外给出每个索引的种类(`IndexKind`:`HashUnique` / `SortedUnique` / `HashMulti` / `SortedMulti`) |
 
 所有 `register_*` 返回 `Result[Unit, RegisterError[K]]`:重名 `Err(DuplicateName)`(**不覆盖**);
 对**非空表**注册会**回填扫描**已有记录,回填唯一索引遇冲突则 `Err(UniqueViolation)` 且**完全不注册**。
 
-**写入**(冲突一律在**任何变更之前**检查;失败时表零变更,记录原样归还)
+**写入**(冲突一律在**任何变更之前**检查;失败时表零变更,记录原样归还)——对值类型 / 未被 `modify` 闭包就地修改的记录成立;共享容器的 Err 边界见 [`docs/SPEC.md`](docs/SPEC.md) §3.7。
 
 | 方法 | 说明 |
 |---|---|
@@ -148,7 +149,7 @@ moon run .
 
 **什么时候用哪个**:要"按某个新值找到那条记录并原地换掉、但句柄不能失效" → `insert_or_replace`
 (它复用 `update` 的排除自身预检,所以单条命中时不报冲突);`remove` + `insert` 会换掉 `RowId`,
-只在明确想要新身份时才用。
+只在明确想要新身份时才用。要删索引 → `unregister_index(name)`;之后同名重注册会从现有记录**回填**(可换投影)。
 下一个 `iter()` 必须是插入序 → `remove`;只关心"删掉、还要快"(队列式消费、批量清理)
 → `swap_remove`。两者对索引、`len`、`version`、槽位复用的作用完全相同,被移动的只是插入序里的**槽位**,
 所有存活 `RowId` 继续有效。
@@ -180,6 +181,11 @@ moon run .
 - **`from_json` 没有行数上限**:读多大就解析多大;超大文件请自行分批,避免一次性内存峰值。
 - **约束擦除(异构枚举)不做**:`K` 必须满足方法所需的 `Hash + Eq + Compare`,不能在注册时擦成闭包 ——
   否则擦除后无法继续逐步校验 I3 / I4 / I5 / I7(理由见 [`docs/SPEC.md`](docs/SPEC.md) §11)。
+- **可变记录契约(读写两侧)**:值类型随便改;`V` 内含 `Array` / `Ref` 时,`get` / `get_by` / `iter*` / `range_*` 返回的记录与表内
+  **共享容器**,这些容器视为只读。`insert` / `update` / `modify` 存进去的 `V` 也与调用方共享容器:插入后再改自己手里的对象,
+  同样会写脏索引。改被索引字段必须走 `update` / `modify`;否则旧键命中 / 新键漏查,`verify_invariants` 会报 I4 / I7。
+  恢复三步:`unregister_index` → 用 `update` / `remove` 拆开重复投影 → 重新 `register_*`(见 [`docs/SPEC.md`](docs/SPEC.md) §3.7)。
+- **脏表的残余边界**:上述修复只针对**被操作的那条记录**;其他脏条目仍由 `verify_invariants` 指出。脏表上 `insert` 的唯一性预检也可能被绕过(干净表没有这个问题)——`verify` 一报错就按恢复路径重建索引。
 
 ## 与生态中已有项目的关系
 
@@ -208,7 +214,8 @@ moon run .
 - **两类"失败"必须分开看**(SPEC §7.1):可预期的运行时条件(唯一冲突 / 陈旧句柄 / 键查不到)
   返回 `Err` / `None` / 空迭代器,**绝不 panic**;而**未知索引名**、**在哈希索引上做有序查询**
   是调用方 bug,一律 `abort` —— "空结果"只应表示"查得到,但没有"。
-- **查询按值返回记录**:每次产出一条记录都会拷贝一次 `V`。所以索引赢在**选择性**,不在"扫得多":
+- **查询按值返回记录**:值类型是独立副本,`V` 内含 `Array` / `Ref` 时与表内**共享容器**(见「限制」与
+  [`docs/SPEC.md`](docs/SPEC.md) §3.7),要改被索引字段请走 `update` / `modify`。所以索引赢在**选择性**,不在"扫得多":
   `iter_by` 在**大桶**上不比线性扫描快(两边都要走完所有匹配项,索引还多付拷贝),`range_by` 在
   **宽区间**上同理。真正的优势是**点查**与**选择性遍历**(实测表与交叉点见
   [`bench/README.md`](bench/README.md))。
@@ -218,7 +225,7 @@ moon run .
   [`bench/README.md`](bench/README.md)。
 - **JSON 不携带索引**:`from_json` 返回的表**注册表为空**,载入后需自己 `register_*` 回填
   (§3.1 的"对非空表注册即回填"会顺势把索引建好,不需要第二个机制)。
-- **冲突不会让调用方丢数据**:`insert` / `insert_many` / `update` / `modify` 失败时,记录随 `Err` 原样归还。
+- **冲突不会让调用方丢数据**:`insert` / `insert_many` / `update` / `modify` 失败时,记录随 `Err` 归还;但 `modify` 的闭包若已就地修改共享容器,返回的已是改后记录,无法回滚(见 [`docs/SPEC.md`](docs/SPEC.md) §3.7)。
 - **`clear()` 保留索引注册**:清空的是记录与索引条目,不是"架构";清空后插入仍会被索引。
 
 ## 致谢与来源

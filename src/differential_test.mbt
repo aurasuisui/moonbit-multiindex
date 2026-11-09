@@ -14,12 +14,13 @@
 
 ///|
 /// One record of the differential stream, mirroring the Rust struct field for field.
+#derive(Debug, Eq)
 struct DiffRec {
   id : Int32
   ts : Int32
   tag : Int32
   bin : Int32
-} derive(Debug, Eq)
+}
 
 ///|
 /// A table carrying the reference's four index quadrants: `id` hashed-unique, `ts`

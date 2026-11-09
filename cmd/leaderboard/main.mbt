@@ -23,12 +23,13 @@
 ///|
 /// One player. The key type of the table is `Int`, so every index projects to an
 /// `Int`: the id, the team number, or the score.
+#derive(Debug)
 struct Player {
   id : Int32
   name : String
   team : Int32
   score : Int32
-} derive(Debug)
+}
 
 ///|
 /// Register an index or stop the demo.

@@ -1529,3 +1529,458 @@ test "index_entries lists every index with its quadrant, in name order" {
   @test.assert_eq(t.index_stats("ab").entries, 2)
   assert_invariants(t)
 }
+
+// ---------------------------------------------------------------------------
+// M1 (v0.3.0): unregister_index — removing an index must touch nothing else
+// ---------------------------------------------------------------------------
+
+///|
+test "unregister_index drops only the registry entry" {
+  let t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32)] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("id", fn(p) { p.0 }))
+  assert_registered(t.register_non_unique("team", fn(p) { p.1 }))
+  let a = insert_ok(t, (1, 10))
+  let b = insert_ok(t, (2, 10))
+  let c = insert_ok(t, (3, 20))
+  let before = t.iter().to_array()
+  let len_before = t.len()
+  // `iter_by` snapshotted the bucket when it was created; removing the index must
+  // not bump `version`, so the iterator still drains instead of aborting.
+  let team_iter = t.iter_by("team", 10)
+  @test.assert_eq(t.unregister_index("team"), true)
+  @test.assert_eq(t.has_index("team"), false)
+  @test.assert_eq(t.index_names(), ["id"])
+  @test.assert_eq(t.len(), len_before)
+  assert_values(t.iter().to_array(), before)
+  let drained = team_iter.to_array()
+  @test.assert_eq(drained.length(), 2)
+  @test.assert_eq(drained[0].0, a)
+  @test.assert_eq(drained[1].0, b)
+  @test.assert_eq(t.get_by("id", 1), Some((a, (1, 10))))
+  @test.assert_eq(t.get_by("id", 2), Some((b, (2, 10))))
+  @test.assert_eq(t.get_by("id", 3), Some((c, (3, 20))))
+  assert_invariants(t)
+}
+
+///|
+test "unregister_index is idempotent and answers false for unknown names" {
+  let t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32)] = @aurasuisui/multiindex.Table::new()
+  // empty table, unknown name: false, not abort
+  @test.assert_eq(t.unregister_index("ghost"), false)
+  assert_registered(t.register_unique("id", fn(p) { p.0 }))
+  let _ = insert_ok(t, (1, 10))
+  @test.assert_eq(t.unregister_index("id"), true)
+  let before = t.iter().to_array()
+  // idempotent: the second removal finds nothing and changes nothing
+  @test.assert_eq(t.unregister_index("id"), false)
+  @test.assert_eq(t.unregister_index("ghost"), false)
+  @test.assert_eq(t.len(), 1)
+  @test.assert_eq(t.has_index("id"), false)
+  assert_values(t.iter().to_array(), before)
+  assert_invariants(t)
+}
+
+///|
+test "unregister_index releases a unique constraint" {
+  let t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32)] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("id", fn(p) { p.0 }))
+  let a = insert_ok(t, (1, 10))
+  match t.insert((1, 20)) {
+    Ok(_) => @test.fail("the unique index must reject a duplicate key")
+    Err(rejected) => @test.assert_eq(rejected.record, (1, 20))
+  }
+  @test.assert_eq(t.unregister_index("id"), true)
+  // the constraint went with the index: the same key is now legal
+  let b = insert_ok(t, (1, 20))
+  @test.assert_eq(t.len(), 2)
+  @test.assert_eq(t.get(a), Some((1, 10)))
+  @test.assert_eq(t.get(b), Some((1, 20)))
+  assert_invariants(t)
+}
+
+///|
+test "unregister_index frees the name for a new projection" {
+  let t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32)] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("k", fn(p) { p.0 }))
+  let a = insert_ok(t, (1, 10))
+  let b = insert_ok(t, (2, 20))
+  @test.assert_eq(t.get_by("k", 1), Some((a, (1, 10))))
+  @test.assert_eq(t.unregister_index("k"), true)
+  // same name, new projection: registration backfills, old keys stop matching.
+  assert_registered(t.register_unique("k", fn(p) { p.1 }))
+  @test.assert_eq(t.has_index("k"), true)
+  @test.assert_eq(t.get_by("k", 1), None)
+  @test.assert_eq(t.get_by("k", 10), Some((a, (1, 10))))
+  @test.assert_eq(t.get_by("k", 20), Some((b, (2, 20))))
+  assert_invariants(t)
+}
+
+// ---------------------------------------------------------------------------
+// M2 (v0.3.0): modify must snapshot old projections before the closure runs
+// ---------------------------------------------------------------------------
+
+///|
+/// A record whose indexed field lives inside a shared container. Mutating it in a
+/// `modify` closure also mutates the record the table still holds, which is why
+/// the old keys must be snapshotted before the closure is called.
+struct Rec {
+  tags : Array[Int32]
+  note : Int32
+}
+
+///|
+test "modify snapshots the old projection before the closure mutates shared state" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let id = insert_ok(t, { tags: [1], note: 0, })
+  match t.get_by("first", 1) {
+    Some(_) => ()
+    None => @test.fail("the old key must start out indexed")
+  }
+  match
+    t.modify(id, fn(r) {
+      r.tags[0] = 5
+      r
+    }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("modify must succeed when keys are free")
+  }
+  match t.get_by("first", 1) {
+    None => ()
+    Some(_) => @test.fail("the old key must stop matching")
+  }
+  match t.get_by("first", 5) {
+    Some((_, r)) => @test.assert_eq(r.tags[0], 5)
+    None => @test.fail("the new key must match")
+  }
+  assert_invariants(t)
+}
+
+///|
+test "modify touching an unindexed field leaves the bucket untouched" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let id = insert_ok(t, { tags: [1], note: 0, })
+  let before = t.index_stats("first")
+  match t.modify(id, fn(r) { { ..r, note: 7, } }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("modify must succeed when keys are free")
+  }
+  let after = t.index_stats("first")
+  @test.assert_eq(after.buckets, before.buckets)
+  @test.assert_eq(after.entries, before.entries)
+  match t.get_by("first", 1) {
+    Some((_, r)) => @test.assert_eq(r.note, 7)
+    None => @test.fail("an unindexed field change must keep the indexed key")
+  }
+  assert_invariants(t)
+}
+
+///|
+test "modify with a fresh record keeps the ordinary retarget behaviour" {
+  let t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32)] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("k", fn(p) { p.0 }))
+  let id = insert_ok(t, (1, 10))
+  match t.modify(id, fn(_) { (2, 20) }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("modify must succeed when keys are free")
+  }
+  match t.get_by("k", 1) {
+    None => ()
+    Some(_) => @test.fail("the old key must stop matching")
+  }
+  @test.assert_eq(t.get_by("k", 2), Some((id, (2, 20))))
+  @test.assert_eq(t.get(id), Some((2, 20)))
+  assert_invariants(t)
+}
+
+///|
+test "modify snapshots every index, not just the mutated one" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  assert_registered(t.register_non_unique("note", fn(r) { r.note }))
+  let id = insert_ok(t, { tags: [1], note: 10, })
+  match
+    t.modify(id, fn(r) {
+      r.tags[0] = 5
+      r
+    }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("modify must succeed when keys are free")
+  }
+  match t.get_by("first", 1) {
+    None => ()
+    Some(_) => @test.fail("the old key must stop matching")
+  }
+  match t.get_by("first", 5) {
+    Some(_) => ()
+    None => @test.fail("the new key must match")
+  }
+  match t.get_by("note", 10) {
+    Some((_, r)) => @test.assert_eq(r.tags[0], 5)
+    None => @test.fail("the untouched index must keep its key")
+  }
+  assert_invariants(t)
+}
+
+///|
+test "modify with unchanged projected keys does not rebuild the bucket" {
+  let t : @aurasuisui/multiindex.Table[Int32, (Int32, Int32)] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("k", fn(p) { p.0 }))
+  let id = insert_ok(t, (1, 10))
+  let before = t.index_stats("k")
+  match t.modify(id, fn(p) { (p.0, 99) }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("modify must succeed when keys are free")
+  }
+  let after = t.index_stats("k")
+  @test.assert_eq(after.buckets, before.buckets)
+  @test.assert_eq(after.entries, before.entries)
+  @test.assert_eq(t.get_by("k", 1), Some((id, (1, 99))))
+  assert_invariants(t)
+}
+
+// ---------------------------------------------------------------------------
+// M3 (v0.3.0): remove / swap_remove / update tolerate records mutated outside
+// ---------------------------------------------------------------------------
+
+///|
+test "remove tolerates a record mutated outside the API" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let id = insert_ok(t, { tags: [1], note: 0, })
+  match t.get(id) {
+    Some(r) => r.tags[0] = 5
+    None => @test.fail("the fixture record must exist")
+  }
+  // The bucket still names key 1, but the record now projects 5.
+  match t.remove(id) {
+    Some(r) => @test.assert_eq(r.tags[0], 5)
+    None => @test.fail("remove must return the record despite the stale bucket")
+  }
+  @test.assert_eq(t.len(), 0)
+  assert_invariants(t)
+}
+
+///|
+test "swap_remove tolerates a record mutated outside the API" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let a = insert_ok(t, { tags: [1], note: 0, })
+  let b = insert_ok(t, { tags: [2], note: 0, })
+  match t.get(a) {
+    Some(r) => r.tags[0] = 5
+    None => @test.fail("the fixture record must exist")
+  }
+  match t.swap_remove(a) {
+    Some(r) => @test.assert_eq(r.tags[0], 5)
+    None =>
+      @test.fail("swap_remove must return the record despite the stale bucket")
+  }
+  @test.assert_eq(t.len(), 1)
+  match t.get(b) {
+    Some(r) => @test.assert_eq(r.tags[0], 2)
+    None => @test.fail("the surviving record must keep its handle")
+  }
+  assert_invariants(t)
+}
+
+///|
+test "update tolerates a record mutated outside the API" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  assert_registered(t.register_non_unique("note", fn(r) { r.note }))
+  let id = insert_ok(t, { tags: [1], note: 10, })
+  match t.get(id) {
+    Some(r) => r.tags[0] = 5
+    None => @test.fail("the fixture record must exist")
+  }
+  match t.update(id, { tags: [7], note: 20, }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("update must succeed despite the stale bucket")
+  }
+  match t.get_by("first", 1) {
+    None => ()
+    Some(_) => @test.fail("the stale bucket key must be gone")
+  }
+  match t.get_by("first", 7) {
+    Some(_) => ()
+    None => @test.fail("the new key must be indexed")
+  }
+  match t.get_by("note", 20) {
+    Some(_) => ()
+    None => @test.fail("the untouched index must have moved to its new key")
+  }
+  assert_invariants(t)
+}
+
+///|
+test "modify tolerates a record mutated outside the API" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let id = insert_ok(t, { tags: [1], note: 10, })
+  match t.get(id) {
+    Some(r) => r.tags[0] = 5
+    None => @test.fail("the fixture record must exist")
+  }
+  // Same projected key as the mutated record: the equal-key branch must notice
+  // the bucket is missing and repair it instead of taking the untouched fast path.
+  match t.modify(id, fn(_) { { tags: [5], note: 20, } }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("modify must succeed despite the stale bucket")
+  }
+  match t.get_by("first", 1) {
+    None => ()
+    Some(_) => @test.fail("the stale bucket key must be gone")
+  }
+  match t.get_by("first", 5) {
+    Some(_) => ()
+    None => @test.fail("the repaired key must be indexed")
+  }
+  assert_invariants(t)
+}
+
+///|
+test "remove tolerates stale entries in all four quadrants" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("uh", fn(r) { r.tags[0] }))
+  assert_registered(t.register_unique_ordered("us", fn(r) { r.tags[0] }))
+  assert_registered(t.register_non_unique("mh", fn(r) { r.note }))
+  assert_registered(t.register_non_unique_ordered("ms", fn(r) { r.note }))
+  let id = insert_ok(t, { tags: [1], note: 10, })
+  match t.get(id) {
+    Some(r) => r.tags[0] = 5
+    None => @test.fail("the fixture record must exist")
+  }
+  match t.remove(id) {
+    Some(r) => @test.assert_eq(r.tags[0], 5)
+    None =>
+      @test.fail("remove must return the record despite four stale buckets")
+  }
+  @test.assert_eq(t.len(), 0)
+  assert_invariants(t)
+}
+
+// ---------------------------------------------------------------------------
+// M5b (v0.3.0): the documented Err boundary of modify and the recovery path
+// ---------------------------------------------------------------------------
+
+///|
+/// Contract test: mutating an indexed field through a record read back from the
+/// table is detected by the checker (this is the documented consequence, not an
+/// operation that is supposed to succeed).
+test "external mutation of an indexed field is caught by verify_invariants" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let id = insert_ok(t, { tags: [1], note: 0, })
+  match t.get(id) {
+    Some(r) => r.tags[0] = 2
+    None => @test.fail("the fixture record must exist")
+  }
+  match t.verify_invariants() {
+    Ok(_) => @test.fail("verify must report I4 after external mutation")
+    Err(message) => @test.assert_eq(message.contains("I4"), true)
+  }
+}
+
+///|
+/// Pins the documented Err boundary: `f` already mutated the shared container, so
+/// the refused `modify` cannot restore the record; the old bucket still hits the
+/// record whose projection is now the new value, and the new key's bucket also hits.
+test "modify Err path leaves the record mutated and the index stale" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let a = insert_ok(t, { tags: [1], note: 0, })
+  let _ = insert_ok(t, { tags: [2], note: 0, })
+  match
+    t.modify(a, fn(r) {
+      r.tags[0] = 2
+      r
+    }) {
+    Ok(_) => @test.fail("the duplicate projection must be reported as Err")
+    Err(_) => ()
+  }
+  match t.verify_invariants() {
+    Ok(_) => @test.fail("verify must report I4 after the Err path")
+    Err(message) => @test.assert_eq(message.contains("I4"), true)
+  }
+  // the old bucket (key 1) still names the mutated record, whose projection is 2
+  match t.get_by("first", 1) {
+    Some((_, r)) => @test.assert_eq(r.tags[0], 2)
+    None => @test.fail("the old bucket must still hit the mutated record")
+  }
+  // the new key's bucket (key 2) hits the other record
+  match t.get_by("first", 2) {
+    Some((_, r)) => @test.assert_eq(r.tags[0], 2)
+    None => @test.fail("the new key's bucket must still hit its record")
+  }
+}
+
+///|
+/// Two records now project to 2: re-registering the unique index must fail. This is
+/// the two-step recovery attempted in the old docs; it is not enough.
+test "recovery in two steps fails while duplicate projections exist" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let a = insert_ok(t, { tags: [1], note: 0, })
+  let _ = insert_ok(t, { tags: [2], note: 0, })
+  match
+    t.modify(a, fn(r) {
+      r.tags[0] = 2
+      r
+    }) {
+    Ok(_) => @test.fail("the fixture must start on the Err path")
+    Err(_) => ()
+  }
+  @test.assert_eq(t.unregister_index("first"), true)
+  match t.register_unique("first", fn(r) { r.tags[0] }) {
+    Ok(_) => @test.fail("two records project to 2, so registration must fail")
+    Err(UniqueViolation(_, _)) => ()
+    Err(DuplicateName(_)) =>
+      @test.fail("the name must be free after unregister")
+  }
+}
+
+///|
+/// The documented recovery path is three steps: unregister, split the duplicate
+/// projections with update/remove, then re-register.
+test "recovery in three steps succeeds" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let a = insert_ok(t, { tags: [1], note: 0, })
+  let b = insert_ok(t, { tags: [2], note: 0, })
+  match
+    t.modify(a, fn(r) {
+      r.tags[0] = 2
+      r
+    }) {
+    Ok(_) => @test.fail("the fixture must start on the Err path")
+    Err(_) => ()
+  }
+  @test.assert_eq(t.unregister_index("first"), true)
+  match t.update(a, { tags: [3], note: 0, }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("splitting the duplicate projection must succeed")
+  }
+  match t.register_unique("first", fn(r) { r.tags[0] }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("registration must succeed after the split")
+  }
+  match t.get_by("first", 1) {
+    None => ()
+    Some(_) => @test.fail("the old key must not reappear")
+  }
+  match t.get_by("first", 2) {
+    Some((id, r)) => {
+      @test.assert_eq(id, b)
+      @test.assert_eq(r.tags[0], 2)
+    }
+    None => @test.fail("the untouched record must still be indexed")
+  }
+  match t.get_by("first", 3) {
+    Some((_, r)) => @test.assert_eq(r.tags[0], 3)
+    None => @test.fail("the moved record must be indexed under its new key")
+  }
+  @test.assert_eq(t.len(), 2)
+  assert_invariants(t)
+}
