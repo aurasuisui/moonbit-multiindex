@@ -38,6 +38,7 @@ Table[K, V]
 ├── gens    : Array[Int]             # 每槽代际号,槽复用时 +1
 ├── free    : Array[Int]             # 空闲槽栈(LIFO);**退役槽位不入栈**(I9)
 ├── order   : Array[Int]             # 插入序(活记录的槽位)
+├── positions : Array[Int]           # order 的逆(槽位 → 下标;-1 表示已死槽;S8b 增补)
 ├── indexes : Map[String, Index[K, V]]  # 2×2 四象限索引注册表
 ├── mut len : Int                    # 活记录数
 └── mut version : Int                # 变更计数器(fail-fast 迭代器)

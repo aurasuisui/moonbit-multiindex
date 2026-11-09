@@ -54,7 +54,7 @@ git checkout dev
 │   ├── lib.mbt             # Public types: VERSION, RowId, Conflict/Rejected/RegisterError/UpdateRejected, IndexStats, IndexKind
 │   ├── table.mbt           # Table core: rows/gens/free/order/positions + chokepoints + fail-fast iterators
 │   ├── index.mbt           # Index[K,V] four-quadrant enum + bucket add/remove/slots/cursors
-│   ├── table_api.mbt       # register_* (atomic backfill) / get_by / iter_by / range family / diagnostics
+│   ├── table_api.mbt       # register_* / unregister_index / get_by / iter_by / range family / diagnostics
 │   ├── extends.mbt         # Official-style `pub extend` promotions (keeps [0079] at zero)
 │   ├── json.mbt            # JSON round-trip + decode errors
 │   ├── table_test.mbt      # Black-box unit tests

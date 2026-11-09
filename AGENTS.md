@@ -149,7 +149,8 @@ the official `moonbitlang/core` repository). Language-level facts live in
   `remove` / `swap_remove`).
 - `src/index.mbt` — the `Index[K, V]` four-quadrant enum + bucket add/remove/slots.
 - `src/extends.mbt` — official-style `pub extend` promotions (keeps `[0079]` at zero).
-- `src/table_api.mbt` — `register_*` (atomic backfill), the query family (`get_by` / `iter_by` /
+- `src/table_api.mbt` — `register_*` (atomic backfill) / `unregister_index` (drop an index; unknown
+  name answers `false`, never aborts), the query family (`get_by` / `iter_by` /
   `iter_asc_by` / `iter_desc_by` / `range_by` / `range_half_open_by`), and diagnostics
   (`index_names` / `index_entries` / `has_index` / `index_stats` / `verify_invariants`).
 - `src/property_wbtest.mbt` — invariant driver over `verify_invariants`, plus the
