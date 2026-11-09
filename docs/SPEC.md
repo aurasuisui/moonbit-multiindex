@@ -692,17 +692,16 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 
 落实:`src/abort_guard_wbtest.mbt`(27 条 = 17 条 `test "panic …"` + 10 条伴生),每条可达 `abort` 守卫一条 panic 测试。
 
-#### §7.3 覆盖率的已知缺口:报告标出的 21 行
+#### §7.3 覆盖率的已知缺口:报告标出的 18 行
 
-`moon coverage analyze -p aurasuisui/multiindex -- -f summary` 当前 **847/868**。`-f caret` 标出 **21 行**
-(报告把条件行与其失败分支成组标记,故逐条位置为 20 个):
-`src/table.mbt:412` / `:487` / `:715`;`src/table_api.mbt:203` / `:210` / `:244` / `:260` / `:273` /
+`moon coverage analyze -p aurasuisui/multiindex -- -f summary` 当前 **850/868**。`-f caret` 标出 **18 行**
+(报告把条件行与其失败分支成组标记,故逐条位置为 17 个):
+`src/table.mbt:412` / `:487` / `:715`;`src/table_api.mbt:210` / `:273` /
 `:597-603` / `:619-623` / `:694-704`。
 
-**这些行号不能直接当"没执行"读。** 抽查:报告把 `src/table_api.mbt:228`(`require_index` 的
-`Some(index) => index`)标为未覆盖,但 `get_by` / `iter_by` / `index_entries` / `index_stats` 全都经由它,
-且它们的测试是绿的;把 `abort` 探针插到 `verify_indexes` 的桶循环(`:594-595`),`json_test` 立刻炸 ——
-证明该循环确实执行。即:**报告会把条件行与其失败分支成组标记,行号偏保守**。
+**这些行号不能直接当"没执行"读。** 报告会把条件行与其失败分支成组标记(例如 `:597-603` 把 I5 文本
+与它的 `continue` 合成一组),行号偏保守。反证:把 `abort` 探针插到 `verify_indexes` 的桶循环(`:594-595`),
+`json_test` 立刻炸 —— 证明该循环确实执行。
 
 因此按**失败分支**归因:
 
@@ -710,7 +709,7 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 |---|---|
 | `insert_impl` 写完立刻回读为空 | 结构不可达:刚写入的槽位必然 `Some` |
 | `insert_or_replace` 的分类器分支 | 分类器正确时恒 `None`;保留是为了回归时退化成 `Err`,而不是破坏 I5 |
-| `iter_by` / 区间游标的 `version` 检查 | `iter` 的 fail-fast 已测,这两处游标未单独踩 |
+| ~~`iter_by` / 区间游标的 `version` 检查~~ | 0.3.0 已补 panic 测试(M5c),不再是缺口 |
 | `record_at` 返回 `None` 的防御性 `continue` / `()` | 槽位出现在 `order` 里就意味着存活 |
 | I5:唯一桶长度 > 1 | 结构不可达:唯一桶是 `Map[K, Int32]`,每键恒 1 槽 |
 | I3:桶内重复槽位 | 结构不可达:非唯一桶是 `SortedSet`,天然去重 |
