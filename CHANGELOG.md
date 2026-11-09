@@ -30,7 +30,7 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 - **`modify` 的 Err 路径不回滚**:`f` 就地修改共享容器后若唯一性预检失败,记录无法恢复;恢复路径为 `unregister_index` → `update` / `remove` 拆开重复投影 → 重新 `register_*`,详见 SPEC §3.7。
 - 工具链对齐 `moon 0.1.20261104`(`#derive` 语法与 mbti 的 `@json.Json` 拼写,纯生成物)。
 - 退役 8 条 `Index::remove` 的 abort 守卫(语义改变导致不可达),对应 9 条测试已在 M3 删除并逐条记录;`abort_guard_wbtest.mbt` 现为 21 条。
-- 覆盖率 **847/868 = 97.58%**,测试 **169**。
+- 覆盖率 **847/868 = 97.58%**,测试 **175**(含 17 条 abort 守卫的 panic 测试)。
 
 ## [0.2.2] - 2026-10-22
 

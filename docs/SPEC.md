@@ -690,7 +690,7 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 3. 守卫的**判据**由只读分类器单测(`is_ordered` / `has_index` / `replace_target`)钉死 ——
    `panic` 覆盖"会不会炸",分类器覆盖"该不该炸"。
 
-落实:`src/abort_guard_wbtest.mbt`(21 条 = 14 条 `test "panic …"` + 7 条伴生),每条可达 `abort` 守卫一条 panic 测试。
+落实:`src/abort_guard_wbtest.mbt`(27 条 = 17 条 `test "panic …"` + 10 条伴生),每条可达 `abort` 守卫一条 panic 测试。
 
 #### §7.3 覆盖率的已知缺口:报告标出的 21 行
 

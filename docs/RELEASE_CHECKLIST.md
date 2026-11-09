@@ -125,7 +125,7 @@
 | 0 | `moon check` | ✅ | `moon check` → exit 0 |
 | 0 | `moon check --deny-warn --target all` | ✅ | exit 0(`moon: ran 12 tasks, now up to date`,wasm / wasm-gc / js / native 全查) |
 | 0 | 接口快照(见上方注①的口径) | ✅ | `moon info` 后 mbti diff **只有 VERSION 一行**(0.2.2 → 0.3.0);提交后 `git diff --quiet -- src` = 0 |
-| 0 | `moon test` | ✅ | `Total tests: 169, passed: 169, failed: 0.`,exit 0 |
+| 0 | `moon test` | ✅ | `Total tests: 175, passed: 175, failed: 0.`,exit 0 |
 | 0 | `moon build` | ✅ | exit 0 |
 | 0 | 版本单一真源 | ✅ | 六处均 `0.3.0`:`moon.mod:3`、`src/lib.mbt:23`、`src/pkg.generated.mbti:10`、`cmd/leaderboard/moon.mod:2`、`bench/moon.mod:2`、`README.md:39` |
 | 0 | `moon.mod` 元数据 | ✅ | `name` / `version = "0.3.0"` / `repository` / `license = "Apache-2.0"` / 5 个 `keywords` / `source = "src"` |
@@ -134,9 +134,9 @@
 | 1 | 模型对拍逐步一致 | ✅ | `moon test -f "*model differential*"` **2/2**(`src/model_test.mbt`) |
 | 1 | 差分测试对参考实现一致 | ✅ | `moon test -f "*golden stream*"` **1/1**(`src/differential_test.mbt` 回放 `multi_index_map` 0.15.1 黄金序列) |
 | 1 | 回归钉子仍在 | ✅ | `moon test -f "*regression*"` **1/1**;update 撞唯一键零变更、`modify` 双冲突(不就地改共享容器)零变更、`insert_or_replace` 双撞键 abort |
-| 2 | 每条公开 API 有测试 | ✅ | `src/pkg.generated.mbti` 的 **33** 个 `pub fn Table::*` 全部出现在 README(missing=0);全量 **169** 条测试 |
-| 2 | 行覆盖率 | ✅ **847/868(97.58%)** | `moon test --enable-coverage` → 169/169;`$env:MOON_COVE_REPORT_ENABLED='0'; moon coverage analyze -p aurasuisui/multiindex -- -f summary` → `src/table.mbt: 257/260`、`src/table_api.mbt: 266/284`、`Total: 847/868`;`src/index.mbt` 269/269 满覆盖 |
-| 2 | `abort` 守卫有断言 | ✅ | `src/abort_guard_wbtest.mbt` **21 条 = 14 条 `test "panic …"` + 7 条伴生**;`moon test -f "*panic*"` **15/15**(含 table_test 的 1 条) |
+| 2 | 每条公开 API 有测试 | ✅ | `src/pkg.generated.mbti` 的 **33** 个 `pub fn Table::*` 全部出现在 README(missing=0);全量 **175** 条测试 |
+| 2 | 行覆盖率 | ✅ **847/868(97.58%)** | `moon test --enable-coverage` → 175/175;`$env:MOON_COVE_REPORT_ENABLED='0'; moon coverage analyze -p aurasuisui/multiindex -- -f summary` → `src/table.mbt: 257/260`、`src/table_api.mbt: 266/284`、`Total: 847/868`;`src/index.mbt` 269/269 满覆盖 |
+| 2 | `abort` 守卫有断言 | ✅ | `src/abort_guard_wbtest.mbt` **27 条 = 17 条 `test "panic …"` + 10 条伴生**;`moon test -f "*panic*"` **18/18**(含 table_test 的 1 条) |
 | 2 | 边界:空表/单元素/槽位复用/代际回绕/超长桶/重名注册 | ✅ | `table_test.mbt` 的空表 / 删最后一条 / 回收槽拒绝旧 handle;`table_wbtest.mbt` 的 I9 代际耗尽退休;`bench_test.mbt` 长桶 `n/4 → n/8`;重名注册被拒且不改状态 |
 | 2 | 泛型:自定义键 / Int 边界 | ✅ | 元组键 `(String, Int)`、`(Int, Int, Int)`;未注册索引时键类型无约束;`with_capacity(0/-5)`;I9 代际上限路径 |
 | 2 | JSON 往返 | ✅ | `json_test.mbt` 3 条:round-trip 保插入序、重注册后答案一致、畸形输入报错不静默 |
