@@ -362,7 +362,7 @@ fn counted_table(
 }
 
 ///|
-test "fast path: an update with unchanged keys performs no bucket work" {
+test "fast path: an update with unchanged keys performs no bucket mutation" {
   let counter : Array[Int32] = [0]
   let t = counted_table(counter)
   let id = match t.insert((1, 10, 7)) {
@@ -378,8 +378,8 @@ test "fast path: an update with unchanged keys performs no bucket work" {
     None => @test.fail("the record should be in the index")
   }
   @test.assert_eq(counter[0] > probe, true)
-  // (1) rewriting the record with its own keys must not touch a single bucket:
-  // only the uniqueness pre-check hashes anything
+  // (1) rewriting the record with its own keys must not mutate a bucket: the
+  // equal-key path only checks membership (`Index::holds`).
   let before_same = counter[0]
   match t.update(id, (1, 10, 7)) {
     Ok(_) => ()

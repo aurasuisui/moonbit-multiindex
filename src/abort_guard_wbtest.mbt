@@ -438,6 +438,129 @@ test "panic unregister_index makes iter_by abort on the removed name" {
 }
 
 // ---------------------------------------------------------------------------
+// table_api.mbt: the three reachable guards that lacked a panic test
+// ---------------------------------------------------------------------------
+
+///|
+/// A live `iter_by` over a non-unique bucket holding two records. The table has
+/// not moved yet, so the panic test can bump `version` immediately before the
+/// second step; a deleted guard would yield the second record.
+fn ag_fx_iter_by_live() -> (Table[Int32, Int32], Iter2[RowId, Int32]) raise {
+  let t : Table[Int32, Int32] = Table::new()
+  match t.register_non_unique("g", fn(_) { 0 }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("fixture: registration on an empty table must succeed")
+  }
+  ag_insert(t, 1) |> ignore
+  ag_insert(t, 3) |> ignore
+  check_invariants(t)
+  @test.assert_eq(t.len(), 2)
+  @test.assert_eq(t.index_stats("g").entries, 2)
+  (t, t.iter_by("g", 0))
+}
+
+///|
+/// Negative property (framework): a deleted guard would walk the old bucket and
+/// yield the second record, so this test fails with "panic is expected".
+test "panic iter_by aborts when the table is mutated during iteration" {
+  let (t, it) = ag_fx_iter_by_live()
+  it.next() |> ignore
+  let version = t.version
+  ag_insert(t, 5) |> ignore
+  @test.assert_eq(t.version, version + 1)
+  it.next() |> ignore
+}
+
+///|
+/// Companion: the same builder, the non-triggering side. A full walk proves the
+/// iterator is neither empty nor broken before the panic test mutates the table.
+test "iter_by walks a non-unique bucket to completion when the table is stable" {
+  let (t, it) = ag_fx_iter_by_live()
+  let rows = it.to_array()
+  @test.assert_eq(rows.length(), 2)
+  @test.assert_eq(t.len(), 2)
+}
+
+///|
+/// A well-formed table whose only index is a HASH one. The public ordered gate
+/// (`range_by` / `iter_asc_by`) must refuse it in `ordered_index`.
+fn ag_fx_hash_table() -> Table[Int32, Int32] raise {
+  let t : Table[Int32, Int32] = Table::new()
+  match t.register_unique("u", fn(value) { value }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("fixture: registration on an empty table must succeed")
+  }
+  ag_insert(t, 7) |> ignore
+  check_invariants(t)
+  @test.assert_eq(t.has_index("u"), true)
+  t
+}
+
+///|
+/// Negative property (framework): a deleted `ordered_index` guard would return a
+/// cursor over the hash quadrant instead of aborting, so this test fails with
+/// "panic is expected".
+test "panic range_by aborts when the index has no key order" {
+  let t = ag_fx_hash_table()
+  t.range_by("u", 0, 10) |> ignore
+}
+
+///|
+/// A table with exactly one ordered index over three records, used by the
+/// ordered-query companion and the cursor fixture.
+fn ag_fx_ordered_table() -> Table[Int32, Int32] raise {
+  let t : Table[Int32, Int32] = Table::new()
+  match t.register_unique_ordered("u", fn(value) { value }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("fixture: registration on an empty table must succeed")
+  }
+  ag_insert(t, 1) |> ignore
+  ag_insert(t, 3) |> ignore
+  ag_insert(t, 5) |> ignore
+  check_invariants(t)
+  @test.assert_eq(t.len(), 3)
+  t
+}
+
+///|
+/// Companion: run the exact query the panic test runs, but on a legal ordered
+/// index. This proves the query itself works and the abort is about the quadrant,
+/// not about `range_by` refusing every input.
+test "range_by walks the same query on an ordered index" {
+  let t = ag_fx_ordered_table()
+  let rows = t.range_by("u", 0, 10).to_array()
+  @test.assert_eq(rows.length(), 3)
+}
+
+///|
+/// A live ordered range cursor over three records, before any mutation.
+fn ag_fx_ordered_cursor_live() -> (Table[Int32, Int32], Iter2[RowId, Int32]) raise {
+  let t = ag_fx_ordered_table()
+  (t, t.range_by("u", 0, 10))
+}
+
+///|
+/// Negative property (framework): a deleted `cursor_iter` version guard would keep
+/// walking the pre-mutation cursor and yield the next record, so this test fails
+/// with "panic is expected".
+test "panic range_by aborts when the table is mutated during iteration" {
+  let (t, it) = ag_fx_ordered_cursor_live()
+  it.next() |> ignore
+  let version = t.version
+  ag_insert(t, 7) |> ignore
+  @test.assert_eq(t.version, version + 1)
+  it.next() |> ignore
+}
+
+///|
+/// Companion: the same ordered cursor, walked to completion without mutation.
+test "range_by walks an ordered cursor to completion on a stable table" {
+  let (t, it) = ag_fx_ordered_cursor_live()
+  @test.assert_eq(it.to_array().length(), 3)
+  @test.assert_eq(t.len(), 3)
+}
+
+// ---------------------------------------------------------------------------
 // Companion executions: a panic test cannot fail on a broken fixture, so the
 // fixtures are rebuilt here, under ordinary names. If any assertion inside a
 // builder stops holding, one of these tests fails and the suite is red.
