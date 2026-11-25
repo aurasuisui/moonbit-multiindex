@@ -560,6 +560,45 @@ test "range_by walks an ordered cursor to completion on a stable table" {
   @test.assert_eq(t.len(), 3)
 }
 
+///|
+/// A live **descending** ordered cursor over the same three records (keys 5, 3, 1),
+/// so the descending half of `ordered_cursor` gets the same fail-fast witness the
+/// ascending half has.
+fn ag_fx_ordered_desc_cursor_live() -> (
+  Table[Int32, Int32],
+  Iter2[RowId, Int32],
+) raise {
+  let t = ag_fx_ordered_table()
+  (t, t.iter_desc_by("u"))
+}
+
+///|
+/// Negative property (framework): the version guard lives in `cursor_iter` and is
+/// shared by both directions, so a mutation between steps must abort the
+/// descending walk too; with the guard deleted the lazy `rev_iter2` walk would
+/// keep going and this test fails with "panic is expected".
+test "panic iter_desc_by aborts when the table is mutated during iteration" {
+  let (t, it) = ag_fx_ordered_desc_cursor_live()
+  it.next() |> ignore
+  let version = t.version
+  ag_insert(t, 7) |> ignore
+  @test.assert_eq(t.version, version + 1)
+  it.next() |> ignore
+}
+
+///|
+/// Companion: the same descending cursor, walked to completion without mutation —
+/// the keys come out 5, 3, 1, so the builder really builds a descending walk.
+test "iter_desc_by walks an ordered cursor to completion on a stable table" {
+  let (t, it) = ag_fx_ordered_desc_cursor_live()
+  let rows = it.to_array()
+  @test.assert_eq(rows.length(), 3)
+  @test.assert_eq(rows[0].1, 5)
+  @test.assert_eq(rows[1].1, 3)
+  @test.assert_eq(rows[2].1, 1)
+  @test.assert_eq(t.len(), 3)
+}
+
 // ---------------------------------------------------------------------------
 // table_api.mbt: rebuild_index reaches the unknown-name guard
 // ---------------------------------------------------------------------------

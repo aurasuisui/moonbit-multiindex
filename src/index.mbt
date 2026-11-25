@@ -433,11 +433,9 @@ fn[K : Compare, V] Index::range_cursor(
 /// Cursor over **every** bucket of an ordered index, ascending — or, with
 /// `descending`, in reverse key order.
 ///
-/// Ascending walks the `SortedMap` iterator lazily. Descending has to collect the
-/// buckets first, because core has no reverse iterator for `SortedMap`; that cost
-/// is documented rather than hidden (the *range* queries stay lazy in both
-/// directions). Bucket contents still come out slot-ascending either way — only
-/// the key order flips.
+/// Both directions walk the `SortedMap` lazily — `iter2` / `rev_iter2` — so the
+/// cursor hands out one bucket at a time, never the whole key order. Bucket
+/// contents still come out slot-ascending either way — only the key order flips.
 fn[K, V] Index::ordered_cursor(
   self : Index[K, V],
   descending : Bool,
@@ -445,11 +443,15 @@ fn[K, V] Index::ordered_cursor(
   match self {
     SortedUnique(_, buckets) =>
       if descending {
-        let all : Array[Array[Int32]] = []
-        for _, slot in buckets {
-          all.push([slot])
+        let source = buckets.rev_iter2()
+        {
+          next: fn() -> Array[Int32]? {
+            match source.next() {
+              Some((_, slot)) => Some([slot])
+              None => None
+            }
+          },
         }
-        reversed_cursor(all)
       } else {
         let source = buckets.iter2()
         {
@@ -463,11 +465,15 @@ fn[K, V] Index::ordered_cursor(
       }
     SortedMulti(_, buckets) =>
       if descending {
-        let all : Array[Array[Int32]] = []
-        for _, set in buckets {
-          all.push(set.to_array())
+        let source = buckets.rev_iter2()
+        {
+          next: fn() -> Array[Int32]? {
+            match source.next() {
+              Some((_, set)) => Some(set.to_array())
+              None => None
+            }
+          },
         }
-        reversed_cursor(all)
       } else {
         let source = buckets.iter2()
         {
@@ -481,23 +487,6 @@ fn[K, V] Index::ordered_cursor(
       }
     _ =>
       abort("Index::ordered_cursor: the index has no key order (hash quadrant)")
-  }
-}
-
-///|
-/// Walk a collected bucket list from the back: the descending half of
-/// `ordered_cursor`.
-fn reversed_cursor(all : Array[Array[Int32]]) -> BucketCursor {
-  let mut pos = all.length() - 1
-  {
-    next: fn() -> Array[Int32]? {
-      if pos < 0 {
-        return None
-      }
-      let bucket = all[pos]
-      pos = pos - 1
-      Some(bucket)
-    },
   }
 }
 

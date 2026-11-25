@@ -814,6 +814,55 @@ test "iter_desc_by walks keys downwards, keeping slots ascending inside a bucket
 }
 
 ///|
+/// Regression (v0.4.0 M3, lazy descending walk): keys descend and, inside one
+/// key, slots still ascend. Insertion order here is 3,2,1,3,2,1 — the table fills
+/// up from the largest ordered key down to the smallest, and each key owns two
+/// slots that are **not** adjacent — so a walk that merely reversed the
+/// materialized ascending array (slots 3,0 / 4,1 / 5,2) would fail this test.
+test "iter_desc_by keeps slots ascending inside a bucket when keys run against insertion order" {
+  let t = triple_table()
+  let a = insert_ok(t, (1, 10, 3)) // shared_sorted key 3, slot 0
+  let b = insert_ok(t, (2, 20, 2)) // key 2, slot 1
+  let c = insert_ok(t, (3, 30, 1)) // key 1, slot 2
+  let d = insert_ok(t, (4, 40, 3)) // key 3, slot 3
+  let e = insert_ok(t, (5, 50, 2)) // key 2, slot 4
+  let f = insert_ok(t, (6, 60, 1)) // key 1, slot 5
+  // Hand-written expectation: keys 3,3,2,2,1,1 and, inside each key, the earlier
+  // record first (slots 0<3, 1<4, 2<5).
+  let expected : Array[(@aurasuisui/multiindex.RowId, (Int32, Int32, Int32))] = [
+    (a, (1, 10, 3)),
+    (d, (4, 40, 3)),
+    (b, (2, 20, 2)),
+    (e, (5, 50, 2)),
+    (c, (3, 30, 1)),
+    (f, (6, 60, 1)),
+  ]
+  let desc = t.iter_desc_by("shared_sorted").to_array()
+  @test.assert_eq(desc.length(), expected.length())
+  let mut i = 0
+  while i < expected.length() {
+    @test.assert_eq(desc[i], expected[i])
+    i = i + 1
+  }
+  // Mirror check: the ascending walk over the same buckets is 1,1,2,2,3,3 with the
+  // slots still ascending inside a bucket, so the two directions differ only in
+  // the key order — desc is not a byte-reverse of `asc`.
+  let asc = t.iter_asc_by("shared_sorted").to_array()
+  @test.assert_eq(asc.length(), expected.length())
+  let mut j = 0
+  while j < expected.length() {
+    @test.assert_eq(desc[j].1.2, asc[expected.length() - 1 - j].1.2)
+    j = j + 1
+  }
+  @test.assert_eq(asc[0], (c, (3, 30, 1)))
+  @test.assert_eq(asc[1], (f, (6, 60, 1)))
+  @test.assert_eq(asc[2], (b, (2, 20, 2)))
+  @test.assert_eq(asc[3], (e, (5, 50, 2)))
+  @test.assert_eq(asc[4], (a, (1, 10, 3)))
+  @test.assert_eq(asc[5], (d, (4, 40, 3)))
+}
+
+///|
 test "range_by is closed on both ends" {
   let t = triple_table()
   let a = insert_ok(t, (1, 10, 1))

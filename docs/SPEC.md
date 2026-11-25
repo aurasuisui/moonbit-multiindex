@@ -815,7 +815,7 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 
 | 缺口 | 影响 | 消除条件 |
 |---|---|---|
-| core 的 `SortedMap` **没有反向迭代器** | `iter_desc_by` 必须**先物化键序**再倒着走(内存 O(#桶));`range_by` / `range_half_open_by` / `iter_asc_by` 都是惰性的,不受影响 | core 为 `SortedMap`(或 `Iter2`)提供 `rev` / 反向迭代器后即可改为惰性。已记入 `CHANGELOG.md` Notes |
+| core 的 `SortedMap` 反向迭代 | **已消除(v0.4.0)**:改用 `SortedMap::rev_iter2`,降序不再物化 —— `iter_desc_by` 与 `iter_asc_by` 逐行同构,`range_by` / `range_half_open_by` 一并保持惰性(逐桶取用,不再缓存整个键序) | 已满足:core `0.1.20261120` 起提供 `rev_iter` / `rev_iter2` / `rev_keys`;`src/index.mbt` 的 `reversed_cursor` 已随之删除 |
 
 #### `insert_many` 重复唯一键的裁定(M5 落地)
 
