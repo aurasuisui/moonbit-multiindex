@@ -165,6 +165,69 @@
 
 > 这张表只证明「包能打、内容干净」,**不是**发布证据 —— `产物` / `publish` / `tag` 三行仍由 M6 填写。
 
+## v0.4.0(待发布,2026-11-30)
+
+> **表头约定 —— 包内副本是发布前快照**:`moon publish` 打包的是**当时 HEAD 的快照**,因此**包里那份**
+> 的 `产物` / `publish` / `tag` 三行按定义只能是 📌 或 ⏳(它们只能在包生成之后才发生)。**仓库 HEAD**
+> 在 publish 完成后回填 `产物` + `publish` 为 ✅(带 registry 证据),`tag` 行在仓库 HEAD 也保持 📌:tag
+> 打在**回填后的那个 commit** 上,它的 sha 记进**下一版**的「历史执行记录」—— 不回填,也不为 tag 再造一个
+> 提交(沿用 v0.2.2 / v0.3.0 的表头约定)。
+>
+> **本段由 M5 起头、M6/M7/M8 续填。** 判定栏 `⏳` = 证据要到 **M6**(干净 clone / dry-run / 产物)、
+> **M7**(publish / registry / tag / CI run id)或 **M8**(十门槛彩排)才存在,**证据格一律留空,发布前不预填**。
+>
+> **本段计数是本版真值**:**公开方法 38 / 测试 206 / md 22**。上方 v0.3.0 段里的 33 / 175 / 21 是**那一版的
+> 历史快照**,按本仓库既有纪律(B8:历史快照只标注不改写)保持原样,不要拿它当本版数字。
+
+| Tier | 项 | 判定 | 证据 |
+|---|---|---|---|
+| 0 | `moon fmt --check` | ✅ | 2026-11-25 本机 `moon 0.1.20261120 (aaf8010 2026-11-20)`:`moon fmt --check` → exit 0 |
+| 0 | `moon check` | ✅ | exit 0 |
+| 0 | `moon check --deny-warn --target all` | ✅ | exit 0(wasm / wasm-gc / js / native 全查) |
+| 0 | 接口快照(见上方注①的口径) | ✅ | `moon info` 后 `git diff --stat -- src/pkg.generated.mbti` **只有 `VERSION` 一行**(0.3.0 → 0.4.0);提交后 `git status --porcelain=v1` 空 |
+| 0 | `moon test` | ✅ | `Total tests: 206, passed: 206, failed: 0.`,exit 0 |
+| 0 | `moon test --target all` | ✅ | 四行均为 `Total tests: 206, passed: 206, failed: 0.`(wasm / wasm-gc / js / native) |
+| 0 | `moon build` | ✅ | exit 0 |
+| 0 | 版本单一真源 | ✅ | 七处均 `0.4.0`:`moon.mod:3`、`src/lib.mbt:23`、`src/pkg.generated.mbti:10`(`moon info` 生成)、`cmd/leaderboard/moon.mod:2`、`bench/moon.mod:2`、`README.md:39`、`bench/README.md:18-19`;CI 的 version single-source 步(`ci.yml`)比对 `moon.mod` 与 `src/lib.mbt` |
+| 0 | `moon.mod` 元数据 | ✅ | `name = "aurasuisui/multiindex"` / `version = "0.4.0"` / `readme` / `repository` / `license = "Apache-2.0"` / 5 个 `keywords` / `description` / `source = "src"`(`moon.mod:1-21`) |
+| 0 | CI 工具链(不可固定) | ⏳ |  |
+| 1 | 不变量 I1–I9 随机序列每步成立 | ✅ | `moon test -f "*qc:*"` **7/7**;`property_wbtest.mbt` 的 `check_invariants` 委托公开 `verify_invariants` |
+| 1 | 模型对拍逐步一致 | ✅ | `moon test -f "*model differential*"` **2/2**(`src/model_test.mbt`) |
+| 1 | 差分测试对参考实现一致 | ✅ | `moon test -f "*golden stream*"` **1/1**(`src/differential_test.mbt` 回放 `multi_index_map` 0.15.1 黄金序列) |
+| 1 | 回归钉子仍在 | ✅ | `moon test -f "*regression*"` **1/1**;update 撞唯一键零变更、`modify` 双冲突零变更、`insert_or_replace` 双撞键 abort |
+| 1 | 冲突路径:`Err` 后表与调用前一致 | ✅ | 对值类型 / 未被 `modify` 闭包就地修改的记录成立;共享容器的 Err 边界见 `docs/SPEC.md` §3.7 |
+| 2 | 每条公开 API 有测试 | ✅ | `src/pkg.generated.mbti` 的 **38** 个 `pub fn Table::*` 全部出现在 README(missing=0);全量 **206** 条测试 |
+| 2 | 行覆盖率 | ✅ **976/1002(97.41%)** | `moon clean` → `moon test --enable-coverage`(206/206)→ `$env:MOON_COVE_REPORT_ENABLED='0'; moon coverage analyze -p aurasuisui/multiindex -- -f summary` → `src/index.mbt: 319/326`、`src/table.mbt: 257/260`、`src/table_api.mbt: 345/361`、`Total: 976/1002`;`-f caret` 标出 **23 行**,逐条归因见 `docs/SPEC.md` §7.3 |
+| 2 | `abort` 守卫有断言 | ✅ | `src/abort_guard_wbtest.mbt` **42 条 = 26 条 `test "panic …"` + 16 条伴生**;`moon test -f "*panic*"` **27/27**(含 `table_test.mbt` 的 1 条);`rebuild_index` 的未注册名守卫、`first_by` / `last_by` 的哈希象限守卫各有 1 条 panic 测试 |
+| 2 | 边界:空表/单元素/槽位复用/代际回绕/超长桶/重名注册 | ✅ | `table_test.mbt` 的空表 / 删最后一条 / 回收槽拒绝旧 handle;`table_wbtest.mbt` 的 I9 代际耗尽退休;`bench_test.mbt` 长桶 `n/4 → n/8`;重名注册被拒且不改状态 |
+| 2 | 泛型:自定义键 / Int 边界 | ✅ | 元组键 `(String, Int)`、`(Int, Int, Int)`;未注册索引时键类型无约束;`with_capacity(0/-5)`;I9 代际上限路径 |
+| 2 | JSON 往返 | ✅ | `json_test.mbt` 3 条:round-trip 保插入序、重注册后答案一致、畸形输入报错不静默 |
+| 2 | 新增方法的象限边界 | ✅ | `moon test -f "*contains_by*"` **4/4**、`"*count_by*"` **2/2**、`"*first_by*"` **5/5**、`"*last_by*"` **5/5**、`"*rebuild*"` **16/16** |
+| 3 | 压力用例(10k+ 操作) | ✅ | `bench_test.mbt`:10 000 次操作(5 000 insert + 2 500 remove + 2 500 复用 insert,全程 `verify_invariants`) |
+| 3 | 基准无回退 | ⏳ |  |
+| 4 | README API 表与 SPEC 一致 | ✅ | **38** 个公开方法名全部出现在 README(missing=0);SPEC §3.1 已登记 `rebuild_index` 的签名与失败语义、§6 复杂度表含 4 个查询族方法与 `rebuild_index` |
+| 4 | 至少一个可运行示例 | ⏳ |  |
+| 4 | `docs/README.md` 地图无孤儿 | ⏳ |  |
+| 4 | `CHANGELOG.md` 有本版 entry | ✅ | `## [0.4.0] - 2026-11-30`(Added:`rebuild_index` + 查询族四方法;Changed:降序惰性、工具链对齐、七处版本、文档对账;Notes 写明 bench 未复测) |
+| 4 | 许可证与第三方来源齐备 | ✅ | `LICENSE`(Apache-2.0 正文)、`NOTICE`、`third_party/LICENSES/multi_index_map-MIT.txt`、README「致谢与来源」 |
+| 发布 | 产物不含 PII / 开发态垃圾 | ⏳ |  |
+| 发布 | `moon publish` 并确认 `build_status: success` | ⏳ |  |
+| 发布 | 打 tag `v0.4.0` 并推送 | ⏳ |  |
+
+### M5 的 dry-run 与解包核对(待 M6 填写)
+
+| 项 | 实测 |
+|---|---|
+| 命令 | ⏳ |
+| 干净树 | ⏳ |
+| 服务端 | ⏳ |
+| 打包内容 | ⏳ |
+| 差异 | ⏳ |
+| PII / 垃圾 | ⏳ |
+| 包内版本 | ⏳ |
+
+> 这张表只证明「包能打、内容干净」,**不是**发布证据 —— `产物` / `publish` / `tag` 三行仍由 M6 填写。
+
 ## 历史执行记录
 
 ### v0.3.0 验收彩排(2026-11-09,M7)

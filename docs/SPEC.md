@@ -736,17 +736,25 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 3. 守卫的**判据**由只读分类器单测(`is_ordered` / `has_index` / `replace_target`)钉死 ——
    `panic` 覆盖"会不会炸",分类器覆盖"该不该炸"。
 
-落实:`src/abort_guard_wbtest.mbt`(27 条 = 17 条 `test "panic …"` + 10 条伴生),每条可达 `abort` 守卫一条 panic 测试。
+落实:`src/abort_guard_wbtest.mbt`(**42 条 = 26 条 `test "panic …"` + 16 条伴生**),每条可达 `abort` 守卫一条 panic 测试。
+0.4.0 复算(只统计这一个文件):`Select-String -Path src\abort_guard_wbtest.mbt -Pattern '^test "panic '` → **26**,`'^test "'` → **42**,差 16 条即伴生测试。
 
-#### §7.3 覆盖率的已知缺口:报告标出的 18 行
+#### §7.3 覆盖率的已知缺口:报告标出的 23 行
 
-`moon coverage analyze -p aurasuisui/multiindex -- -f summary` 当前 **850/868**。`-f caret` 标出 **18 行**
-(报告把条件行与其失败分支成组标记,故逐条位置为 17 个):
-`src/table.mbt:412` / `:487` / `:715`;`src/table_api.mbt:210` / `:273` /
-`:597-603` / `:619-623` / `:694-704`。
+0.4.0 重算(`moon 0.1.20261120`):`moon clean` → `moon test --enable-coverage`(**206/206**)→
+`$env:MOON_COVE_REPORT_ENABLED='0'; moon coverage analyze -p aurasuisui/multiindex -- -f summary`
+→ **976/1002 = 97.41%**(`src/index.mbt: 319/326`、`src/table.mbt: 257/260`、`src/table_api.mbt: 345/361`)。
+`-f caret` 逐行标出 **23 行**:
+`src/index.mbt:383` / `:384` / `:385` / `:444` / `:447`;
+`src/table.mbt:412` / `:487` / `:715`;
+`src/table_api.mbt:210` / `:312` / `:555` / `:816` / `:818` / `:820` / `:822` /
+`:838` / `:840` / `:842` / `:913` / `:915` / `:917` / `:919` / `:923`。
 
-**这些行号不能直接当"没执行"读。** 报告会把条件行与其失败分支成组标记(例如 `:597-603` 把 I5 文本
-与它的 `continue` 合成一组),行号偏保守。反证:把 `abort` 探针插到 `verify_indexes` 的桶循环(`:594-595`),
+> **两个口径不要互相换算**:`-f summary` 的行计数是 1002 − 976 = **26** 行,而 `-f caret` 逐行点名
+> **23** 行。差出的 3 行报告未按行点名;本节照抄两条命令的输出,不自行补齐。
+
+**这些行号不能直接当"没执行"读。** 报告会把条件行与其失败分支成组标记(例如 `:816-822` 把 I5 文本
+与其 `return Err` 合成一组),行号偏保守。反证:把 `abort` 探针插到 `verify_indexes` 的桶循环(`:813`),
 `json_test` 立刻炸 —— 证明该循环确实执行。
 
 因此按**失败分支**归因:
@@ -759,7 +767,7 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 | `record_at` 返回 `None` 的防御性 `continue` / `()` | 槽位出现在 `order` 里就意味着存活 |
 | I5:唯一桶长度 > 1 | 结构不可达:唯一桶是 `Map[K, Int32]`,每键恒 1 槽 |
 | I3:桶内重复槽位 | 结构不可达:非唯一桶是 `SortedSet`,天然去重 |
-| I7:记录不在任何桶里 | 可达,但需注入"记录在表里、却不在该索引桶里"的脏态;12 条 `verify_*` 证伪测试已覆盖 I1/I2/I4/I6/I9/registry |
+| I7:记录不在任何桶里 | 可达,但需注入"记录在表里、却不在该索引桶里"的脏态;15 条 `verify_*` 证伪测试已覆盖 I1/I2/I3/I4/I6/I7/I9/registry(含 I3,见 `table_wbtest.mbt` 的 `names I3` 用例) |
 
 > **不追求 100%。** 登记这张表的目的是防止覆盖率**偷偷下降**:新增的未覆盖行要么补测试,要么在这里说明理由。
 

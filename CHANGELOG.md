@@ -5,6 +5,52 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 
 ---
 
+## [0.4.0] - 2026-11-30
+
+**第六个发布版本,MINOR** —— 新增 `Table::rebuild_index` 与查询族 `contains_by` / `count_by` /
+`first_by` / `last_by`,并把降序遍历改成惰性;按 semver 表(新增公开方法 = 兼容新增)一律 MINOR,
+不发 0.3.1。本版**没有**行为修复:下面 `Changed` 里的两处代码改动(降序游标惰性化、工具链对齐)都不是 bug fix。
+
+### Added
+
+- **`Table::rebuild_index(name : String) -> Result[Unit, RegisterError[K]]`**(需 `K : Hash + Eq + Compare`):
+  按记录**当前投影**重新推导**一个**已注册索引,是 §3.7 三步恢复(`unregister_index` → 修记录 →
+  `register_*`)的一步化替代。未注册的名字 `abort`(§7.1;与 `unregister_index` 的 `false` 的分界见
+  SPEC §3.1);唯一冲突返回 `Err(UniqueViolation)`,且**旧索引一个字节都不动** —— 实现是「建新桶后整体替换」,
+  不会“修一半”。`len` / `iter()` 插入序 / 其它索引 / `gens` / `free` / `version` 全不动。
+- **查询族 `contains_by` / `count_by` / `first_by` / `last_by`**:`contains_by` / `count_by` 只回答
+  「有没有 / 几条」,**不物化桶**;`first_by` / `last_by` 在有序索引上按键序取端点
+  (`SortedMap::first` / `last`,O(log n)),同键多条仍取**最小槽位**,不是插入序最后一条。
+  在哈希索引上做 `first_by` / `last_by` 属「问题问错了」,`abort`(§7.1),各配 1 条 `test "panic …"`
+  与 1 条伴生测试。
+
+### Changed
+
+- **降序遍历改惰性**:`Index::ordered_cursor(true)` 改走 core `SortedMap::rev_iter2`,不再把全部桶物化
+  进一个数组;内部方法 `reversed_cursor` 删除,**公开签名不变**。SPEC §11「上游没有反向迭代器」的说法同时消除。
+- **工具链对齐 `moon 0.1.20261120`**:按新 formatter 规则补 `src/index.mbt` 的一处尾逗号,使
+  `moon fmt --check` 恢复 exit 0(纯格式,无语义变化)。
+- **七处版本 0.3.0 → 0.4.0**:`moon.mod`、`src/lib.mbt` 的 `VERSION`、`src/pkg.generated.mbti`
+  (`moon info` 生成,只动 `VERSION` 一行)、`cmd/leaderboard/moon.mod`、`bench/moon.mod`、
+  `README.md` 安装段、`bench/README.md` 的版本串。
+- **文档对账**:SPEC §7.2 的守卫计数与 §7.3 的覆盖率/缺口行按本仓命令**重算后写回**;
+  `AGENTS.md` / `CONTRIBUTING.md` 的方法清单与 `pkg.generated.mbti` 逐个对齐(顺带修掉
+  `check_invariants` 的归属与 `moon.pkg` 的 imports 列表);README「限制」段补 `rebuild_index`
+  的失败语义;`docs/RELEASE_CHECKLIST.md` 新增 v0.4.0 的 Tier 段(M6/M7/M8 才有的证据留 ⏳)。
+
+### Notes / Deviations
+
+- **测试 206**(四后端各 206),公开 `Table::*` 方法 **38**;`src/abort_guard_wbtest.mbt`
+  **42 条 = 26 条 `test "panic …"` + 16 条伴生**。
+- **覆盖率重算**:**976/1002 = 97.41%**(`moon test --enable-coverage` → legacy reporter
+  `$env:MOON_COVE_REPORT_ENABLED='0'`)。summary:`src/index.mbt: 319/326`、`src/table.mbt: 257/260`、
+  `src/table_api.mbt: 345/361`;`-f caret` 标出 23 行,逐条归因见 SPEC §7.3。
+- **bench 未复测**:降序游标是内部实现改动,本版**没有**重跑 native + release 基准,
+  `bench/README.md` 的数字仍是上一轮实测;需要新数字时按该文件的命令自行重跑。
+- **`rebuild_index` 不 bump `version`**:它不改记录,因此在飞的有序游标继续走旧快照,与
+  `unregister_index` 的既定行为同构(裁定见 `docs/plans/v0.4.0.md` §九.8)。
+- 发布结果(publish / tag / 产物)由 M6 回填到 `docs/RELEASE_CHECKLIST.md` 的 v0.4.0 段。
+
 ## [0.3.0] - 2026-11-08
 
 **第五个发布版本,MINOR** —— 新增 `Table::unregister_index`,并修复 0.2.2 带着的两个正确性缺陷。按项目 semver 口径,新增公开方法必须 MINOR;但本版的主体是修复,不是新功能。
