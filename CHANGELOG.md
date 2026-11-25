@@ -76,7 +76,7 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 - **`modify` 的 Err 路径不回滚**:`f` 就地修改共享容器后若唯一性预检失败,记录无法恢复;恢复路径为 `unregister_index` → `update` / `remove` 拆开重复投影 → 重新 `register_*`,详见 SPEC §3.7。
 - 工具链对齐 `moon 0.1.20261104`(`#derive` 语法与 mbti 的 `@json.Json` 拼写,纯生成物)。
 - 退役 8 条 `Index::remove` 的 abort 守卫(语义改变导致不可达),对应 9 条测试已在 M3 删除并逐条记录;`abort_guard_wbtest.mbt` 现为 27 条(17 条 `test "panic …"` + 10 条伴生)。
-- 覆盖率 **850/868 = 97.70%**,测试 **175**(含 17 条 abort 守卫的 panic 测试)。
+- 覆盖率 **850/868 = 97.93%**,测试 **175**(含 17 条 abort 守卫的 panic 测试)。
 
 ## [0.2.2] - 2026-10-22
 
@@ -534,7 +534,7 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 | 非唯一桶 | `BTreeSet<usize>` | **`SortedSet[Int]`(采纳同一路线)** | 初稿选 `Array[Int]` 以保插入序,但**大桶下 O(k) 线性删除不可接受**;参考实现 0.6.0 已因性能把 `Vec` 换成 `BTreeSet`。**代价:桶内顺序变为槽位号升序** |
 | 冲突语义 | `try_insert`→`Err`(归还元素);`insert`→**panic** | **只有 `Result`,且归还记录**(`Rejected[K,V]`);绝不 panic | MoonBit 的 panic 等价 abort;记录按值传递,不归还则调用方**丢失数据** |
 | `modify` 原子性 | 先删旧键再插新键,**失败则 panic 并留下脏索引**(缺陷) | **先全量预检,再一次性提交** | 修正上游缺陷 |
-| 范围查询 | **无**(ordered 索引只暴露点查与全量遍历) | `range_by` / `range_inclusive_by` / `iter_asc_by` / `iter_desc_by` | 上游 API 层缺口,本库增量 |
+| 范围查询 | **无**(ordered 索引只暴露点查与全量遍历) | `range_by` / `range_half_open_by` / `iter_asc_by` / `iter_desc_by` | 上游 API 层缺口,本库增量 |
 | 代际号溢出 | **静默回绕**(slotmap / thunderdome / hecs / bevy 一致) | **溢出即退役槽位** | 陈旧句柄永不复活(不变量 I9) |
 | 索引定义 | derive 宏(编译期) | 运行时闭包注册 | MoonBit 无等价宏机制 |
 | 更新路径 | `update_by_*`(仅未索引字段)+ `modify_by_*` | 只有 `modify`,内部**逐索引键对比**只动变化的桶 | MoonBit 无法返回指向数组元素的 `&mut` 投影 |

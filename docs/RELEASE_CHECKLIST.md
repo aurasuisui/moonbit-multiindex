@@ -135,7 +135,7 @@
 | 1 | 差分测试对参考实现一致 | ✅ | `moon test -f "*golden stream*"` **1/1**(`src/differential_test.mbt` 回放 `multi_index_map` 0.15.1 黄金序列) |
 | 1 | 回归钉子仍在 | ✅ | `moon test -f "*regression*"` **1/1**;update 撞唯一键零变更、`modify` 双冲突(不就地改共享容器)零变更、`insert_or_replace` 双撞键 abort |
 | 2 | 每条公开 API 有测试 | ✅ | `src/pkg.generated.mbti` 的 **33** 个 `pub fn Table::*` 全部出现在 README(missing=0);全量 **175** 条测试 |
-| 2 | 行覆盖率 | ✅ **850/868(97.70%)** | `moon test --enable-coverage` → 175/175;`$env:MOON_COVE_REPORT_ENABLED='0'; moon coverage analyze -p aurasuisui/multiindex -- -f summary` → `src/table.mbt: 257/260`、`src/table_api.mbt: 269/284`、`Total: 850/868`;`src/index.mbt` 269/269 满覆盖 |
+| 2 | 行覆盖率 | ✅ **850/868(97.93%)** | `moon test --enable-coverage` → 175/175;`$env:MOON_COVE_REPORT_ENABLED='0'; moon coverage analyze -p aurasuisui/multiindex -- -f summary` → `src/table.mbt: 257/260`、`src/table_api.mbt: 269/284`、`Total: 850/868`;`src/index.mbt` 269/269 满覆盖 |
 | 2 | `abort` 守卫有断言 | ✅ | `src/abort_guard_wbtest.mbt` **27 条 = 17 条 `test "panic …"` + 10 条伴生**;`moon test -f "*panic*"` **18/18**(含 table_test 的 1 条) |
 | 2 | 边界:空表/单元素/槽位复用/代际回绕/超长桶/重名注册 | ✅ | `table_test.mbt` 的空表 / 删最后一条 / 回收槽拒绝旧 handle;`table_wbtest.mbt` 的 I9 代际耗尽退休;`bench_test.mbt` 长桶 `n/4 → n/8`;重名注册被拒且不改状态 |
 | 2 | 泛型:自定义键 / Int 边界 | ✅ | 元组键 `(String, Int)`、`(Int, Int, Int)`;未注册索引时键类型无约束;`with_capacity(0/-5)`;I9 代际上限路径 |
@@ -287,7 +287,7 @@ src\table_api.mbt: 269/284
 Total: 850/868
 ```
 
-`src/index.mbt` 269/269(满覆盖);850/868 = 97.70%。比 M5b 记录的 847 多 3 行,正是 M5c 新增三条守卫测试覆盖的 `iter_by` / `ordered_index` / `cursor_iter` 守卫行;没有新增未覆盖行。
+`src/index.mbt` 269/269(满覆盖);850/868 = 97.93%。比 M5b 记录的 847 多 3 行,正是 M5c 新增三条守卫测试覆盖的 `iter_by` / `ordered_index` / `cursor_iter` 守卫行;没有新增未覆盖行。
 
 **干净 clone 安装(仓库外)**
 

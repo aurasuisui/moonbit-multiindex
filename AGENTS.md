@@ -143,7 +143,8 @@ the official `moonbitlang/core` repository). Language-level facts live in
 ## Source map
 
 - `src/lib.mbt` — public types: `VERSION`, `RowId`, `Conflict` / `Rejected` / `RegisterError` /
-  `UpdateRejected`, `IndexStats`, `IndexKind`, each with a hand-written `Show`.
+  `UpdateRejected`, `IndexStats`, `IndexKind`; hand-written `Show` on **only 4** of them
+  (`RowId` / `Conflict` / `Rejected` / `IndexKind`) — the other 3 carry `Debug` / `Eq` only.
 - `src/table.mbt` — `Table` core, the chokepoints, the uniqueness pre-check `find_conflict`, and
   the write path (`insert` / `insert_many` / `insert_or_replace` / `update` / `modify` /
   `remove` / `swap_remove`).

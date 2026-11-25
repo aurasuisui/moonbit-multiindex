@@ -128,7 +128,7 @@ I9  退役槽位永不回到 free(代际号达上限的槽位永久移出自由�
 | `insert` | O(I + Σ 桶代价) | I = 索引数;加桶是 O(1) 均摊 |
 | `get_by(index, key)` | O(1) 均摊 | 哈希索引直接查桶 |
 | `range_by(index, lo, hi)` | O(log n + k) | 有序索引 SortedMap |
-| `remove(id)` | O(I + Σ log 桶) | 每索引删桶;非唯一桶为有序集合,O(log k) |
+| `remove(id)` | O(len + I + Σ log 桶) | `order` 原地压缩 **O(len)**;每索引删桶,非唯一桶为有序集合 O(log k) |
 | `modify(id, f)` | O(I) 预检 + Σ(变化索引的 log 桶) | **键未变的索引完全不动** |
 | `iter()` | O(len) | 沿 `order` 遍历 |
 | 空间 | O(len + Σ 索引条目) | 索引只存槽位号 |
@@ -170,7 +170,7 @@ I9  退役槽位永不回到 free(代际号达上限的槽位永久移出自由�
 | 后备存储 | `Slab<T>`(槽 + 空洞) | `Array[V?]` + `free` + **`gens`** |
 | 句柄 | `usize` 槽下标 | **`RowId{slot, gen}`(ABA 防护)** |
 | 索引定义 | derive 宏(编译期) | 运行时闭包注册 |
-| 非唯一桶 | `BTreeSet<usize>` | `Array[Int]`(插入序) |
+| 非唯一桶 | `BTreeSet<usize>` | **`SortedSet[Int]`(槽位升序)** |
 | 冲突 | `try_insert` → `Err` | 一律 `Err`,零变更(值类型;共享容器见 SPEC §3.7) |
 | 自检 | 无 | 公开 `verify_invariants()` |
 

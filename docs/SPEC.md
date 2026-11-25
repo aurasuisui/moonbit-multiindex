@@ -82,7 +82,7 @@ struct MultiIndexOrderMap {
 | 索引定义方式 | derive 宏(编译期) | 运行时闭包注册 | MoonBit 无等价宏机制 |
 | 句柄 | `usize`(槽下标) | `RowId{slot, gen}` | ABA 防护 |
 | 代际号溢出 | 静默回绕(slotmap / thunderdome / hecs / bevy 一致) | **溢出即退役槽位** | 陈旧句柄永不复活(§0.4-8) |
-| 范围查询 | **无**(ordered 索引只暴露点查与全量遍历) | `range_by` / `range_inclusive_by` | 主蓝本 API 层缺口(§0.4-2) |
+| 范围查询 | **无**(ordered 索引只暴露点查与全量遍历) | `range_by` / `range_half_open_by` | 主蓝本 API 层缺口(§0.4-2) |
 
 ---
 
@@ -298,6 +298,7 @@ pub struct Table[K, V] {
   priv gens : Array[Int]
   priv free : Array[Int]
   priv order : Array[Int]
+  priv positions : Array[Int32]
   priv indexes : Map[String, Index[K, V]]
   priv mut len : Int
   priv mut version : Int
@@ -775,13 +776,24 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 
 ## §8 Trait 实现规划
 
+**已落地**(以 [`src/pkg.generated.mbti`](../src/pkg.generated.mbti) 为机器可读真源;本节按"已落地 / 未落地"两栏分开):
+
+| 能力 | 实现者 | 说明 |
+|---|---|---|
+| `Show`(手写) | `RowId` / `Conflict[K]` / `Rejected[K, V]` / `IndexKind` —— **只有这 4 个** | 手写,不用 deprecated 的 `derive(Show)`;`Table` **没有** `Show` |
+| `Debug` / `Eq` / `Hash` | 全部由 `#derive` 生成(见 `src/lib.mbt`):`RowId` = Eq+Hash+Debug;`Conflict` / `RegisterError` / `UpdateRejected` / `IndexStats` = Eq+Debug;`Rejected` / `IndexKind` = 仅 Debug | 没有手写的 `Debug` / `Eq` / `Hash` |
+| JSON 往返 | `Table::to_json` / `Table::from_json` —— **是方法,不是 trait 实现** | 语义见下 |
+
+> **JSON 语义(已落地)**:① **索引不参与序列化**(投影是运行时闭包,无法序列化);② `from_json` 只恢复**记录**(`rows` + `gens` + `order`),返回的表**索引注册表为空**;③ 反序列化后由调用方用 `register_*` **回填重建索引** —— 这正好复用 §3.1 已有的"对非空表注册即回填"语义,**两处机制自然咬合,不新增概念**;④ 形如 `{"records": [...]}`,记录按插入序写出。
+
+**未落地**(规划,0.4.0 不实现):`Table` 在 mbti 里**一个 `impl` 都没有** ——
+
 | Trait | 规划 |
 |---|---|
-| `Debug` / `Show` | `RowId`、`Conflict`、`Table`(手写 `Show`,不用 deprecated 的 `derive(Show)`) |
+| `Debug` / `Show` | `Table` 的手写 `Show` 与 `Debug`(当前**都不存在**) |
 | `Default` | `Table::new()` |
 | `Eq` | `Table` 为**记录集合**语义;索引是派生视图,**不参与相等性** |
 | `Hash` | 与 `Eq` 一致(顺序无关正则形,比照 bimap 的 sort-fold) |
-| `ToJson` / `FromJson` | JSON 往返。**语义已裁定**:① **索引不参与序列化**(投影是运行时闭包,无法序列化);② `from_json` 只恢复**记录**(`rows` + `gens` + `order`),返回的表**索引注册表为空**;③ 反序列化后由调用方用 `register_*` **回填重建索引** —— 这正好复用 §3.1 已有的"对非空表注册即回填"语义,**两处机制自然咬合,不新增概念**;④ 形如 `{"records": [...]}`,记录按插入序写出 |
 | `Arbitrary` | QuickCheck 生成器 |
 
 ---

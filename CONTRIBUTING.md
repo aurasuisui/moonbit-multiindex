@@ -101,6 +101,7 @@ Table[K, V]
 ├── gens    : Array[Int]                 ← per-slot generation, +1 on recycle
 ├── free    : Array[Int]                 ← free-slot stack (LIFO); retired slots NEVER re-enter (I9)
 ├── order   : Array[Int]                 ← live slots in insertion order
+├── positions : Array[Int32]             ← inverse of order (slot -> order index, -1 when dead)
 ├── indexes : Map[String, Index[K, V]]   ← the 2x2 index registry
 ├── mut len : Int
 └── mut version : Int                    ← mutation counter (fail-fast iterators)
