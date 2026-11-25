@@ -413,6 +413,136 @@ pub fn[K, V] Table::unregister_index(self : Table[K, V], name : String) -> Bool 
 }
 
 // ---------------------------------------------------------------------------
+// Index repair (docs/SPEC.md §3.1, v0.4.0 M2)
+// ---------------------------------------------------------------------------
+
+///|
+/// Re-derive the index registered under `name` from the live records, repairing a
+/// bucket set that went stale (docs/SPEC.md §3.1, §3.7).
+///
+/// This is the one-step replacement for the three-step recovery
+/// `unregister_index` + fix the records + `register_*`: the records are the
+/// source of truth, so a bucket left pointing at the wrong key by an external
+/// mutation (docs/SPEC.md §3.7) becomes correct again without dropping the index,
+/// its name or its projection.
+///
+/// **Atomic, by construction.** The new buckets are built in a local structure and
+/// published with a single `indexes.set` only after the whole scan has succeeded.
+/// The old bucket structure is never cleared in place, so an iterator created
+/// before the call keeps walking the snapshot it captured at creation — the same
+/// observation `unregister_index` documents (see `Table::iter_asc_by`). A unique
+/// quadrant answers `Err(UniqueViolation(name, key))` as soon as two live records
+/// project to the same key; the rebuild has then written nothing, so every key of
+/// the old index still answers exactly as it did before.
+///
+/// **What is untouched.** Records, insertion order, generations, the free-slot
+/// stack and every other index: `len`, `iter()` and the other indexes are
+/// unchanged. `version` is **not** bumped either — I8 counts *record* changes and a
+/// rebuild changes no record.
+///
+/// **Unknown name aborts** (docs/SPEC.md §7.1), like every other name-taking entry
+/// point that is not `unregister_index`; that method's "answer `false`" is the
+/// registry's single documented exception, and it is about *removing* an index.
+/// `DuplicateName` is **unreachable** on this path: a rebuild does not take a name,
+/// it requires one to be registered already, so the variant exists for the
+/// registration API alone (docs/SPEC.md §3.1 registers it next to §7.3's
+/// unreachable branches).
+pub fn[K : Hash + Eq + Compare, V] Table::rebuild_index(
+  self : Table[K, V],
+  name : String,
+) -> Result[Unit, RegisterError[K]] {
+  let index = self.require_index(name)
+  match index {
+    HashUnique(meta, _) => {
+      let project = meta.project
+      let buckets : Map[K, Int32] = Map([])
+      let mut i = 0
+      while i < self.order.length() {
+        let slot = self.order[i]
+        match self.rows[slot] {
+          Some(record) => {
+            let key = project(record)
+            match buckets.get(key) {
+              Some(_) => return Err(UniqueViolation(name, key))
+              None => buckets.set(key, slot)
+            }
+          }
+          None =>
+            abort("Table::rebuild_index: `order` names a slot with no record")
+        }
+        i = i + 1
+      }
+      self.indexes.set(name, Index::HashUnique(meta, buckets))
+    }
+    SortedUnique(meta, _) => {
+      let project = meta.project
+      let buckets : @sorted_map.SortedMap[K, Int32] = @sorted_map.SortedMap([])
+      let mut i = 0
+      while i < self.order.length() {
+        let slot = self.order[i]
+        match self.rows[slot] {
+          Some(record) => {
+            let key = project(record)
+            match buckets.get(key) {
+              Some(_) => return Err(UniqueViolation(name, key))
+              None => buckets.set(key, slot)
+            }
+          }
+          None =>
+            abort("Table::rebuild_index: `order` names a slot with no record")
+        }
+        i = i + 1
+      }
+      self.indexes.set(name, Index::SortedUnique(meta, buckets))
+    }
+    HashMulti(meta, _) => {
+      let project = meta.project
+      let buckets : Map[K, @sorted_set.SortedSet[Int32]] = Map([])
+      let mut i = 0
+      while i < self.order.length() {
+        let slot = self.order[i]
+        match self.rows[slot] {
+          Some(record) => {
+            let key = project(record)
+            match buckets.get(key) {
+              Some(set) => set.add(slot)
+              None => buckets.set(key, @sorted_set.SortedSet([slot]))
+            }
+          }
+          None =>
+            abort("Table::rebuild_index: `order` names a slot with no record")
+        }
+        i = i + 1
+      }
+      self.indexes.set(name, Index::HashMulti(meta, buckets))
+    }
+    SortedMulti(meta, _) => {
+      let project = meta.project
+      let buckets : @sorted_map.SortedMap[K, @sorted_set.SortedSet[Int32]] = @sorted_map.SortedMap([],
+      )
+      let mut i = 0
+      while i < self.order.length() {
+        let slot = self.order[i]
+        match self.rows[slot] {
+          Some(record) => {
+            let key = project(record)
+            match buckets.get(key) {
+              Some(set) => set.add(slot)
+              None => buckets.set(key, @sorted_set.SortedSet([slot]))
+            }
+          }
+          None =>
+            abort("Table::rebuild_index: `order` names a slot with no record")
+        }
+        i = i + 1
+      }
+      self.indexes.set(name, Index::SortedMulti(meta, buckets))
+    }
+  }
+  Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Diagnostics (docs/SPEC.md §3.4)
 // ---------------------------------------------------------------------------
 

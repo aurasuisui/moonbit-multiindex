@@ -561,6 +561,121 @@ test "range_by walks an ordered cursor to completion on a stable table" {
 }
 
 // ---------------------------------------------------------------------------
+// table_api.mbt: rebuild_index reaches the unknown-name guard
+// ---------------------------------------------------------------------------
+
+///|
+/// A legal one-record table whose only index is registered as "u": a rebuild of
+/// "u" can succeed, while "ghost" was never registered and reaches
+/// `require_index`.
+fn ag_fx_rebuild_unknown_name() -> (Table[Int32, Int32], RowId) raise {
+  let (t, id) = ag_one_record()
+  @test.assert_eq(t.has_index("u"), true)
+  @test.assert_eq(t.index_names().length(), 1)
+  @test.assert_eq(t.len(), 1)
+  check_invariants(t)
+  (t, id)
+}
+
+///|
+/// Negative property (framework): without the unknown-name guard, a rebuild of
+/// "ghost" would answer `Ok(())` over an empty scan, so this test fails with
+/// "panic is expected".
+test "panic rebuild_index on unknown name" {
+  let (t, _id) = ag_fx_rebuild_unknown_name()
+  t.rebuild_index("ghost") |> ignore
+}
+
+///|
+/// Companion: the same fixture, the non-triggering side. Rebuilding the registered
+/// name succeeds and leaves the record indexed, so the panic test's abort is about
+/// the name and not about `rebuild_index` refusing every call.
+test "rebuild_index rebuilds the registered name for the unknown-name fixture" {
+  let (t, id) = ag_fx_rebuild_unknown_name()
+  match t.rebuild_index("u") {
+    Ok(_) => ()
+    Err(_) => @test.fail("rebuilding the registered index must succeed")
+  }
+  @test.assert_eq(t.get_by("u", 7), Some((id, 7)))
+  check_invariants(t)
+}
+
+///|
+/// A legal table with all four quadrants registered, then sabotaged: `order` still
+/// names the record's slot while `rows` no longer holds a record for it. That is
+/// the disagreement each of the four `rebuild_index` scans refuses — the same one
+/// the four `register_*` backfills refuse.
+fn ag_fx_rebuild_dangling_order() -> Table[Int32, Int32] raise {
+  let t : Table[Int32, Int32] = Table::new()
+  let registrations : Array[Result[Unit, RegisterError[Int32]]] = [
+    t.register_unique("uh", fn(value) { value }),
+    t.register_unique_ordered("us", fn(value) { value }),
+    t.register_non_unique("mh", fn(value) { value }),
+    t.register_non_unique_ordered("ms", fn(value) { value }),
+  ]
+  let mut i = 0
+  while i < registrations.length() {
+    match registrations[i] {
+      Ok(_) => ()
+      Err(_) =>
+        @test.fail("fixture: registration on an empty table must succeed")
+    }
+    i = i + 1
+  }
+  let id = ag_insert(t, 7)
+  check_invariants(t)
+  t.rows[id.slot] = None // sabotage: order still names the slot
+  @test.assert_eq(t.len(), 1)
+  @test.assert_eq(t.order.length(), 1)
+  @test.assert_eq(t.indexes.length(), 4)
+  @test.assert_eq(ag_none(t.rows[id.slot]), true)
+  t
+}
+
+///|
+/// Negative property (framework): without the dangling-slot guard, the rebuild
+/// would skip the slot silently and publish a bucket set built from a table whose
+/// `order` lies, so this test fails with "panic is expected".
+test "panic rebuild_index aborts on a dangling order entry (hash unique)" {
+  let t = ag_fx_rebuild_dangling_order()
+  t.rebuild_index("uh") |> ignore
+}
+
+///|
+/// Negative property (framework): the sorted unique arm. A deleted guard would
+/// publish the rebuilt index instead of aborting.
+test "panic rebuild_index aborts on a dangling order entry (sorted unique)" {
+  let t = ag_fx_rebuild_dangling_order()
+  t.rebuild_index("us") |> ignore
+}
+
+///|
+/// Negative property (framework): the hashed non-unique arm.
+test "panic rebuild_index aborts on a dangling order entry (hash multi)" {
+  let t = ag_fx_rebuild_dangling_order()
+  t.rebuild_index("mh") |> ignore
+}
+
+///|
+/// Negative property (framework): the sorted non-unique arm.
+test "panic rebuild_index aborts on a dangling order entry (sorted multi)" {
+  let t = ag_fx_rebuild_dangling_order()
+  t.rebuild_index("ms") |> ignore
+}
+
+///|
+/// Companion: the same fixture, rebuilt again under an ordinary name. It proves the
+/// four panic tests above share a table that really registers four indexes and
+/// really has a dangling `order` entry, so a broken builder cannot hide behind them.
+test "every rebuild fixture registers four indexes over a dangling order entry" {
+  let t = ag_fx_rebuild_dangling_order()
+  @test.assert_eq(t.index_names().length(), 4)
+  @test.assert_eq(t.index_names()[0], "mh")
+  @test.assert_eq(t.order.length(), 1)
+  @test.assert_eq(t.len(), 1)
+}
+
+// ---------------------------------------------------------------------------
 // Companion executions: a panic test cannot fail on a broken fixture, so the
 // fixtures are rebuilt here, under ordinary names. If any assertion inside a
 // builder stops holding, one of these tests fails and the suite is red.

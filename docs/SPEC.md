@@ -344,6 +344,7 @@ pub(all) enum IndexKind {
 | `register_non_unique(name, project) -> Result[Unit, RegisterError[K]]` | **哈希非唯一**索引(`Map[K, SortedSet[Int]]`) |
 | `register_non_unique_ordered(name, project) -> Result[Unit, RegisterError[K]]` (需 `K : Compare`) | **有序非唯一**索引(`SortedMap[K, SortedSet[Int]]`) |
 | `unregister_index(name : String) -> Bool` | **删除索引注册**。返回是否真的删除;未注册返回 `false`、**不 abort**(§7.1 的显式例外)。只摘注册表:`len` / `order` / `gens` / `free` / 其它索引一个都不动,`version` 不 bump;名字立即可以重注册(可换投影);删除前创建的有序游标(`range_by` / `iter_asc_by` / `iter_desc_by`)仍按各自快照走完,不会 abort |
+| `rebuild_index(name : String) -> Result[Unit, RegisterError[K]]` (需 `K : Hash + Eq + Compare`) | **从现有记录重新推导单个已注册索引**(v0.4.0,语义见下方「重建语义」)。名字必须已注册,未注册 **`abort`**(§7.1;与 `unregister_index` 的 `false` 的分界写在「重建语义」)。重建按记录**当前投影**重算该索引的桶;`len` / `iter()` 插入序 / 其它索引 / `gens` / `free` / `version` 全不动。唯一冲突时 `Err(UniqueViolation)` 且旧索引逐项不变。用途见 §3.7:修复记录被 API 外部改动后的脏索引,是 `unregister_index` + 修记录 + `register_*` 三步恢复的一步化替代 |
 | `has_index(name) -> Bool` / `index_names() -> Array[String]` / `index_entries() -> Array[(String, IndexKind)]` | 索引枚举;`index_names` 与 `index_entries` 都按 **MoonBit `String` 序**(长度优先的 shortlex)升序,已由测试钉死;`index_entries` 同时给出每个索引的象限(§2.7)—— `index_stats(name)` 必须先知道名字,而这是拿到名字的公开途径 |
 
 **2×2 四象限**(与主蓝本的 `hashed_unique` / `ordered_unique` / `hashed_non_unique` /
@@ -363,6 +364,38 @@ pub(all) enum IndexKind {
 
 > 裁定理由:"冲突不静默覆盖"是本库的整体风格,注册路径不应例外;
 > 半注册状态(索引存在但只回填了一半)是最难排查的一类 bug,必须堵死。
+
+#### 重建语义(已裁定,v0.4.0)
+
+`rebuild_index(name)` 把**一个**已注册索引从现有记录重新推导一遍,返回
+`Result[Unit, RegisterError[K]]`。它是「脏索引」的修复入口:记录是唯一事实来源,桶是从记录算出来的
+派生结构,所以 §3.7 的外部改动之后,重新推导比「取消注册 + 修记录 + 重新注册」少两步,而且不丢索引名
+与投影。
+
+| 情形 | 行为 | 依据 |
+|---|---|---|
+| 名字**未注册** | **`abort`** | §7.1:以索引名为参数时写错名字是编程错误,没有合理的返回值可以表达 |
+| 唯一象限出现重复投影 | `Err(UniqueViolation(name, key))`,且**旧索引逐项不变** | §2.4:不静默覆盖、失败零变更 |
+| 非唯一象限 | 无唯一性约束,重建不会失败 | 同上 |
+| 重复名字 | 见下方「不可达分支」 | 重建不申请名字,只要求名字已存在 |
+
+> **与 `unregister_index` 的分界(§7.1 的"唯一例外"指什么)。** `unregister_index` 对未注册的名字
+> 返回 `false` 而**不 abort**,是因为它做的是**删除**:调用方需要能探测"本来就没有"。`rebuild_index`
+> 做的是**查询 + 修复**,语义上没有"没有这个索引"的结果可表达,因此和其它按名字查询的 API 一样
+> `abort`。两者的判据不同,不是一处一致性的疏漏。
+
+**原子性:建新桶 → 整体替换,绝不原地清空。** 新桶在局部结构里建好,全部成功后才 `indexes.set` 整体
+替换注册表项。**不允许**先 `clear()` 旧桶再回填:重建前创建的有序游标(`iter_asc_by` /
+`iter_desc_by` / `range_*`)持有旧 `SortedMap` 的迭代器,整体替换让它继续走**旧快照**(与
+`unregister_index` 的已知行为同构),原地清空则会让它失配。唯一冲突在**建桶过程中**就返回 `Err`,
+此时注册表还什么都没写,所以旧索引自然逐项不变。
+
+**不碰的东西:** `len`、`iter()` 的插入序、其它索引、`gens`、`free` 一个都不动;`version` **不
+bump** —— I8 只计**记录**变化,重建不改记录。
+
+**不可达分支登记(比照 §7.3 的写法):** `DuplicateName` 在重建路径上**结构不可达** —— 重建不申请
+名字,而是要求名字已经注册,所以这个变体只属于注册 API。保留它是因为错误类型复用
+`RegisterError[K]`(§2.4),不为重建路径新增公开类型。
 
 ### §3.2 写入
 
@@ -622,9 +655,14 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 | `swap_remove` | **O(I + Σ log 桶)** —— `order` 只做一次末位交换 + 两次 `positions` 写,无 `len` 项 |
 | `update` / `modify` | O(I + Σ log 桶);**键未变的索引不增删桶**,但等键路径仍对该桶做一次成员检查(`Index::holds`) |
 | `insert_many` | O(n·I + n·Σ log 桶) |
+| `rebuild_index` | O(len × I + Σ 桶) —— 见下方说明 |
 | `iter` | O(len) |
 | `verify_invariants` | O(桶数 × len) —— **诊断 API,不在热路径** |
 | 空间 | O(len + Σ索引条目) |
+
+> **`rebuild_index` 的 `I` 项怎么读**:一次调用只重建**一个**索引 —— 扫一遍 `order` 是 O(len),再建
+> 该索引的桶是 Σ 桶,所以**单次调用**是 **O(len + Σ 桶)**。表里的 `len × I` 是「把 I 个索引都重建一遍」
+> 的量级(每个索引各自独立重建,互不共享扫描)。不要读成一次调用要乘 I。
 
 > ⚠️ **`remove` 的 `O(len)` 是 M6 基准实测抓出来的,原表写 `O(I + Σ桶长)` 是错的。**
 > 根因:`order`(**插入序**)是一棵普通数组,删除后需要**原地压缩** → O(len)。
