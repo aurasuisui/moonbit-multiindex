@@ -749,3 +749,84 @@ test "every unregistered-lookup fixture really removes the index" {
   @test.assert_eq(t.len(), 1)
   @test.assert_eq(ag_some(t.get(id)), true)
 }
+
+// ---------------------------------------------------------------------------
+// table_api.mbt: the v0.4.0 M4 queries reach their gates
+//
+// `first_by` / `last_by` ask a hash quadrant "which key is smallest", and
+// `contains_by` / `count_by` can be handed a name that was never registered. Both
+// are programming errors (docs/SPEC.md §7.1), so the guard is `abort`, not an empty
+// answer. The fixtures are the existing legal ones — a hash-only table and a
+// three-record ordered table — so each panic test has exactly one guard that can
+// fire, and each companion re-runs the same builders before asking the legal form
+// of the same question.
+// ---------------------------------------------------------------------------
+
+///|
+/// Negative property (framework): with the `ordered_index` guard deleted, the
+/// endpoint helper would answer `None` for a hash index (there is no key order to
+/// walk) instead of aborting, so this test fails with "panic is expected".
+test "panic first_by on a hash index" {
+  let t = ag_fx_hash_table()
+  t.first_by("u") |> ignore
+}
+
+///|
+/// Negative property (framework): same hash-quadrant gate, the largest-key
+/// endpoint.
+test "panic last_by on a hash index" {
+  let t = ag_fx_hash_table()
+  t.last_by("u") |> ignore
+}
+
+///|
+/// Negative property (framework): without the unknown-name guard in
+/// `require_index`, `contains_by` would answer `false` for a name that was never
+/// registered, so this test fails with "panic is expected".
+test "panic contains_by on an unknown index" {
+  let t = ag_fx_hash_table()
+  t.contains_by("ghost", 7) |> ignore
+}
+
+///|
+/// Companion: rebuild the hash fixture the two endpoint panic tests use, then run
+/// their query against a legal ordered index — the abort is about the quadrant, not
+/// about `first_by` refusing every input.
+test "first_by answers the smallest key on an ordered index where the hash fixture aborts" {
+  ag_fx_hash_table() |> ignore
+  let t = ag_fx_ordered_table() // keys 1, 3, 5
+  match t.first_by("u") {
+    Some((id, value)) => {
+      @test.assert_eq(value, 1)
+      @test.assert_eq(t.get(id), Some(1))
+    }
+    None => @test.fail("first_by on an ordered index must answer")
+  }
+}
+
+///|
+/// Companion: same builder and same legal form for the largest-key endpoint.
+test "last_by answers the largest key on an ordered index where the hash fixture aborts" {
+  ag_fx_hash_table() |> ignore
+  let t = ag_fx_ordered_table() // keys 1, 3, 5
+  match t.last_by("u") {
+    Some((id, value)) => {
+      @test.assert_eq(value, 5)
+      @test.assert_eq(t.get(id), Some(5))
+    }
+    None => @test.fail("last_by on an ordered index must answer")
+  }
+}
+
+///|
+/// Companion: re-run the unknown-name fixture and ask the same membership / count
+/// questions under the **registered** name, which must answer rather than abort.
+/// This covers the whole `require_index` path the panic test represents for both
+/// `contains_by` and `count_by`.
+test "contains_by and count_by answer for the registered name where the unknown one aborts" {
+  let t = ag_fx_hash_table()
+  @test.assert_eq(t.contains_by("u", 7), true)
+  @test.assert_eq(t.contains_by("u", 8), false)
+  @test.assert_eq(t.count_by("u", 7), 1)
+  @test.assert_eq(t.count_by("u", 8), 0)
+}

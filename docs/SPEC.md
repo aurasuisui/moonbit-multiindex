@@ -461,9 +461,13 @@ bump** —— I8 只计**记录**变化,重建不改记录。
 |---|---|---|
 | `get_by(name : String, key : K) -> (RowId, V)?` | 命中记录的身份 + 值 | 非唯一索引上返回**桶内槽位号最小**的一条;该选择**确定但不跨操作稳定**,要全部命中请用 `iter_by` |
 | `iter_by(name : String, key : K) -> Iter2[RowId, V]` | 该键下所有记录 | 唯一索引上产出 0 或 1 条(API 统一);**顺序 = 槽位号升序**(桶为 `SortedSet[Int]`) |
+| `contains_by(name : String, key : K) -> Bool` | 该键是否有记录 | 直接问桶"非空吗"(**不物化**);未知索引名 → `abort`(§7.1);`false` 只表示"查得到,但没有"(唯一索引上等价于 `get_by(...).is_some()`) |
+| `count_by(name : String, key : K) -> Int32` | 该键的记录条数 | 唯一索引恒为 0 或 1,非唯一返回桶大小(**不物化**);未知索引名 → `abort`(§7.1) |
 | `range_by(name, lo, hi)` (需 `Compare`) | **双闭区间 `[lo, hi]`** 内的记录 | 有序索引;**本库增量**(主蓝本无 range API) |
 | `range_half_open_by(name, lo, hi)` (需 `Compare`) | **半开区间 `[lo, hi)`** 内的记录 | 同上 |
 | `iter_asc_by(name)` / `iter_desc_by(name)` | 按索引键升/降序遍历全部记录 | 同上。**不需要 `K : Compare`** —— 实现只走 `SortedMap` 的迭代器;索引是否有序由 §7.1 的运行时检查负责 |
+| `first_by(name) -> (RowId, V)?` | **键最小**的那条记录 | **仅有序索引**(哈希索引 → `abort`,§7.1);空表 → `None`;**不需要 `K : Compare`**(只走 `SortedMap::first`);非唯一索引上同键多条取**桶内最小槽位**——与 `get_by` 的路由完全一致,所以这是**键序**的端点,**不是**插入序的第一条 |
+| `last_by(name) -> (RowId, V)?` | **键最大**的那条记录 | 规则同 `first_by`;**同键内仍取最小槽位**(不是插入序的最后一条),变的是键序端点不是桶内路由 |
 | `get(id : RowId) -> V?` | 按句柄取记录 | 陈旧 id → `None` |
 | `contains(id : RowId) -> Bool` | — | |
 | `len() -> Int` / `is_empty() -> Bool` | — | |
@@ -650,18 +654,22 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 |---|---|
 | `insert` | O(I + Σ桶代价),I = 索引数 |
 | `get_by` | 均摊 O(1) |
+| `contains_by` | 均摊 O(1);有序象限 O(log n) —— 只问桶是否非空,**不物化** |
+| `count_by` | 均摊 O(1);有序象限 O(log n) —— 读桶的 `length`/存在位,**不物化** |
+| `first_by` | O(log n) —— 只走 `SortedMap::first` 的一条脊,**不物化桶**,且不需要 `K : Compare` |
+| `last_by` | O(log n) —— 同上(`SortedMap::last`) |
 | `range_by` | O(log n + k) |
 | `remove` | **O(len + I + Σ log 桶)** —— 见下方警告,`len` 项来自 `order` 保序压缩 |
 | `swap_remove` | **O(I + Σ log 桶)** —— `order` 只做一次末位交换 + 两次 `positions` 写,无 `len` 项 |
 | `update` / `modify` | O(I + Σ log 桶);**键未变的索引不增删桶**,但等键路径仍对该桶做一次成员检查(`Index::holds`) |
 | `insert_many` | O(n·I + n·Σ log 桶) |
-| `rebuild_index` | O(len × I + Σ 桶) —— 见下方说明 |
+| `rebuild_index` | O(len + Σ 桶) —— 见下方说明 |
 | `iter` | O(len) |
 | `verify_invariants` | O(桶数 × len) —— **诊断 API,不在热路径** |
 | 空间 | O(len + Σ索引条目) |
 
 > **`rebuild_index` 的 `I` 项怎么读**:一次调用只重建**一个**索引 —— 扫一遍 `order` 是 O(len),再建
-> 该索引的桶是 Σ 桶,所以**单次调用**是 **O(len + Σ 桶)**。表里的 `len × I` 是「把 I 个索引都重建一遍」
+> 该索引的桶是 Σ 桶,所以**单次调用**是 **O(len + Σ 桶)**。**同时重建全部 I 个索引**才是 `I × len`
 > 的量级(每个索引各自独立重建,互不共享扫描)。不要读成一次调用要乘 I。
 
 > ⚠️ **`remove` 的 `O(len)` 是 M6 基准实测抓出来的,原表写 `O(I + Σ桶长)` 是错的。**

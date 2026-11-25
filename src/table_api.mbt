@@ -217,6 +217,45 @@ pub fn[K : Hash + Eq + Compare, V] Table::iter_by(
 }
 
 ///|
+/// Whether the index `name` maps at least one record to `key` — the membership
+/// question behind `iter_by`, answered without materializing the bucket.
+///
+/// A unique index is `true` for at most one record; a non-unique one is `true` as
+/// long as its bucket is non-empty, which is exactly `iter_by(name, key)` yielding
+/// something. An **unknown index name aborts** (docs/SPEC.md §7.1): "this index was
+/// never registered" is a caller bug, and answering it with `false` would disguise
+/// it as "no record has this key".
+///
+/// Read-only: `version` is not bumped and no bucket is copied, so an iterator taken
+/// before the call keeps walking the snapshot it captured at creation.
+pub fn[K : Hash + Eq + Compare, V] Table::contains_by(
+  self : Table[K, V],
+  name : String,
+  key : K,
+) -> Bool {
+  self.require_index(name).contains_key(key)
+}
+
+///|
+/// How many records the index `name` maps to `key`: `0` or `1` on a unique index,
+/// the bucket size on a non-unique one, `0` when the key is absent.
+///
+/// This is the counting half of `iter_by`, read off the bucket instead of walking
+/// it (nothing is materialized). An **unknown index name aborts** (docs/SPEC.md
+/// §7.1), for the same reason as `contains_by`; a known name and an absent key
+/// answer `0`, which is the legitimate "no data" result.
+///
+/// Read-only: `version` is not bumped and nothing is allocated beyond the `Int32`
+/// answer.
+pub fn[K : Hash + Eq + Compare, V] Table::count_by(
+  self : Table[K, V],
+  name : String,
+  key : K,
+) -> Int32 {
+  self.require_index(name).bucket_len(key)
+}
+
+///|
 /// The index registered under `name`, aborting when there is none.
 ///
 /// The decision is *data* (`Table::has_index` is the public, testable form of it);
@@ -342,6 +381,56 @@ pub fn[K, V] Table::iter_desc_by(
 ) -> Iter2[RowId, V] {
   let index = self.ordered_index(name)
   self.cursor_iter(index.ordered_cursor(true))
+}
+
+///|
+/// The record under the **smallest key** of the ordered index `name` — the key-order
+/// endpoint, i.e. the first step of `iter_asc_by`, **not** the first inserted record.
+/// `None` when the table holds no record.
+///
+/// On a **non-unique** ordered index the endpoint key may own several records, and
+/// this answers the one in the **smallest slot** — exactly the record
+/// `get_by(name, key)` routes to for that key (docs/SPEC.md §3.3). It is therefore
+/// not "the first one inserted" among equal keys, and it is not stable across
+/// operations: removing that record moves the answer to the next slot of the same
+/// bucket. The identity of the answer is the key-order endpoint, never an
+/// insertion-order one.
+///
+/// Aborts for an unknown name **and** for a hash index: "which key is smallest" is a
+/// question a hash quadrant cannot answer, so there is no empty-result reading of it
+/// (docs/SPEC.md §7.1). Deliberately requires **no `K : Compare`** — the walk only
+/// follows the `SortedMap` spine (`first`), like `iter_asc_by`.
+///
+/// Read-only: `version` is not bumped and no bucket is materialized — the answer
+/// costs O(log n) and allocates nothing beyond the returned `V`.
+pub fn[K, V] Table::first_by(self : Table[K, V], name : String) -> (RowId, V)? {
+  let index = self.ordered_index(name)
+  match index.endpoint_slot(false) {
+    Some(slot) => self.record_at(slot)
+    None => None
+  }
+}
+
+///|
+/// The record under the **largest key** of the ordered index `name` — the key-order
+/// endpoint, i.e. the first step of `iter_desc_by`, **not** the last inserted record.
+/// `None` when the table holds no record.
+///
+/// The **same-slot rule as `first_by` applies**: on a non-unique ordered index the
+/// answer is the record in the **smallest slot** of the largest key's bucket — the
+/// record `get_by` routes to for that key — so even this "last" answer is **not the
+/// last inserted** among equal keys (docs/SPEC.md §3.3). What is last here is the
+/// *key*; inside one key the routing stays slot-ascending.
+///
+/// Aborts for an unknown name and for a hash index, and is unconstrained in `K` for
+/// the same reasons as `first_by` (docs/SPEC.md §7.1). Read-only: `version` is not
+/// bumped, no bucket is materialized, and the answer costs O(log n).
+pub fn[K, V] Table::last_by(self : Table[K, V], name : String) -> (RowId, V)? {
+  let index = self.ordered_index(name)
+  match index.endpoint_slot(true) {
+    Some(slot) => self.record_at(slot)
+    None => None
+  }
 }
 
 ///|

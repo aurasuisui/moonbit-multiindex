@@ -163,8 +163,12 @@ moon run .
 | `iter()` | 插入序,`Iter2[RowId, V]` |
 | `get_by(name, key)` | `(RowId, V)?`;非唯一索引返回**槽位号最小**者 |
 | `iter_by(name, key)` | 该键的全部记录,槽位号升序 |
+| `contains_by(name, key)` | `Bool`:该键是否有记录;**不物化桶**;未知索引名 abort |
+| `count_by(name, key)` | `Int32`:该键的记录条数(唯一索引恒为 0 / 1);不物化桶 |
 | `range_by(name, lo, hi)` / `range_half_open_by(name, lo, hi)` | **双闭** / 半开区间,仅有序索引 |
 | `iter_asc_by(name)` / `iter_desc_by(name)` | 按键升 / 降序,仅有序索引 |
+| `first_by(name)` | `(RowId, V)?`:**键最小**的记录,仅有序索引;空表 `None`;同键多条取**最小槽位** |
+| `last_by(name)` | `(RowId, V)?`:**键最大**的记录,规则同上;同键内仍是**最小槽位**,不是插入序最后一条 |
 
 **诊断与序列化**
 
