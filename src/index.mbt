@@ -37,7 +37,7 @@ priv enum Index[K, V] {
   HashMulti(IndexMeta[K, V], Map[K, @sorted_set.SortedSet[Int32]])
   SortedMulti(
     IndexMeta[K, V],
-    @sorted_map.SortedMap[K, @sorted_set.SortedSet[Int32]]
+    @sorted_map.SortedMap[K, @sorted_set.SortedSet[Int32]],
   )
 }
 
