@@ -165,7 +165,7 @@
 
 > 这张表只证明「包能打、内容干净」,**不是**发布证据 —— `产物` / `publish` / `tag` 三行仍由 M6 填写。
 
-## v0.4.0(待发布,2026-11-30)
+## v0.4.0(待发布,2026-11-26)
 
 > **表头约定 —— 包内副本是发布前快照**:`moon publish` 打包的是**当时 HEAD 的快照**,因此**包里那份**
 > 的 `产物` / `publish` / `tag` 三行按定义只能是 📌 或 ⏳(它们只能在包生成之后才发生)。**仓库 HEAD**
@@ -240,12 +240,14 @@
 | 2 | 类型检查 | `moon check` | 0 | `Finished. moon: ran 4 tasks, now up to date` |
 | 3 | 零警告(全后端) | `moon check --deny-warn --target all` | 0 | `Finished. moon: ran 12 tasks, now up to date` |
 | 4 | 接口快照 + 版本单一真源 | `moon info`;`git diff --quiet -- src/pkg.generated.mbti`;`Int32→Int` 折叠后比对;`moon.mod` ↔ `src/lib.mbt` | 0 | `moon info` exit 0;mbti 裸 diff **0**、折叠后 **0**(114 行 vs 114 行);`moon.mod` 的 `0.4.0` == `src/lib.mbt` 的 `VERSION` `0.4.0` |
-| 5 | 测试(默认后端) | `moon test` | 0 | `Total tests: 209, passed: 209, failed: 0.` |
-| 6 | 测试(四后端) | `moon test --target all` | 0 | 四行均为 `209/209`:`[wasm]` / `[wasm-gc]` / `[js]` / `[native]` |
+| 5 | 测试(默认后端) | `moon test` | 0 | `Total tests: 206, passed: 206, failed: 0.` |
+| 6 | 测试(四后端) | `moon test --target all` | 0 | 四行均为 `206/206`:`[wasm]` / `[wasm-gc]` / `[js]` / `[native]` |
 | 7 | 构建 | `moon build` | 0 | `Finished. moon: ran 1 task, now up to date` |
 | 8 | 示例(example-smoke) | 根写 `moon.work`(无 `[workspace]` 头)→ `cd cmd/leaderboard; moon run .` | 0 | 34 行;三条 landmark 全中(见上方「至少一个可运行示例」行);跑后删 `moon.work` |
 
 > 本段主表 Tier 0 的 `moon fmt --check` / `moon check` / `moon check --deny-warn --target all` / 接口快照 / `moon test` / `moon test --target all` / `moon build` 均在此干净 clone 上复跑并 exit 0,判定栏维持 ✅。
+
+> 本段证据对应 clone HEAD `7c4fab2`(当时 206 条)。M6b 补入 3 条契约测试后本版为 **209** 条;最终发布提交上的完整复跑见 M8 的验收彩排记录。
 
 ## 历史执行记录
 
