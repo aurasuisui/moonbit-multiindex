@@ -2033,3 +2033,125 @@ test "recovery in three steps succeeds" {
   @test.assert_eq(t.len(), 2)
   assert_invariants(t)
 }
+
+// ---------------------------------------------------------------------------
+// M6b (v0.4.0): the write side shares the caller's containers too (SPEC §3.7)
+// ---------------------------------------------------------------------------
+
+///|
+/// Pins the first sentence of SPEC §3.7「值的边界」: 「`V` 内含 `Array` / `Ref` / 其他可变对象时,
+/// 表内与调用方**共享同一对象**」. `insert` stores the caller's `tags` array itself, not a copy
+/// of it, so mutating the caller's own record *after* the write is precisely the documented
+/// external-mutation case: the stored record now projects 9 while the bucket still names 1
+/// (I4), and the new key was never indexed. This is the insertion-side half of the contract;
+/// the read-side half is `external mutation of an indexed field is caught by verify_invariants`.
+test "insert shares the caller's containers, so mutating them afterwards is caught by verify_invariants" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let rec = { tags: [1], note: 0, }
+  let id = insert_ok(t, rec)
+  // same array, not a copy: the table reads the caller's own mutation back
+  rec.tags[0] = 9
+  match t.get(id) {
+    Some(r) => @test.assert_eq(r.tags[0], 9)
+    None => @test.fail("the inserted record must still exist")
+  }
+  match t.verify_invariants() {
+    Ok(_) =>
+      @test.fail(
+        "verify must report I4: the caller's write is an external mutation",
+      )
+    Err(message) => @test.assert_eq(message.contains("I4"), true)
+  }
+  // the stale bucket keeps the old key, and the record it names already projects 9
+  match t.get_by("first", 1) {
+    Some((_, r)) => @test.assert_eq(r.tags[0], 9)
+    None => @test.fail("the old bucket key must still hit the aliased record")
+  }
+  match t.get_by("first", 9) {
+    None => ()
+    Some(_) => @test.fail("the new key must not be indexed without a write")
+  }
+}
+
+///|
+/// Same SPEC §3.7 sharing clause (「表内与调用方**共享同一对象**」), but through `insert_many`:
+/// the batch is a caller-owned `Array[V]`, and every accepted member keeps the caller's
+/// containers. Mutating one member's `tags` afterwards therefore dirties exactly that
+/// record's buckets — the other member still projects its own key and still hits it.
+test "insert_many shares the caller's containers on every record" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let batch : Array[Rec] = [{ tags: [1], note: 0, }, { tags: [2], note: 0, }]
+  let ids = match t.insert_many(batch) {
+    Ok(ids) => ids
+    Err(_) => @test.fail("the batch has no conflicts")
+  }
+  @test.assert_eq(ids.length(), 2)
+  // the caller still owns the array it passed in, so this element aliases record 0
+  batch[0].tags[0] = 9
+  match t.get(ids[0]) {
+    Some(r) => @test.assert_eq(r.tags[0], 9)
+    None => @test.fail("the first batch member must still exist")
+  }
+  match t.get(ids[1]) {
+    Some(r) => @test.assert_eq(r.tags[0], 2)
+    None => @test.fail("the second batch member must still exist")
+  }
+  match t.verify_invariants() {
+    Ok(_) => @test.fail("verify must report I4 for the aliased batch member")
+    Err(message) => @test.assert_eq(message.contains("I4"), true)
+  }
+  // the aliased member's old bucket still hits it; the untouched member is unaffected
+  match t.get_by("first", 1) {
+    Some((_, r)) => @test.assert_eq(r.tags[0], 9)
+    None => @test.fail("the stale bucket key must still hit the aliased record")
+  }
+  match t.get_by("first", 2) {
+    Some((id, r)) => {
+      @test.assert_eq(id, ids[1])
+      @test.assert_eq(r.tags[0], 2)
+    }
+    None => @test.fail("the untouched member must keep its bucket")
+  }
+  match t.get_by("first", 9) {
+    None => ()
+    Some(_) => @test.fail("the aliased member's new key must not be indexed")
+  }
+}
+
+///|
+/// Ties the SPEC §3.7 write-side clause to the v0.4.0 repair path (SPEC §3.1「重建语义」and the
+/// one-step recovery §3.7 lists): a record aliased *after* `insert` leaves one stale bucket, and
+/// `rebuild_index` re-derives the index from the current projections in one step — the old key
+/// stops matching, the new one starts, and the checker answers `Ok` again.
+test "a record aliased after insert is repairable by rebuild_index" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let rec = { tags: [1], note: 0, }
+  let id = insert_ok(t, rec)
+  // reproduce the same dirty state as the two tests above
+  rec.tags[0] = 9
+  match t.verify_invariants() {
+    Ok(_) => @test.fail("the fixture must start dirty: verify must report I4")
+    Err(message) => @test.assert_eq(message.contains("I4"), true)
+  }
+  match t.rebuild_index("first") {
+    Ok(_) => ()
+    Err(_) =>
+      @test.fail("the projection is unique, so the rebuild must succeed")
+  }
+  match t.get_by("first", 1) {
+    None => ()
+    Some(_) => @test.fail("the old key must stop matching after the rebuild")
+  }
+  match t.get_by("first", 9) {
+    Some((hit, r)) => {
+      @test.assert_eq(hit, id)
+      @test.assert_eq(r.tags[0], 9)
+    }
+    None => @test.fail("the new key must match after the rebuild")
+  }
+  @test.assert_eq(t.len(), 1)
+  assert_invariants(t)
+}

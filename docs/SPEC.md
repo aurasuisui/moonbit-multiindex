@@ -575,7 +575,7 @@ enum Index[K, V] {
 
 - 共享容器**视为只读**。要改被索引字段,必须走 `update` / `modify`:它们先做唯一性预检,再按投影维护索引。
 - 违反后果(0.2.2 实测):旧键仍命中、新键漏查、`verify_invariants` 报 I4(桶键与投影不符)或 I7(记录不在任何桶里);脏表上 `insert` 的唯一性预检还可能被绕过(**干净表不存在此行为**):预检只看「当前投影对应的桶」,不会为别的记录做全表扫描。
-- 恢复路径(三步):`unregister_index(name)` → 用 `update` / `remove` 把重复投影拆开 → 重新 `register_*`(对非空表自动回填)→ `verify_invariants` 复检;或 `clear()` 后重新载入。0.3.0 起 `remove` / `swap_remove` / `update` 会对**被操作的那条记录自身**的陈旧条目做慢路径修复;**其他记录的脏条目不会被顺带修好**,仍由 `verify_invariants` 指出、逐条修或 `clear()` 重载。这些修复**不替代**上述契约。
+- 恢复路径(**一步**):`rebuild_index(name)` 用记录**当前投影**重新推导该索引(§3.1「重建语义」),不丢索引名与投影,`verify_invariants` 复检即可。只有脏表上两条记录投影撞到**同一个唯一键**、`rebuild_index` 返回 `Err(UniqueViolation)` 且旧索引逐项不变时,才降级为三步:`unregister_index(name)` → 用 `update` / `remove` 把重复投影拆开 → 重新 `register_*`(对非空表自动回填)→ `verify_invariants` 复检;或 `clear()` 后重新载入兜底。0.3.0 起 `remove` / `swap_remove` / `update` 会对**被操作的那条记录自身**的陈旧条目做慢路径修复;**其他记录的脏条目不会被顺带修好**,仍由 `verify_invariants` 指出、逐条修或 `clear()` 重载。这些修复**不替代**上述契约。
 
 **`modify` 的闭包契约**
 
@@ -588,7 +588,7 @@ enum Index[K, V] {
 - `modify` 的 `f` 若**就地修改共享容器**,记录在 `f` 返回时就已改变;随后唯一性预检失败返回 `Err` 时,**「表零变更」不成立** —— 没有深拷贝可回滚。
 - 此时表处于「记录已是新值、索引仍是旧键」的脏状态:`verify_invariants` 报 I4;旧键仍命中,但命中的记录投影已是新值。
 - 调用方义务:要么用**不修改共享容器**的闭包(返回新对象,或只改值类型字段),要么在 `Err` 后按恢复路径修复。
-- 恢复路径(三步):`unregister_index(name)` → 用 `update` / `remove` 把重复投影拆开 → 重新 `register_*` → `verify_invariants` 复检。
+- 恢复路径(**一步**):`rebuild_index(name)`(`Err` 只会是「两条记录投影撞同一个唯一键」这一种,此时旧索引不动)。若 `rebuild_index` 返回 `Err`,再走降级三步:`unregister_index(name)` → 用 `update` / `remove` 把重复投影拆开 → 重新 `register_*` → `verify_invariants` 复检。
 
 ---
 

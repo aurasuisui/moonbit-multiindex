@@ -189,7 +189,9 @@ moon run .
 - **可变记录契约(读写两侧)**:值类型随便改;`V` 内含 `Array` / `Ref` 时,`get` / `get_by` / `iter*` / `range_*` 返回的记录与表内
   **共享容器**,这些容器视为只读。`insert` / `update` / `modify` 存进去的 `V` 也与调用方共享容器:插入后再改自己手里的对象,
   同样会写脏索引。改被索引字段必须走 `update` / `modify`;否则旧键命中 / 新键漏查,`verify_invariants` 会报 I4 / I7。
-  恢复三步:`unregister_index` → 用 `update` / `remove` 拆开重复投影 → 重新 `register_*`(见 [`docs/SPEC.md`](docs/SPEC.md) §3.7)。
+  **写侧别名探针**:`insert` / `insert_many` 存进去的是同一份容器(不是拷贝),插入后再改调用方手里那个对象,读回的投影已变、`verify_invariants` 报 I4(黑盒夹具见
+  `src/table_test.mbt` 的 `insert shares the caller's containers, so mutating them afterwards is caught by verify_invariants`)。
+  修法:`rebuild_index(name)` 一步修复(脏表上两条记录撞同一个唯一键时才降级为三步:`unregister_index` → 用 `update` / `remove` 拆开重复投影 → 重新 `register_*`,见 [`docs/SPEC.md`](docs/SPEC.md) §3.7)。
 - **`rebuild_index` 失败时不动旧索引**:脏表上若两条记录投影到**同一个唯一键**,它返回 `Err(UniqueViolation)` 且**旧索引一个字节都不动** —— 不会"修一半"(能修的桶也不会先换掉)。修法是先处理重复投影(用 `update` / `remove` 改掉其中一条),再重建一次;契约见 [`docs/SPEC.md`](docs/SPEC.md) §3.1。
 - **脏表的残余边界**:上述修复只针对**被操作的那条记录**;其他脏条目仍由 `verify_invariants` 指出。脏表上 `insert` 的唯一性预检也可能被绕过(干净表没有这个问题)——`verify` 一报错就按恢复路径重建索引。
 
