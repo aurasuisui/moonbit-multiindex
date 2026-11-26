@@ -30,7 +30,7 @@ ECS 式实体索引;配置项多路检索。
 
 ## 安装
 
-**工具链**:本文实测于 `moon 0.1.20261120 (aaf8010 2026-11-20)`(`moon version` 自查);**不承诺新版本兼容** ——
+**工具链**:本文在 `moon 0.1.20261119 (738607b 2026-11-19)` 与 `moon 0.1.20261120 (aaf8010 2026-11-20)` 两版上实测(`moon fmt --check` / `moon check --deny-warn --target all` / `moon test --target all` 均 exit 0);**不承诺新版本兼容** ——
 CI 装 latest,上游 formatter 一旦变动 `moon fmt --check` 会先红,须单独提交跟进。新建模块并加入依赖:
 
 ```powershell

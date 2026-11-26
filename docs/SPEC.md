@@ -742,7 +742,7 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 
 #### §7.3 覆盖率的已知缺口:报告标出的 23 行
 
-0.4.0 重算(`moon 0.1.20261120`):`moon clean` → `moon test --enable-coverage`(**206/206**)→
+0.4.0 重算(`moon 0.1.20261120`):`moon clean` → `moon test --enable-coverage`(**209/209**)→
 `$env:MOON_COVE_REPORT_ENABLED='0'; moon coverage analyze -p aurasuisui/multiindex -- -f summary`
 → **976/1002 = 97.41%**(`src/index.mbt: 319/326`、`src/table.mbt: 257/260`、`src/table_api.mbt: 345/361`)。
 `-f caret` 逐行标出 **23 行**:

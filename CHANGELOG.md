@@ -5,7 +5,7 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 
 ---
 
-## [0.4.0] - 2026-11-30
+## [0.4.0] - 2026-11-26
 
 **第六个发布版本,MINOR** —— 新增 `Table::rebuild_index` 与查询族 `contains_by` / `count_by` /
 `first_by` / `last_by`,并把降序遍历改成惰性;按 semver 表(新增公开方法 = 兼容新增)一律 MINOR,
@@ -40,16 +40,17 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 
 ### Notes / Deviations
 
-- **测试 206**(四后端各 206),公开 `Table::*` 方法 **38**;`src/abort_guard_wbtest.mbt`
+- **测试 209**(四后端各 209),公开 `Table::*` 方法 **38**;`src/abort_guard_wbtest.mbt`
   **42 条 = 26 条 `test "panic …"` + 16 条伴生**。
 - **覆盖率重算**:**976/1002 = 97.41%**(`moon test --enable-coverage` → legacy reporter
-  `$env:MOON_COVE_REPORT_ENABLED='0'`)。summary:`src/index.mbt: 319/326`、`src/table.mbt: 257/260`、
-  `src/table_api.mbt: 345/361`;`-f caret` 标出 23 行,逐条归因见 SPEC §7.3。
+  `$env:MOON_COVE_REPORT_ENABLED='0'`;等价简写:`moon coverage report -f summary`)。summary:
+  `src/index.mbt: 319/326`、`src/table.mbt: 257/260`、`src/table_api.mbt: 345/361`;`-f caret` 标出
+  23 行,逐条归因见 SPEC §7.3。
 - **bench 未复测**:降序游标是内部实现改动,本版**没有**重跑 native + release 基准,
   `bench/README.md` 的数字仍是上一轮实测;需要新数字时按该文件的命令自行重跑。
 - **`rebuild_index` 不 bump `version`**:它不改记录,因此在飞的有序游标继续走旧快照,与
   `unregister_index` 的既定行为同构(裁定见 `docs/plans/v0.4.0.md` §九.8)。
-- 发布结果(publish / tag / 产物)由 M6 回填到 `docs/RELEASE_CHECKLIST.md` 的 v0.4.0 段。
+- 发布结果(publish / tag / 产物)由 M7 回填到 `docs/RELEASE_CHECKLIST.md` 的 v0.4.0 段。
 
 ## [0.3.0] - 2026-11-08
 
