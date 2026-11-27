@@ -814,6 +814,55 @@ test "iter_desc_by walks keys downwards, keeping slots ascending inside a bucket
 }
 
 ///|
+/// Regression (v0.4.0 M3, lazy descending walk): keys descend and, inside one
+/// key, slots still ascend. Insertion order here is 3,2,1,3,2,1 — the table fills
+/// up from the largest ordered key down to the smallest, and each key owns two
+/// slots that are **not** adjacent — so a walk that merely reversed the
+/// materialized ascending array (slots 3,0 / 4,1 / 5,2) would fail this test.
+test "iter_desc_by keeps slots ascending inside a bucket when keys run against insertion order" {
+  let t = triple_table()
+  let a = insert_ok(t, (1, 10, 3)) // shared_sorted key 3, slot 0
+  let b = insert_ok(t, (2, 20, 2)) // key 2, slot 1
+  let c = insert_ok(t, (3, 30, 1)) // key 1, slot 2
+  let d = insert_ok(t, (4, 40, 3)) // key 3, slot 3
+  let e = insert_ok(t, (5, 50, 2)) // key 2, slot 4
+  let f = insert_ok(t, (6, 60, 1)) // key 1, slot 5
+  // Hand-written expectation: keys 3,3,2,2,1,1 and, inside each key, the earlier
+  // record first (slots 0<3, 1<4, 2<5).
+  let expected : Array[(@aurasuisui/multiindex.RowId, (Int32, Int32, Int32))] = [
+    (a, (1, 10, 3)),
+    (d, (4, 40, 3)),
+    (b, (2, 20, 2)),
+    (e, (5, 50, 2)),
+    (c, (3, 30, 1)),
+    (f, (6, 60, 1)),
+  ]
+  let desc = t.iter_desc_by("shared_sorted").to_array()
+  @test.assert_eq(desc.length(), expected.length())
+  let mut i = 0
+  while i < expected.length() {
+    @test.assert_eq(desc[i], expected[i])
+    i = i + 1
+  }
+  // Mirror check: the ascending walk over the same buckets is 1,1,2,2,3,3 with the
+  // slots still ascending inside a bucket, so the two directions differ only in
+  // the key order — desc is not a byte-reverse of `asc`.
+  let asc = t.iter_asc_by("shared_sorted").to_array()
+  @test.assert_eq(asc.length(), expected.length())
+  let mut j = 0
+  while j < expected.length() {
+    @test.assert_eq(desc[j].1.2, asc[expected.length() - 1 - j].1.2)
+    j = j + 1
+  }
+  @test.assert_eq(asc[0], (c, (3, 30, 1)))
+  @test.assert_eq(asc[1], (f, (6, 60, 1)))
+  @test.assert_eq(asc[2], (b, (2, 20, 2)))
+  @test.assert_eq(asc[3], (e, (5, 50, 2)))
+  @test.assert_eq(asc[4], (a, (1, 10, 3)))
+  @test.assert_eq(asc[5], (d, (4, 40, 3)))
+}
+
+///|
 test "range_by is closed on both ends" {
   let t = triple_table()
   let a = insert_ok(t, (1, 10, 1))
@@ -1982,5 +2031,127 @@ test "recovery in three steps succeeds" {
     None => @test.fail("the moved record must be indexed under its new key")
   }
   @test.assert_eq(t.len(), 2)
+  assert_invariants(t)
+}
+
+// ---------------------------------------------------------------------------
+// M6b (v0.4.0): the write side shares the caller's containers too (SPEC §3.7)
+// ---------------------------------------------------------------------------
+
+///|
+/// Pins the first sentence of SPEC §3.7「值的边界」: 「`V` 内含 `Array` / `Ref` / 其他可变对象时,
+/// 表内与调用方**共享同一对象**」. `insert` stores the caller's `tags` array itself, not a copy
+/// of it, so mutating the caller's own record *after* the write is precisely the documented
+/// external-mutation case: the stored record now projects 9 while the bucket still names 1
+/// (I4), and the new key was never indexed. This is the insertion-side half of the contract;
+/// the read-side half is `external mutation of an indexed field is caught by verify_invariants`.
+test "insert shares the caller's containers, so mutating them afterwards is caught by verify_invariants" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let rec = { tags: [1], note: 0, }
+  let id = insert_ok(t, rec)
+  // same array, not a copy: the table reads the caller's own mutation back
+  rec.tags[0] = 9
+  match t.get(id) {
+    Some(r) => @test.assert_eq(r.tags[0], 9)
+    None => @test.fail("the inserted record must still exist")
+  }
+  match t.verify_invariants() {
+    Ok(_) =>
+      @test.fail(
+        "verify must report I4: the caller's write is an external mutation",
+      )
+    Err(message) => @test.assert_eq(message.contains("I4"), true)
+  }
+  // the stale bucket keeps the old key, and the record it names already projects 9
+  match t.get_by("first", 1) {
+    Some((_, r)) => @test.assert_eq(r.tags[0], 9)
+    None => @test.fail("the old bucket key must still hit the aliased record")
+  }
+  match t.get_by("first", 9) {
+    None => ()
+    Some(_) => @test.fail("the new key must not be indexed without a write")
+  }
+}
+
+///|
+/// Same SPEC §3.7 sharing clause (「表内与调用方**共享同一对象**」), but through `insert_many`:
+/// the batch is a caller-owned `Array[V]`, and every accepted member keeps the caller's
+/// containers. Mutating one member's `tags` afterwards therefore dirties exactly that
+/// record's buckets — the other member still projects its own key and still hits it.
+test "insert_many shares the caller's containers on every record" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let batch : Array[Rec] = [{ tags: [1], note: 0, }, { tags: [2], note: 0, }]
+  let ids = match t.insert_many(batch) {
+    Ok(ids) => ids
+    Err(_) => @test.fail("the batch has no conflicts")
+  }
+  @test.assert_eq(ids.length(), 2)
+  // the caller still owns the array it passed in, so this element aliases record 0
+  batch[0].tags[0] = 9
+  match t.get(ids[0]) {
+    Some(r) => @test.assert_eq(r.tags[0], 9)
+    None => @test.fail("the first batch member must still exist")
+  }
+  match t.get(ids[1]) {
+    Some(r) => @test.assert_eq(r.tags[0], 2)
+    None => @test.fail("the second batch member must still exist")
+  }
+  match t.verify_invariants() {
+    Ok(_) => @test.fail("verify must report I4 for the aliased batch member")
+    Err(message) => @test.assert_eq(message.contains("I4"), true)
+  }
+  // the aliased member's old bucket still hits it; the untouched member is unaffected
+  match t.get_by("first", 1) {
+    Some((_, r)) => @test.assert_eq(r.tags[0], 9)
+    None => @test.fail("the stale bucket key must still hit the aliased record")
+  }
+  match t.get_by("first", 2) {
+    Some((id, r)) => {
+      @test.assert_eq(id, ids[1])
+      @test.assert_eq(r.tags[0], 2)
+    }
+    None => @test.fail("the untouched member must keep its bucket")
+  }
+  match t.get_by("first", 9) {
+    None => ()
+    Some(_) => @test.fail("the aliased member's new key must not be indexed")
+  }
+}
+
+///|
+/// Ties the SPEC §3.7 write-side clause to the v0.4.0 repair path (SPEC §3.1「重建语义」and the
+/// one-step recovery §3.7 lists): a record aliased *after* `insert` leaves one stale bucket, and
+/// `rebuild_index` re-derives the index from the current projections in one step — the old key
+/// stops matching, the new one starts, and the checker answers `Ok` again.
+test "a record aliased after insert is repairable by rebuild_index" {
+  let t : @aurasuisui/multiindex.Table[Int32, Rec] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("first", fn(r) { r.tags[0] }))
+  let rec = { tags: [1], note: 0, }
+  let id = insert_ok(t, rec)
+  // reproduce the same dirty state as the two tests above
+  rec.tags[0] = 9
+  match t.verify_invariants() {
+    Ok(_) => @test.fail("the fixture must start dirty: verify must report I4")
+    Err(message) => @test.assert_eq(message.contains("I4"), true)
+  }
+  match t.rebuild_index("first") {
+    Ok(_) => ()
+    Err(_) =>
+      @test.fail("the projection is unique, so the rebuild must succeed")
+  }
+  match t.get_by("first", 1) {
+    None => ()
+    Some(_) => @test.fail("the old key must stop matching after the rebuild")
+  }
+  match t.get_by("first", 9) {
+    Some((hit, r)) => {
+      @test.assert_eq(hit, id)
+      @test.assert_eq(r.tags[0], 9)
+    }
+    None => @test.fail("the new key must match after the rebuild")
+  }
+  @test.assert_eq(t.len(), 1)
   assert_invariants(t)
 }

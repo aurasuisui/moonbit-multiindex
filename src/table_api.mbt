@@ -103,7 +103,7 @@ pub fn[K : Hash + Eq, V] Table::register_non_unique(
       Some(record) => {
         let key = project(record)
         match buckets.get(key) {
-          Some(set) => set.add(slot)
+          Some(set) => set.insert(slot)
           None => buckets.set(key, @sorted_set.SortedSet([slot]))
         }
       }
@@ -138,7 +138,7 @@ pub fn[K : Compare, V] Table::register_non_unique_ordered(
       Some(record) => {
         let key = project(record)
         match buckets.get(key) {
-          Some(set) => set.add(slot)
+          Some(set) => set.insert(slot)
           None => buckets.set(key, @sorted_set.SortedSet([slot]))
         }
       }
@@ -197,23 +197,64 @@ pub fn[K : Hash + Eq + Compare, V] Table::iter_by(
   let slots = index.slots(key)
   let version = self.version
   let mut pos = 0
-  Iter2::new(
-    fn() -> (RowId, V)? {
-      if self.version != version {
-        abort("Table::iter_by: table mutated during iteration")
-      }
-      while pos < slots.length() {
-        let slot = slots[pos]
-        pos = pos + 1
-        match self.record_at(slot) {
-          Some(entry) => return Some(entry)
-          None => continue
+  Iter2(
+    Iter(
+      fn() -> (RowId, V)? {
+        if self.version != version {
+          abort("Table::iter_by: table mutated during iteration")
         }
-      }
-      None
-    },
-    size_hint=slots.length(),
+        while pos < slots.length() {
+          let slot = slots[pos]
+          pos = pos + 1
+          match self.record_at(slot) {
+            Some(entry) => return Some(entry)
+            None => continue
+          }
+        }
+        None
+      },
+      size_hint=slots.length(),
+    ),
   )
+}
+
+///|
+/// Whether the index `name` maps at least one record to `key` — the membership
+/// question behind `iter_by`, answered without materializing the bucket.
+///
+/// A unique index is `true` for at most one record; a non-unique one is `true` as
+/// long as its bucket is non-empty, which is exactly `iter_by(name, key)` yielding
+/// something. An **unknown index name aborts** (docs/SPEC.md §7.1): "this index was
+/// never registered" is a caller bug, and answering it with `false` would disguise
+/// it as "no record has this key".
+///
+/// Read-only: `version` is not bumped and no bucket is copied, so an iterator taken
+/// before the call keeps walking the snapshot it captured at creation.
+pub fn[K : Hash + Eq + Compare, V] Table::contains_by(
+  self : Table[K, V],
+  name : String,
+  key : K,
+) -> Bool {
+  self.require_index(name).contains_key(key)
+}
+
+///|
+/// How many records the index `name` maps to `key`: `0` or `1` on a unique index,
+/// the bucket size on a non-unique one, `0` when the key is absent.
+///
+/// This is the counting half of `iter_by`, read off the bucket instead of walking
+/// it (nothing is materialized). An **unknown index name aborts** (docs/SPEC.md
+/// §7.1), for the same reason as `contains_by`; a known name and an absent key
+/// answer `0`, which is the legitimate "no data" result.
+///
+/// Read-only: `version` is not bumped and nothing is allocated beyond the `Int32`
+/// answer.
+pub fn[K : Hash + Eq + Compare, V] Table::count_by(
+  self : Table[K, V],
+  name : String,
+  key : K,
+) -> Int32 {
+  self.require_index(name).bucket_len(key)
 }
 
 ///|
@@ -255,35 +296,37 @@ fn[K, V] Table::cursor_iter(
   let version = self.version
   let mut pending : Array[Int32] = []
   let mut pos = 0
-  Iter2::new(fn() -> (RowId, V)? {
-    if self.version != version {
-      abort("Table: table mutated during iteration")
-    }
-    let mut result : (RowId, V)? = None
-    let mut done = false
-    while !done {
-      if pos < pending.length() {
-        let slot = pending[pos]
-        pos = pos + 1
-        match self.record_at(slot) {
-          Some(entry) => {
-            result = Some(entry)
-            done = true
+  Iter2(
+    Iter(fn() -> (RowId, V)? {
+      if self.version != version {
+        abort("Table: table mutated during iteration")
+      }
+      let mut result : (RowId, V)? = None
+      let mut done = false
+      while !done {
+        if pos < pending.length() {
+          let slot = pending[pos]
+          pos = pos + 1
+          match self.record_at(slot) {
+            Some(entry) => {
+              result = Some(entry)
+              done = true
+            }
+            None => ()
           }
-          None => ()
-        }
-      } else {
-        match (cursor.next)() {
-          Some(slots) => {
-            pending = slots
-            pos = 0
+        } else {
+          match (cursor.next)() {
+            Some(slots) => {
+              pending = slots
+              pos = 0
+            }
+            None => done = true
           }
-          None => done = true
         }
       }
-    }
-    result
-  })
+      result
+    }),
+  )
 }
 
 ///|
@@ -342,6 +385,56 @@ pub fn[K, V] Table::iter_desc_by(
 ) -> Iter2[RowId, V] {
   let index = self.ordered_index(name)
   self.cursor_iter(index.ordered_cursor(true))
+}
+
+///|
+/// The record under the **smallest key** of the ordered index `name` — the key-order
+/// endpoint, i.e. the first step of `iter_asc_by`, **not** the first inserted record.
+/// `None` when the table holds no record.
+///
+/// On a **non-unique** ordered index the endpoint key may own several records, and
+/// this answers the one in the **smallest slot** — exactly the record
+/// `get_by(name, key)` routes to for that key (docs/SPEC.md §3.3). It is therefore
+/// not "the first one inserted" among equal keys, and it is not stable across
+/// operations: removing that record moves the answer to the next slot of the same
+/// bucket. The identity of the answer is the key-order endpoint, never an
+/// insertion-order one.
+///
+/// Aborts for an unknown name **and** for a hash index: "which key is smallest" is a
+/// question a hash quadrant cannot answer, so there is no empty-result reading of it
+/// (docs/SPEC.md §7.1). Deliberately requires **no `K : Compare`** — the walk only
+/// follows the `SortedMap` spine (`first`), like `iter_asc_by`.
+///
+/// Read-only: `version` is not bumped and no bucket is materialized — the answer
+/// costs O(log n) and allocates nothing beyond the returned `V`.
+pub fn[K, V] Table::first_by(self : Table[K, V], name : String) -> (RowId, V)? {
+  let index = self.ordered_index(name)
+  match index.endpoint_slot(false) {
+    Some(slot) => self.record_at(slot)
+    None => None
+  }
+}
+
+///|
+/// The record under the **largest key** of the ordered index `name` — the key-order
+/// endpoint, i.e. the first step of `iter_desc_by`, **not** the last inserted record.
+/// `None` when the table holds no record.
+///
+/// The **same-slot rule as `first_by` applies**: on a non-unique ordered index the
+/// answer is the record in the **smallest slot** of the largest key's bucket — the
+/// record `get_by` routes to for that key — so even this "last" answer is **not the
+/// last inserted** among equal keys (docs/SPEC.md §3.3). What is last here is the
+/// *key*; inside one key the routing stays slot-ascending.
+///
+/// Aborts for an unknown name and for a hash index, and is unconstrained in `K` for
+/// the same reasons as `first_by` (docs/SPEC.md §7.1). Read-only: `version` is not
+/// bumped, no bucket is materialized, and the answer costs O(log n).
+pub fn[K, V] Table::last_by(self : Table[K, V], name : String) -> (RowId, V)? {
+  let index = self.ordered_index(name)
+  match index.endpoint_slot(true) {
+    Some(slot) => self.record_at(slot)
+    None => None
+  }
 }
 
 ///|
@@ -410,6 +503,136 @@ pub fn[K, V] Table::unregister_index(self : Table[K, V], name : String) -> Bool 
     }
     None => false
   }
+}
+
+// ---------------------------------------------------------------------------
+// Index repair (docs/SPEC.md §3.1, v0.4.0 M2)
+// ---------------------------------------------------------------------------
+
+///|
+/// Re-derive the index registered under `name` from the live records, repairing a
+/// bucket set that went stale (docs/SPEC.md §3.1, §3.7).
+///
+/// This is the one-step replacement for the three-step recovery
+/// `unregister_index` + fix the records + `register_*`: the records are the
+/// source of truth, so a bucket left pointing at the wrong key by an external
+/// mutation (docs/SPEC.md §3.7) becomes correct again without dropping the index,
+/// its name or its projection.
+///
+/// **Atomic, by construction.** The new buckets are built in a local structure and
+/// published with a single `indexes.set` only after the whole scan has succeeded.
+/// The old bucket structure is never cleared in place, so an iterator created
+/// before the call keeps walking the snapshot it captured at creation — the same
+/// observation `unregister_index` documents (see `Table::iter_asc_by`). A unique
+/// quadrant answers `Err(UniqueViolation(name, key))` as soon as two live records
+/// project to the same key; the rebuild has then written nothing, so every key of
+/// the old index still answers exactly as it did before.
+///
+/// **What is untouched.** Records, insertion order, generations, the free-slot
+/// stack and every other index: `len`, `iter()` and the other indexes are
+/// unchanged. `version` is **not** bumped either — I8 counts *record* changes and a
+/// rebuild changes no record.
+///
+/// **Unknown name aborts** (docs/SPEC.md §7.1), like every other name-taking entry
+/// point that is not `unregister_index`; that method's "answer `false`" is the
+/// registry's single documented exception, and it is about *removing* an index.
+/// `DuplicateName` is **unreachable** on this path: a rebuild does not take a name,
+/// it requires one to be registered already, so the variant exists for the
+/// registration API alone (docs/SPEC.md §3.1 registers it next to §7.3's
+/// unreachable branches).
+pub fn[K : Hash + Eq + Compare, V] Table::rebuild_index(
+  self : Table[K, V],
+  name : String,
+) -> Result[Unit, RegisterError[K]] {
+  let index = self.require_index(name)
+  match index {
+    HashUnique(meta, _) => {
+      let project = meta.project
+      let buckets : Map[K, Int32] = Map([])
+      let mut i = 0
+      while i < self.order.length() {
+        let slot = self.order[i]
+        match self.rows[slot] {
+          Some(record) => {
+            let key = project(record)
+            match buckets.get(key) {
+              Some(_) => return Err(UniqueViolation(name, key))
+              None => buckets.set(key, slot)
+            }
+          }
+          None =>
+            abort("Table::rebuild_index: `order` names a slot with no record")
+        }
+        i = i + 1
+      }
+      self.indexes.set(name, Index::HashUnique(meta, buckets))
+    }
+    SortedUnique(meta, _) => {
+      let project = meta.project
+      let buckets : @sorted_map.SortedMap[K, Int32] = @sorted_map.SortedMap([])
+      let mut i = 0
+      while i < self.order.length() {
+        let slot = self.order[i]
+        match self.rows[slot] {
+          Some(record) => {
+            let key = project(record)
+            match buckets.get(key) {
+              Some(_) => return Err(UniqueViolation(name, key))
+              None => buckets.set(key, slot)
+            }
+          }
+          None =>
+            abort("Table::rebuild_index: `order` names a slot with no record")
+        }
+        i = i + 1
+      }
+      self.indexes.set(name, Index::SortedUnique(meta, buckets))
+    }
+    HashMulti(meta, _) => {
+      let project = meta.project
+      let buckets : Map[K, @sorted_set.SortedSet[Int32]] = Map([])
+      let mut i = 0
+      while i < self.order.length() {
+        let slot = self.order[i]
+        match self.rows[slot] {
+          Some(record) => {
+            let key = project(record)
+            match buckets.get(key) {
+              Some(set) => set.insert(slot)
+              None => buckets.set(key, @sorted_set.SortedSet([slot]))
+            }
+          }
+          None =>
+            abort("Table::rebuild_index: `order` names a slot with no record")
+        }
+        i = i + 1
+      }
+      self.indexes.set(name, Index::HashMulti(meta, buckets))
+    }
+    SortedMulti(meta, _) => {
+      let project = meta.project
+      let buckets : @sorted_map.SortedMap[K, @sorted_set.SortedSet[Int32]] = @sorted_map.SortedMap([],
+      )
+      let mut i = 0
+      while i < self.order.length() {
+        let slot = self.order[i]
+        match self.rows[slot] {
+          Some(record) => {
+            let key = project(record)
+            match buckets.get(key) {
+              Some(set) => set.insert(slot)
+              None => buckets.set(key, @sorted_set.SortedSet([slot]))
+            }
+          }
+          None =>
+            abort("Table::rebuild_index: `order` names a slot with no record")
+        }
+        i = i + 1
+      }
+      self.indexes.set(name, Index::SortedMulti(meta, buckets))
+    }
+  }
+  Ok(())
 }
 
 // ---------------------------------------------------------------------------

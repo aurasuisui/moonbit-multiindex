@@ -7,7 +7,7 @@ import {
 }
 
 // Values
-pub const VERSION : String = "0.3.0"
+pub const VERSION : String = "0.4.0"
 
 // Errors
 
@@ -65,6 +65,9 @@ pub struct Table[K, V] {
 }
 pub fn[K, V] Table::clear(Self[K, V]) -> Unit
 pub fn[K, V] Table::contains(Self[K, V], RowId) -> Bool
+pub fn[K : Hash + Eq + Compare, V] Table::contains_by(Self[K, V], String, K) -> Bool
+pub fn[K : Hash + Eq + Compare, V] Table::count_by(Self[K, V], String, K) -> Int32
+pub fn[K, V] Table::first_by(Self[K, V], String) -> (RowId, V)?
 pub fn[K : Hash + Eq + Compare, V : @json.FromJson] Table::from_json(@json.Json) -> Self[K, V] raise
 pub fn[K, V] Table::get(Self[K, V], RowId) -> V?
 pub fn[K : Hash + Eq + Compare, V] Table::get_by(Self[K, V], String, K) -> (RowId, V)?
@@ -80,11 +83,13 @@ pub fn[K, V] Table::iter(Self[K, V]) -> Iter2[RowId, V]
 pub fn[K, V] Table::iter_asc_by(Self[K, V], String) -> Iter2[RowId, V]
 pub fn[K : Hash + Eq + Compare, V] Table::iter_by(Self[K, V], String, K) -> Iter2[RowId, V]
 pub fn[K, V] Table::iter_desc_by(Self[K, V], String) -> Iter2[RowId, V]
+pub fn[K, V] Table::last_by(Self[K, V], String) -> (RowId, V)?
 pub fn[K, V] Table::len(Self[K, V]) -> Int32
 pub fn[K : Hash + Eq + Compare, V] Table::modify(Self[K, V], RowId, (V) -> V) -> Result[Unit, UpdateRejected[K, V]]
 pub fn[K, V] Table::new() -> Self[K, V]
 pub fn[K : Compare, V] Table::range_by(Self[K, V], String, K, K) -> Iter2[RowId, V]
 pub fn[K : Compare, V] Table::range_half_open_by(Self[K, V], String, K, K) -> Iter2[RowId, V]
+pub fn[K : Hash + Eq + Compare, V] Table::rebuild_index(Self[K, V], String) -> Result[Unit, RegisterError[K]]
 pub fn[K : Hash + Eq, V] Table::register_non_unique(Self[K, V], String, (V) -> K) -> Result[Unit, RegisterError[K]]
 pub fn[K : Compare, V] Table::register_non_unique_ordered(Self[K, V], String, (V) -> K) -> Result[Unit, RegisterError[K]]
 pub fn[K : Hash + Eq, V] Table::register_unique(Self[K, V], String, (V) -> K) -> Result[Unit, RegisterError[K]]

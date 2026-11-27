@@ -82,7 +82,7 @@ struct MultiIndexOrderMap {
 | 索引定义方式 | derive 宏(编译期) | 运行时闭包注册 | MoonBit 无等价宏机制 |
 | 句柄 | `usize`(槽下标) | `RowId{slot, gen}` | ABA 防护 |
 | 代际号溢出 | 静默回绕(slotmap / thunderdome / hecs / bevy 一致) | **溢出即退役槽位** | 陈旧句柄永不复活(§0.4-8) |
-| 范围查询 | **无**(ordered 索引只暴露点查与全量遍历) | `range_by` / `range_inclusive_by` | 主蓝本 API 层缺口(§0.4-2) |
+| 范围查询 | **无**(ordered 索引只暴露点查与全量遍历) | `range_by` / `range_half_open_by` | 主蓝本 API 层缺口(§0.4-2) |
 
 ---
 
@@ -298,6 +298,7 @@ pub struct Table[K, V] {
   priv gens : Array[Int]
   priv free : Array[Int]
   priv order : Array[Int]
+  priv positions : Array[Int32]
   priv indexes : Map[String, Index[K, V]]
   priv mut len : Int
   priv mut version : Int
@@ -344,6 +345,7 @@ pub(all) enum IndexKind {
 | `register_non_unique(name, project) -> Result[Unit, RegisterError[K]]` | **哈希非唯一**索引(`Map[K, SortedSet[Int]]`) |
 | `register_non_unique_ordered(name, project) -> Result[Unit, RegisterError[K]]` (需 `K : Compare`) | **有序非唯一**索引(`SortedMap[K, SortedSet[Int]]`) |
 | `unregister_index(name : String) -> Bool` | **删除索引注册**。返回是否真的删除;未注册返回 `false`、**不 abort**(§7.1 的显式例外)。只摘注册表:`len` / `order` / `gens` / `free` / 其它索引一个都不动,`version` 不 bump;名字立即可以重注册(可换投影);删除前创建的有序游标(`range_by` / `iter_asc_by` / `iter_desc_by`)仍按各自快照走完,不会 abort |
+| `rebuild_index(name : String) -> Result[Unit, RegisterError[K]]` (需 `K : Hash + Eq + Compare`) | **从现有记录重新推导单个已注册索引**(v0.4.0,语义见下方「重建语义」)。名字必须已注册,未注册 **`abort`**(§7.1;与 `unregister_index` 的 `false` 的分界写在「重建语义」)。重建按记录**当前投影**重算该索引的桶;`len` / `iter()` 插入序 / 其它索引 / `gens` / `free` / `version` 全不动。唯一冲突时 `Err(UniqueViolation)` 且旧索引逐项不变。用途见 §3.7:修复记录被 API 外部改动后的脏索引,是 `unregister_index` + 修记录 + `register_*` 三步恢复的一步化替代 |
 | `has_index(name) -> Bool` / `index_names() -> Array[String]` / `index_entries() -> Array[(String, IndexKind)]` | 索引枚举;`index_names` 与 `index_entries` 都按 **MoonBit `String` 序**(长度优先的 shortlex)升序,已由测试钉死;`index_entries` 同时给出每个索引的象限(§2.7)—— `index_stats(name)` 必须先知道名字,而这是拿到名字的公开途径 |
 
 **2×2 四象限**(与主蓝本的 `hashed_unique` / `ordered_unique` / `hashed_non_unique` /
@@ -363,6 +365,38 @@ pub(all) enum IndexKind {
 
 > 裁定理由:"冲突不静默覆盖"是本库的整体风格,注册路径不应例外;
 > 半注册状态(索引存在但只回填了一半)是最难排查的一类 bug,必须堵死。
+
+#### 重建语义(已裁定,v0.4.0)
+
+`rebuild_index(name)` 把**一个**已注册索引从现有记录重新推导一遍,返回
+`Result[Unit, RegisterError[K]]`。它是「脏索引」的修复入口:记录是唯一事实来源,桶是从记录算出来的
+派生结构,所以 §3.7 的外部改动之后,重新推导比「取消注册 + 修记录 + 重新注册」少两步,而且不丢索引名
+与投影。
+
+| 情形 | 行为 | 依据 |
+|---|---|---|
+| 名字**未注册** | **`abort`** | §7.1:以索引名为参数时写错名字是编程错误,没有合理的返回值可以表达 |
+| 唯一象限出现重复投影 | `Err(UniqueViolation(name, key))`,且**旧索引逐项不变** | §2.4:不静默覆盖、失败零变更 |
+| 非唯一象限 | 无唯一性约束,重建不会失败 | 同上 |
+| 重复名字 | 见下方「不可达分支」 | 重建不申请名字,只要求名字已存在 |
+
+> **与 `unregister_index` 的分界(§7.1 的"唯一例外"指什么)。** `unregister_index` 对未注册的名字
+> 返回 `false` 而**不 abort**,是因为它做的是**删除**:调用方需要能探测"本来就没有"。`rebuild_index`
+> 做的是**查询 + 修复**,语义上没有"没有这个索引"的结果可表达,因此和其它按名字查询的 API 一样
+> `abort`。两者的判据不同,不是一处一致性的疏漏。
+
+**原子性:建新桶 → 整体替换,绝不原地清空。** 新桶在局部结构里建好,全部成功后才 `indexes.set` 整体
+替换注册表项。**不允许**先 `clear()` 旧桶再回填:重建前创建的有序游标(`iter_asc_by` /
+`iter_desc_by` / `range_*`)持有旧 `SortedMap` 的迭代器,整体替换让它继续走**旧快照**(与
+`unregister_index` 的已知行为同构),原地清空则会让它失配。唯一冲突在**建桶过程中**就返回 `Err`,
+此时注册表还什么都没写,所以旧索引自然逐项不变。
+
+**不碰的东西:** `len`、`iter()` 的插入序、其它索引、`gens`、`free` 一个都不动;`version` **不
+bump** —— I8 只计**记录**变化,重建不改记录。
+
+**不可达分支登记(比照 §7.3 的写法):** `DuplicateName` 在重建路径上**结构不可达** —— 重建不申请
+名字,而是要求名字已经注册,所以这个变体只属于注册 API。保留它是因为错误类型复用
+`RegisterError[K]`(§2.4),不为重建路径新增公开类型。
 
 ### §3.2 写入
 
@@ -428,9 +462,13 @@ pub(all) enum IndexKind {
 |---|---|---|
 | `get_by(name : String, key : K) -> (RowId, V)?` | 命中记录的身份 + 值 | 非唯一索引上返回**桶内槽位号最小**的一条;该选择**确定但不跨操作稳定**,要全部命中请用 `iter_by` |
 | `iter_by(name : String, key : K) -> Iter2[RowId, V]` | 该键下所有记录 | 唯一索引上产出 0 或 1 条(API 统一);**顺序 = 槽位号升序**(桶为 `SortedSet[Int]`) |
+| `contains_by(name : String, key : K) -> Bool` | 该键是否有记录 | 直接问桶"非空吗"(**不物化**);未知索引名 → `abort`(§7.1);`false` 只表示"查得到,但没有"(唯一索引上等价于 `get_by(...).is_some()`) |
+| `count_by(name : String, key : K) -> Int32` | 该键的记录条数 | 唯一索引恒为 0 或 1,非唯一返回桶大小(**不物化**);未知索引名 → `abort`(§7.1) |
 | `range_by(name, lo, hi)` (需 `Compare`) | **双闭区间 `[lo, hi]`** 内的记录 | 有序索引;**本库增量**(主蓝本无 range API) |
 | `range_half_open_by(name, lo, hi)` (需 `Compare`) | **半开区间 `[lo, hi)`** 内的记录 | 同上 |
 | `iter_asc_by(name)` / `iter_desc_by(name)` | 按索引键升/降序遍历全部记录 | 同上。**不需要 `K : Compare`** —— 实现只走 `SortedMap` 的迭代器;索引是否有序由 §7.1 的运行时检查负责 |
+| `first_by(name) -> (RowId, V)?` | **键最小**的那条记录 | **仅有序索引**(哈希索引 → `abort`,§7.1);空表 → `None`;**不需要 `K : Compare`**(只走 `SortedMap::first`);非唯一索引上同键多条取**桶内最小槽位**——与 `get_by` 的路由完全一致,所以这是**键序**的端点,**不是**插入序的第一条 |
+| `last_by(name) -> (RowId, V)?` | **键最大**的那条记录 | 规则同 `first_by`;**同键内仍取最小槽位**(不是插入序的最后一条),变的是键序端点不是桶内路由 |
 | `get(id : RowId) -> V?` | 按句柄取记录 | 陈旧 id → `None` |
 | `contains(id : RowId) -> Bool` | — | |
 | `len() -> Int` / `is_empty() -> Bool` | — | |
@@ -537,7 +575,7 @@ enum Index[K, V] {
 
 - 共享容器**视为只读**。要改被索引字段,必须走 `update` / `modify`:它们先做唯一性预检,再按投影维护索引。
 - 违反后果(0.2.2 实测):旧键仍命中、新键漏查、`verify_invariants` 报 I4(桶键与投影不符)或 I7(记录不在任何桶里);脏表上 `insert` 的唯一性预检还可能被绕过(**干净表不存在此行为**):预检只看「当前投影对应的桶」,不会为别的记录做全表扫描。
-- 恢复路径(三步):`unregister_index(name)` → 用 `update` / `remove` 把重复投影拆开 → 重新 `register_*`(对非空表自动回填)→ `verify_invariants` 复检;或 `clear()` 后重新载入。0.3.0 起 `remove` / `swap_remove` / `update` 会对**被操作的那条记录自身**的陈旧条目做慢路径修复;**其他记录的脏条目不会被顺带修好**,仍由 `verify_invariants` 指出、逐条修或 `clear()` 重载。这些修复**不替代**上述契约。
+- 恢复路径(**一步**):`rebuild_index(name)` 用记录**当前投影**重新推导该索引(§3.1「重建语义」),不丢索引名与投影,`verify_invariants` 复检即可。只有脏表上两条记录投影撞到**同一个唯一键**、`rebuild_index` 返回 `Err(UniqueViolation)` 且旧索引逐项不变时,才降级为三步:`unregister_index(name)` → 用 `update` / `remove` 把重复投影拆开 → 重新 `register_*`(对非空表自动回填)→ `verify_invariants` 复检;或 `clear()` 后重新载入兜底。0.3.0 起 `remove` / `swap_remove` / `update` 会对**被操作的那条记录自身**的陈旧条目做慢路径修复;**其他记录的脏条目不会被顺带修好**,仍由 `verify_invariants` 指出、逐条修或 `clear()` 重载。这些修复**不替代**上述契约。
 
 **`modify` 的闭包契约**
 
@@ -550,7 +588,7 @@ enum Index[K, V] {
 - `modify` 的 `f` 若**就地修改共享容器**,记录在 `f` 返回时就已改变;随后唯一性预检失败返回 `Err` 时,**「表零变更」不成立** —— 没有深拷贝可回滚。
 - 此时表处于「记录已是新值、索引仍是旧键」的脏状态:`verify_invariants` 报 I4;旧键仍命中,但命中的记录投影已是新值。
 - 调用方义务:要么用**不修改共享容器**的闭包(返回新对象,或只改值类型字段),要么在 `Err` 后按恢复路径修复。
-- 恢复路径(三步):`unregister_index(name)` → 用 `update` / `remove` 把重复投影拆开 → 重新 `register_*` → `verify_invariants` 复检。
+- 恢复路径(**一步**):`rebuild_index(name)`(`Err` 只会是「两条记录投影撞同一个唯一键」这一种,此时旧索引不动)。若 `rebuild_index` 返回 `Err`,再走降级三步:`unregister_index(name)` → 用 `update` / `remove` 把重复投影拆开 → 重新 `register_*` → `verify_invariants` 复检。
 
 ---
 
@@ -617,14 +655,23 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 |---|---|
 | `insert` | O(I + Σ桶代价),I = 索引数 |
 | `get_by` | 均摊 O(1) |
+| `contains_by` | 均摊 O(1);有序象限 O(log n) —— 只问桶是否非空,**不物化** |
+| `count_by` | 均摊 O(1);有序象限 O(log n) —— 读桶的 `length`/存在位,**不物化** |
+| `first_by` | O(log n) —— 只走 `SortedMap::first` 的一条脊,**不物化桶**,且不需要 `K : Compare` |
+| `last_by` | O(log n) —— 同上(`SortedMap::last`) |
 | `range_by` | O(log n + k) |
 | `remove` | **O(len + I + Σ log 桶)** —— 见下方警告,`len` 项来自 `order` 保序压缩 |
 | `swap_remove` | **O(I + Σ log 桶)** —— `order` 只做一次末位交换 + 两次 `positions` 写,无 `len` 项 |
 | `update` / `modify` | O(I + Σ log 桶);**键未变的索引不增删桶**,但等键路径仍对该桶做一次成员检查(`Index::holds`) |
 | `insert_many` | O(n·I + n·Σ log 桶) |
+| `rebuild_index` | O(len + Σ 桶) —— 见下方说明 |
 | `iter` | O(len) |
 | `verify_invariants` | O(桶数 × len) —— **诊断 API,不在热路径** |
 | 空间 | O(len + Σ索引条目) |
+
+> **`rebuild_index` 的 `I` 项怎么读**:一次调用只重建**一个**索引 —— 扫一遍 `order` 是 O(len),再建
+> 该索引的桶是 Σ 桶,所以**单次调用**是 **O(len + Σ 桶)**。**同时重建全部 I 个索引**才是 `I × len`
+> 的量级(每个索引各自独立重建,互不共享扫描)。不要读成一次调用要乘 I。
 
 > ⚠️ **`remove` 的 `O(len)` 是 M6 基准实测抓出来的,原表写 `O(I + Σ桶长)` 是错的。**
 > 根因:`order`(**插入序**)是一棵普通数组,删除后需要**原地压缩** → O(len)。
@@ -690,19 +737,26 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 3. 守卫的**判据**由只读分类器单测(`is_ordered` / `has_index` / `replace_target`)钉死 ——
    `panic` 覆盖"会不会炸",分类器覆盖"该不该炸"。
 
-落实:`src/abort_guard_wbtest.mbt`(27 条 = 17 条 `test "panic …"` + 10 条伴生),每条可达 `abort` 守卫一条 panic 测试。
+落实:`src/abort_guard_wbtest.mbt`(**42 条 = 26 条 `test "panic …"` + 16 条伴生**),每条可达 `abort` 守卫一条 panic 测试。
+0.4.0 复算(只统计这一个文件):`Select-String -Path src\abort_guard_wbtest.mbt -Pattern '^test "panic '` → **26**,`'^test "'` → **42**,差 16 条即伴生测试。
 
-#### §7.3 覆盖率的已知缺口:报告标出的 21 行
+#### §7.3 覆盖率的已知缺口:报告标出的 23 行
 
-`moon coverage analyze -p aurasuisui/multiindex -- -f summary` 当前 **847/868**。`-f caret` 标出 **21 行**
-(报告把条件行与其失败分支成组标记,故逐条位置为 20 个):
-`src/table.mbt:412` / `:487` / `:715`;`src/table_api.mbt:203` / `:210` / `:244` / `:260` / `:273` /
-`:597-603` / `:619-623` / `:694-704`。
+0.4.0 重算(`moon 0.1.20261120`):`moon clean` → `moon test --enable-coverage`(**209/209**)→
+`$env:MOON_COVE_REPORT_ENABLED='0'; moon coverage analyze -p aurasuisui/multiindex -- -f summary`
+→ **976/1002 = 97.41%**(`src/index.mbt: 319/326`、`src/table.mbt: 257/260`、`src/table_api.mbt: 345/361`)。
+`-f caret` 逐行标出 **23 行**:
+`src/index.mbt:383` / `:384` / `:385` / `:444` / `:447`;
+`src/table.mbt:412` / `:487` / `:715`;
+`src/table_api.mbt:210` / `:312` / `:555` / `:816` / `:818` / `:820` / `:822` /
+`:838` / `:840` / `:842` / `:913` / `:915` / `:917` / `:919` / `:923`。
 
-**这些行号不能直接当"没执行"读。** 抽查:报告把 `src/table_api.mbt:228`(`require_index` 的
-`Some(index) => index`)标为未覆盖,但 `get_by` / `iter_by` / `index_entries` / `index_stats` 全都经由它,
-且它们的测试是绿的;把 `abort` 探针插到 `verify_indexes` 的桶循环(`:594-595`),`json_test` 立刻炸 ——
-证明该循环确实执行。即:**报告会把条件行与其失败分支成组标记,行号偏保守**。
+> **两个口径不要互相换算**:`-f summary` 的行计数是 1002 − 976 = **26** 行,而 `-f caret` 逐行点名
+> **23** 行。差出的 3 行报告未按行点名;本节照抄两条命令的输出,不自行补齐。
+
+**这些行号不能直接当"没执行"读。** 报告会把条件行与其失败分支成组标记(例如 `:816-822` 把 I5 文本
+与其 `return Err` 合成一组),行号偏保守。反证:把 `abort` 探针插到 `verify_indexes` 的桶循环(`:813`),
+`json_test` 立刻炸 —— 证明该循环确实执行。
 
 因此按**失败分支**归因:
 
@@ -710,11 +764,11 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 |---|---|
 | `insert_impl` 写完立刻回读为空 | 结构不可达:刚写入的槽位必然 `Some` |
 | `insert_or_replace` 的分类器分支 | 分类器正确时恒 `None`;保留是为了回归时退化成 `Err`,而不是破坏 I5 |
-| `iter_by` / 区间游标的 `version` 检查 | `iter` 的 fail-fast 已测,这两处游标未单独踩 |
+| ~~`iter_by` / 区间游标的 `version` 检查~~ | 0.3.0 已补 panic 测试(M5c),不再是缺口 |
 | `record_at` 返回 `None` 的防御性 `continue` / `()` | 槽位出现在 `order` 里就意味着存活 |
 | I5:唯一桶长度 > 1 | 结构不可达:唯一桶是 `Map[K, Int32]`,每键恒 1 槽 |
 | I3:桶内重复槽位 | 结构不可达:非唯一桶是 `SortedSet`,天然去重 |
-| I7:记录不在任何桶里 | 可达,但需注入"记录在表里、却不在该索引桶里"的脏态;12 条 `verify_*` 证伪测试已覆盖 I1/I2/I4/I6/I9/registry |
+| I7:记录不在任何桶里 | 可达,但需注入"记录在表里、却不在该索引桶里"的脏态;15 条 `verify_*` 证伪测试已覆盖 I1/I2/I3/I4/I6/I7/I9/registry(含 I3,见 `table_wbtest.mbt` 的 `names I3` 用例) |
 
 > **不追求 100%。** 登记这张表的目的是防止覆盖率**偷偷下降**:新增的未覆盖行要么补测试,要么在这里说明理由。
 
@@ -722,13 +776,24 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 
 ## §8 Trait 实现规划
 
+**已落地**(以 [`src/pkg.generated.mbti`](../src/pkg.generated.mbti) 为机器可读真源;本节按"已落地 / 未落地"两栏分开):
+
+| 能力 | 实现者 | 说明 |
+|---|---|---|
+| `Show`(手写) | `RowId` / `Conflict[K]` / `Rejected[K, V]` / `IndexKind` —— **只有这 4 个** | 手写,不用 deprecated 的 `derive(Show)`;`Table` **没有** `Show` |
+| `Debug` / `Eq` / `Hash` | 全部由 `#derive` 生成(见 `src/lib.mbt`):`RowId` = Eq+Hash+Debug;`Conflict` / `RegisterError` / `UpdateRejected` / `IndexStats` = Eq+Debug;`Rejected` / `IndexKind` = 仅 Debug | 没有手写的 `Debug` / `Eq` / `Hash` |
+| JSON 往返 | `Table::to_json` / `Table::from_json` —— **是方法,不是 trait 实现** | 语义见下 |
+
+> **JSON 语义(已落地)**:① **索引不参与序列化**(投影是运行时闭包,无法序列化);② `from_json` 只恢复**记录**(`rows` + `gens` + `order`),返回的表**索引注册表为空**;③ 反序列化后由调用方用 `register_*` **回填重建索引** —— 这正好复用 §3.1 已有的"对非空表注册即回填"语义,**两处机制自然咬合,不新增概念**;④ 形如 `{"records": [...]}`,记录按插入序写出。
+
+**未落地**(规划,0.4.0 不实现):`Table` 在 mbti 里**一个 `impl` 都没有** ——
+
 | Trait | 规划 |
 |---|---|
-| `Debug` / `Show` | `RowId`、`Conflict`、`Table`(手写 `Show`,不用 deprecated 的 `derive(Show)`) |
+| `Debug` / `Show` | `Table` 的手写 `Show` 与 `Debug`(当前**都不存在**) |
 | `Default` | `Table::new()` |
 | `Eq` | `Table` 为**记录集合**语义;索引是派生视图,**不参与相等性** |
 | `Hash` | 与 `Eq` 一致(顺序无关正则形,比照 bimap 的 sort-fold) |
-| `ToJson` / `FromJson` | JSON 往返。**语义已裁定**:① **索引不参与序列化**(投影是运行时闭包,无法序列化);② `from_json` 只恢复**记录**(`rows` + `gens` + `order`),返回的表**索引注册表为空**;③ 反序列化后由调用方用 `register_*` **回填重建索引** —— 这正好复用 §3.1 已有的"对非空表注册即回填"语义,**两处机制自然咬合,不新增概念**;④ 形如 `{"records": [...]}`,记录按插入序写出 |
 | `Arbitrary` | QuickCheck 生成器 |
 
 ---
@@ -769,7 +834,8 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
   **M11 砍尾(2026-10-20)**:基准里哈希桶并不慢,这是**没有实测痛点**的推测性优化,按
   [`plans/v0.2.0.md`](plans/v0.2.0.md) §四「从尾部砍」;相应地**没有开 Issue** —— 它不是实测到的
   问题,开了就是凑数。
-- 批量重建索引 `rebuild_index(name)` / 延迟建索引。
+- ~~批量重建索引 `rebuild_index(name)`~~:**单个索引的 `rebuild_index` 已在 0.4.0 落地**(见 §3.1);
+  仍未做的是「一次调用重建全部索引」,以及「延迟建索引」。
 - **约束擦除**:把有序象限桶操作在注册时擦除成闭包/trait object,使 `insert`/`remove` 只需
   `K : Hash + Eq`。代价见 §2.5.1 —— 需要先解决"擦除后如何继续逐步校验 I3/I4/I5/I7"。
 - ~~查询的 id-only 变体~~:M8 实测后**不做** —— 最终形状只有 1.70×,未达开工前写死的 2× 门槛(§13 R2)。
@@ -778,7 +844,7 @@ I9  退役槽位永不回到 free(代际号达上限的槽位被永久移除,见
 
 | 缺口 | 影响 | 消除条件 |
 |---|---|---|
-| core 的 `SortedMap` **没有反向迭代器** | `iter_desc_by` 必须**先物化键序**再倒着走(内存 O(#桶));`range_by` / `range_half_open_by` / `iter_asc_by` 都是惰性的,不受影响 | core 为 `SortedMap`(或 `Iter2`)提供 `rev` / 反向迭代器后即可改为惰性。已记入 `CHANGELOG.md` Notes |
+| core 的 `SortedMap` 反向迭代 | **已消除(v0.4.0)**:改用 `SortedMap::rev_iter2`,降序不再物化 —— `iter_desc_by` 与 `iter_asc_by` 逐行同构,`range_by` / `range_half_open_by` 一并保持惰性(逐桶取用,不再缓存整个键序) | 已满足:core `0.1.20261120` 起提供 `rev_iter` / `rev_iter2` / `rev_keys`;`src/index.mbt` 的 `reversed_cursor` 已随之删除 |
 
 #### `insert_many` 重复唯一键的裁定(M5 落地)
 

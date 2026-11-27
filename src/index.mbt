@@ -37,7 +37,7 @@ priv enum Index[K, V] {
   HashMulti(IndexMeta[K, V], Map[K, @sorted_set.SortedSet[Int32]])
   SortedMulti(
     IndexMeta[K, V],
-    @sorted_map.SortedMap[K, @sorted_set.SortedSet[Int32]]
+    @sorted_map.SortedMap[K, @sorted_set.SortedSet[Int32]],
   )
 }
 
@@ -114,12 +114,12 @@ fn[K : Hash + Eq + Compare, V] Index::add(
     SortedUnique(_, buckets) => buckets.set(key, slot)
     HashMulti(_, buckets) =>
       match buckets.get(key) {
-        Some(set) => set.add(slot)
+        Some(set) => set.insert(slot)
         None => buckets.set(key, @sorted_set.SortedSet([slot]))
       }
     SortedMulti(_, buckets) =>
       match buckets.get(key) {
-        Some(set) => set.add(slot)
+        Some(set) => set.insert(slot)
         None => buckets.set(key, @sorted_set.SortedSet([slot]))
       }
   }
@@ -344,6 +344,60 @@ fn[K : Hash + Eq + Compare, V] Index::first_slot(
 }
 
 ///|
+/// Whether the bucket under `key` holds at least one slot, **without materializing
+/// the bucket**.
+///
+/// The membership question `Table::contains_by` asks: every quadrant consults its
+/// own bucket map with `contains`, which is what keeps a lookup on a fat bucket from
+/// copying every slot just to answer bool (docs/SPEC.md §13 R1).
+fn[K : Hash + Eq + Compare, V] Index::contains_key(
+  self : Index[K, V],
+  key : K,
+) -> Bool {
+  match self {
+    HashUnique(_, buckets) => buckets.contains(key)
+    SortedUnique(_, buckets) => buckets.contains(key)
+    HashMulti(_, buckets) => buckets.contains(key)
+    SortedMulti(_, buckets) => buckets.contains(key)
+  }
+}
+
+///|
+/// Number of slots stored under `key` (`0` when the key is absent), **without
+/// materializing the bucket**.
+///
+/// A unique quadrant can only answer 0 or 1 — the presence bit is the whole count —
+/// while a non-unique one reads the bucket's own `length`, so counting a fat bucket
+/// copies nothing (docs/SPEC.md §13 R1).
+fn[K : Hash + Eq + Compare, V] Index::bucket_len(
+  self : Index[K, V],
+  key : K,
+) -> Int32 {
+  match self {
+    HashUnique(_, buckets) =>
+      match buckets.get(key) {
+        Some(_) => 1
+        None => 0
+      }
+    SortedUnique(_, buckets) =>
+      match buckets.get(key) {
+        Some(_) => 1
+        None => 0
+      }
+    HashMulti(_, buckets) =>
+      match buckets.get(key) {
+        Some(set) => set.length()
+        None => 0
+      }
+    SortedMulti(_, buckets) =>
+      match buckets.get(key) {
+        Some(set) => set.length()
+        None => 0
+      }
+  }
+}
+
+///|
 /// Whether this index is one of the two **ordered** quadrants.
 ///
 /// This is the predicate behind the docs/SPEC.md §7.1 rule that asking a hash
@@ -357,6 +411,40 @@ fn[K, V] Index::is_ordered(self : Index[K, V]) -> Bool {
     SortedUnique(_, _) => true
     HashMulti(_, _) => false
     SortedMulti(_, _) => true
+  }
+}
+
+///|
+/// The **smallest slot** of the bucket under the smallest key (`descending = false`)
+/// or under the largest key (`descending = true`), or `None` when the index holds no
+/// bucket at all — **without materializing anything**.
+///
+/// `SortedMap::first` / `last` walk a single spine, so this is O(log n) and needs no
+/// `K : Compare` bound; the bucket they return contributes only its first slot (slots
+/// are stored ascending), which is exactly the record `Table::get_by` routes to for
+/// that endpoint key.
+///
+/// Only the two ordered quadrants have a first/last key. The hash quadrants answer
+/// `None` — the same "not applicable" answer `Index::holder` gives for the
+/// non-unique half. `Table::first_by` / `Table::last_by` consult `Index::is_ordered`
+/// before calling this, so a hash index reaches the public abort instead of here.
+fn[K, V] Index::endpoint_slot(self : Index[K, V], descending : Bool) -> Int32? {
+  match self {
+    SortedUnique(_, buckets) => {
+      let endpoint = if descending { buckets.last() } else { buckets.first() }
+      match endpoint {
+        Some((_, slot)) => Some(slot)
+        None => None
+      }
+    }
+    SortedMulti(_, buckets) => {
+      let endpoint = if descending { buckets.last() } else { buckets.first() }
+      match endpoint {
+        Some((_, set)) => set.iter().next()
+        None => None
+      }
+    }
+    _ => None
   }
 }
 
@@ -385,7 +473,7 @@ fn[K : Compare, V] Index::range_cursor(
 ) -> BucketCursor {
   match self {
     SortedUnique(_, buckets) => {
-      let source = buckets.range(lo, hi)
+      let source = buckets.range(low=lo, high=hi)
       {
         next: fn() -> Array[Int32]? {
           let mut found : Array[Int32]? = None
@@ -405,7 +493,7 @@ fn[K : Compare, V] Index::range_cursor(
       }
     }
     SortedMulti(_, buckets) => {
-      let source = buckets.range(lo, hi)
+      let source = buckets.range(low=lo, high=hi)
       {
         next: fn() -> Array[Int32]? {
           let mut found : Array[Int32]? = None
@@ -433,11 +521,9 @@ fn[K : Compare, V] Index::range_cursor(
 /// Cursor over **every** bucket of an ordered index, ascending — or, with
 /// `descending`, in reverse key order.
 ///
-/// Ascending walks the `SortedMap` iterator lazily. Descending has to collect the
-/// buckets first, because core has no reverse iterator for `SortedMap`; that cost
-/// is documented rather than hidden (the *range* queries stay lazy in both
-/// directions). Bucket contents still come out slot-ascending either way — only
-/// the key order flips.
+/// Both directions walk the `SortedMap` lazily — `iter2` / `rev_iter2` — so the
+/// cursor hands out one bucket at a time, never the whole key order. Bucket
+/// contents still come out slot-ascending either way — only the key order flips.
 fn[K, V] Index::ordered_cursor(
   self : Index[K, V],
   descending : Bool,
@@ -445,11 +531,15 @@ fn[K, V] Index::ordered_cursor(
   match self {
     SortedUnique(_, buckets) =>
       if descending {
-        let all : Array[Array[Int32]] = []
-        for _, slot in buckets {
-          all.push([slot])
+        let source = buckets.rev_iter2()
+        {
+          next: fn() -> Array[Int32]? {
+            match source.next() {
+              Some((_, slot)) => Some([slot])
+              None => None
+            }
+          },
         }
-        reversed_cursor(all)
       } else {
         let source = buckets.iter2()
         {
@@ -463,11 +553,15 @@ fn[K, V] Index::ordered_cursor(
       }
     SortedMulti(_, buckets) =>
       if descending {
-        let all : Array[Array[Int32]] = []
-        for _, set in buckets {
-          all.push(set.to_array())
+        let source = buckets.rev_iter2()
+        {
+          next: fn() -> Array[Int32]? {
+            match source.next() {
+              Some((_, set)) => Some(set.to_array())
+              None => None
+            }
+          },
         }
-        reversed_cursor(all)
       } else {
         let source = buckets.iter2()
         {
@@ -481,23 +575,6 @@ fn[K, V] Index::ordered_cursor(
       }
     _ =>
       abort("Index::ordered_cursor: the index has no key order (hash quadrant)")
-  }
-}
-
-///|
-/// Walk a collected bucket list from the back: the descending half of
-/// `ordered_cursor`.
-fn reversed_cursor(all : Array[Array[Int32]]) -> BucketCursor {
-  let mut pos = all.length() - 1
-  {
-    next: fn() -> Array[Int32]? {
-      if pos < 0 {
-        return None
-      }
-      let bucket = all[pos]
-      pos = pos - 1
-      Some(bucket)
-    },
   }
 }
 

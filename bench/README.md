@@ -15,8 +15,8 @@ moon run --release bench/main.mbt
 ### It must measure the **local** module (B5)
 
 `moon.work` is deliberately gitignored (`moon publish` would package it), so a bare checkout
-has no workspace. The manifest's `"aurasuisui/multiindex@0.3.0"` is then a real registry
-dependency and the benchmark would silently time the **published** 0.3.0, not `../src`.
+has no workspace. The manifest's `"aurasuisui/multiindex@0.4.0"` is then a real registry
+dependency and the benchmark would silently time the **published** 0.4.0, not `../src`.
 The version string itself is mandatory syntax — dropping it makes `moon` fail with
 `moon.mod only supports versioned registry dependencies in `import``. The workspace member
 is what overrides the registry, so the recipe above is the supported way to run the bench.
@@ -172,15 +172,19 @@ within noise. Absolute values drift 10–20 % between runs on this machine; only
 
 ### The crossover is the point
 
-1. **Point lookups are where the index always wins** — ~236×, and the gap *grows* with n: the scan
+> **数字口径**:本节比率与上方 **2026-10-19** 那一轮的表一致(同一台机器、同一 n = 20 000)。早前散文引的
+> ~236× / ~58× / ~12× / ~21× 是**更早一轮**的旧读数,与表里 ~245× / ~49× / ~13× / ~22× 结论相同,
+> 差值属轮次抖动(绝对值漂移 10–20 %,只有比率方向与量级是结论)。上表与本节现在共用 2026-10-19 轮。
+
+1. **Point lookups are where the index always wins** — ~245×, and the gap *grows* with n: the scan
    is O(n), the lookup is O(1) however fat the bucket is.
 2. **For traversal the index wins only while the key is selective.** At ≈2 records per bucket it is
-   ~58× faster; at ≈1 250 per bucket it is ~5× *slower* than reading the array. Both sides walk the
+   ~49× faster; at ≈1 250 per bucket it is ~5.4× *slower* than reading the array. Both sides walk the
    same matches — the index additionally pays iterator state and one `(RowId, V)` copy per yielded
    record (the copy docs/SPEC.md §3.3 documents). **The crossover sits where the bucket approaches
    the cost of a linear pass: at n = 20 000 that is a few hundred records per key.**
-3. **Same story for ranges**: a narrow range (11 rows) is ~12× faster than scanning; a wide range
-   (a quarter of the table) is ~21× slower, because 5 000 yielded records cost 5 000 copies while
+3. **Same story for ranges**: a narrow range (11 rows) is ~13× faster than scanning; a wide range
+   (a quarter of the table) is ~22× slower, because 5 000 yielded records cost 5 000 copies while
    the scan reads one `Int` per row and materializes nothing. An ordered index buys *selectivity*
    and *ordering*, not raw speed on sweeps.
    → measured in M8 and **rejected**: the least-boxed walk achievable on this toolchain is 1.70×, below

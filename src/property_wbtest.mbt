@@ -432,3 +432,44 @@ test "qc: update / modify keep the invariants intact after every step" {
     round = round + 1
   }
 }
+
+// ---------------------------------------------------------------------------
+// M2 (v0.4.0): rebuild_index is the repair path the invariant guard points at
+// ---------------------------------------------------------------------------
+
+///|
+/// The guard rejects a sabotage, the rebuild removes it, and the guard accepts the
+/// table again. The corruption is injected through the private field (the same
+/// technique as "the invariant guard is not vacuous" above) because the point here
+/// is the *repair*, not the route into the dirty state.
+///
+/// `version` is pinned around the call: a rebuild changes no record, so I8 says it
+/// must not move, and that is also what lets an in-flight iterator survive it.
+test "rebuild_index repairs a sabotaged bucket so check_invariants passes again" {
+  let t = wb_indexed_table()
+  let a = wb_insert_indexed(t, (1, 10, 7))
+  let b = wb_insert_indexed(t, (2, 20, 7))
+  check_invariants(t)
+  // I4 sabotage: b projects to 2, but the "lo" buckets now answer 1 -> b
+  match t.indexes.get("lo") {
+    Some(index) => index.add(b.slot, 1)
+    None => @test.fail("the fixture index vanished")
+  }
+  let caught = try {
+    check_invariants(t)
+    false
+  } catch {
+    _ => true
+  }
+  @test.assert_eq(caught, true)
+  let version = t.version
+  match t.rebuild_index("lo") {
+    Ok(_) => ()
+    Err(_) => @test.fail("rebuild of a repairable index must succeed")
+  }
+  @test.assert_eq(t.version, version)
+  @test.assert_eq(t.len(), 2)
+  check_invariants(t)
+  @test.assert_eq(t.get_by("lo", 1), Some((a, (1, 10, 7))))
+  @test.assert_eq(t.get_by("lo", 2), Some((b, (2, 20, 7))))
+}
