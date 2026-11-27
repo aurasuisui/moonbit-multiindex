@@ -211,8 +211,8 @@
 | 4 | `CHANGELOG.md` 有本版 entry | ✅ | `## [0.4.0] - 2026-11-26`(Added:`rebuild_index` + 查询族四方法;Changed:降序惰性、工具链对齐、七处版本、文档对账;Notes 写明 bench 未复测) |
 | 4 | 许可证与第三方来源齐备 | ✅ | `LICENSE`(Apache-2.0 正文)、`NOTICE`、`third_party/LICENSES/multi_index_map-MIT.txt`、README「致谢与来源」 |
 | 发布 | 产物不含 PII / 开发态垃圾 | ✅ | 2026-11-25 干净 clone `moon package`(`Running moon check ... Check passed`)→ `_build/publish/aurasuisui-multiindex-0.4.0.zip` **59 项**(v0.3.0 为 56 项;+3/−0,差异见下);`_build` / `moon.work` / `*.coverage` / `.exe` / `.mooncakes` 条目名命中 **0**;邮箱形态 **0**,手机号/身份证号形态 **0 真命中**(11 条正则命中均为数值常量/checksum 误报,file:line 见下) |
-| 发布 | `moon publish` 并确认 `build_status: success` | ⏳ |  |
-| 发布 | 打 tag `v0.4.0` 并推送 | ⏳ |  |
+| 发布 | `moon publish` 并确认 `build_status: success` | ✅ | 2026-11-27 单次 `moon publish`(未重试)→ `Server status: 200 OK`、exit 0;发布前 `--dry-run` → `202 Accepted`。registry 复核:`latest_version = 0.4.0`、`build_status: success`、`yanked: false`、`created_at 2026-11-27T02:12:53Z`、versions 含 0.4.0 |
+| 发布 | 打 tag `v0.4.0` 并推送 | 📌 | 按表头约定:tag 打在**回填后的这个 commit** 上,其 sha 记入下一版「历史执行记录」;包内那份是回填前快照,这一行在包内只能是 📌 |
 
 ### M5 的 dry-run 与解包核对(M6 已填打包项;服务端 dry-run 归 M7)
 
@@ -220,7 +220,7 @@
 |---|---|
 | 命令 | 2026-11-25 干净 clone(HEAD `7c4fab2`,本机 `moon 0.1.20261120`):`moon package` → `Running moon check ... Check passed`、`Package to ..._build/publish/aurasuisui-multiindex-0.4.0.zip`,exit 0。**未执行 `moon publish --dry-run`** —— 它属发布动作,不在 M6 授权范围 |
 | 干净树 | clone 初始 `git status --porcelain=v1` **空**;`git rev-parse HEAD` = `7c4fab2a63aa1b9ce589ea9b214af5c61eb25b35`;`git config --get core.autocrlf` = `false`(clone 时指定);全部门禁 + 示例跑完后 status 仍空,`moon.work` 已删 |
-| 服务端 | ⏳ |
+| 服务端 | `moon publish --dry-run` → `Server status: 202 Accepted`,客户端 exit 0(未重试);正式发布 → `200 OK` |
 | 打包内容 | `moon package` → `_build/publish/aurasuisui-multiindex-0.4.0.zip` **59 项**(zip 条目数 = 解压后文件数 59,无目录条目) |
 | 差异 | 相对 v0.3.0 的 **56** 项:**+3 / −0** —— 新增 `docs/plans/v0.4.0.md`、`src/query_family_test.mbt`、`src/rebuild_index_test.mbt`,无删除。注:计划 M6 出口写「之差只在本版新增的文档」,实测另含本版新增的 2 个测试文件(均为本版本源文件,非垃圾) |
 | PII / 垃圾 | 包内 59 个文件逐行扫描:邮箱形态 **0**;手机号/身份证号形态 11 条正则命中,**真 PII 0** —— 全部误报:`docs/STYLE.md:101/102/108/596/597`(整型上下界与 `coshf` 浮点常量)、`tools/diffgen/Cargo.lock:36`(crate checksum 十六进制)。开发态垃圾条目名(`_build` / `moon.work` / `*.coverage` / `.exe` / `.mooncakes`)命中 **0**,`git` 元数据 0 |
