@@ -114,12 +114,12 @@ fn[K : Hash + Eq + Compare, V] Index::add(
     SortedUnique(_, buckets) => buckets.set(key, slot)
     HashMulti(_, buckets) =>
       match buckets.get(key) {
-        Some(set) => set.add(slot)
+        Some(set) => set.insert(slot)
         None => buckets.set(key, @sorted_set.SortedSet([slot]))
       }
     SortedMulti(_, buckets) =>
       match buckets.get(key) {
-        Some(set) => set.add(slot)
+        Some(set) => set.insert(slot)
         None => buckets.set(key, @sorted_set.SortedSet([slot]))
       }
   }
@@ -473,7 +473,7 @@ fn[K : Compare, V] Index::range_cursor(
 ) -> BucketCursor {
   match self {
     SortedUnique(_, buckets) => {
-      let source = buckets.range(lo, hi)
+      let source = buckets.range(low=lo, high=hi)
       {
         next: fn() -> Array[Int32]? {
           let mut found : Array[Int32]? = None
@@ -493,7 +493,7 @@ fn[K : Compare, V] Index::range_cursor(
       }
     }
     SortedMulti(_, buckets) => {
-      let source = buckets.range(lo, hi)
+      let source = buckets.range(low=lo, high=hi)
       {
         next: fn() -> Array[Int32]? {
           let mut found : Array[Int32]? = None

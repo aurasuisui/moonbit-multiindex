@@ -103,7 +103,7 @@ pub fn[K : Hash + Eq, V] Table::register_non_unique(
       Some(record) => {
         let key = project(record)
         match buckets.get(key) {
-          Some(set) => set.add(slot)
+          Some(set) => set.insert(slot)
           None => buckets.set(key, @sorted_set.SortedSet([slot]))
         }
       }
@@ -138,7 +138,7 @@ pub fn[K : Compare, V] Table::register_non_unique_ordered(
       Some(record) => {
         let key = project(record)
         match buckets.get(key) {
-          Some(set) => set.add(slot)
+          Some(set) => set.insert(slot)
           None => buckets.set(key, @sorted_set.SortedSet([slot]))
         }
       }
@@ -197,22 +197,24 @@ pub fn[K : Hash + Eq + Compare, V] Table::iter_by(
   let slots = index.slots(key)
   let version = self.version
   let mut pos = 0
-  Iter2::new(
-    fn() -> (RowId, V)? {
-      if self.version != version {
-        abort("Table::iter_by: table mutated during iteration")
-      }
-      while pos < slots.length() {
-        let slot = slots[pos]
-        pos = pos + 1
-        match self.record_at(slot) {
-          Some(entry) => return Some(entry)
-          None => continue
+  Iter2(
+    Iter(
+      fn() -> (RowId, V)? {
+        if self.version != version {
+          abort("Table::iter_by: table mutated during iteration")
         }
-      }
-      None
-    },
-    size_hint=slots.length(),
+        while pos < slots.length() {
+          let slot = slots[pos]
+          pos = pos + 1
+          match self.record_at(slot) {
+            Some(entry) => return Some(entry)
+            None => continue
+          }
+        }
+        None
+      },
+      size_hint=slots.length(),
+    ),
   )
 }
 
@@ -294,35 +296,37 @@ fn[K, V] Table::cursor_iter(
   let version = self.version
   let mut pending : Array[Int32] = []
   let mut pos = 0
-  Iter2::new(fn() -> (RowId, V)? {
-    if self.version != version {
-      abort("Table: table mutated during iteration")
-    }
-    let mut result : (RowId, V)? = None
-    let mut done = false
-    while !done {
-      if pos < pending.length() {
-        let slot = pending[pos]
-        pos = pos + 1
-        match self.record_at(slot) {
-          Some(entry) => {
-            result = Some(entry)
-            done = true
+  Iter2(
+    Iter(fn() -> (RowId, V)? {
+      if self.version != version {
+        abort("Table: table mutated during iteration")
+      }
+      let mut result : (RowId, V)? = None
+      let mut done = false
+      while !done {
+        if pos < pending.length() {
+          let slot = pending[pos]
+          pos = pos + 1
+          match self.record_at(slot) {
+            Some(entry) => {
+              result = Some(entry)
+              done = true
+            }
+            None => ()
           }
-          None => ()
-        }
-      } else {
-        match (cursor.next)() {
-          Some(slots) => {
-            pending = slots
-            pos = 0
+        } else {
+          match (cursor.next)() {
+            Some(slots) => {
+              pending = slots
+              pos = 0
+            }
+            None => done = true
           }
-          None => done = true
         }
       }
-    }
-    result
-  })
+      result
+    }),
+  )
 }
 
 ///|
@@ -594,7 +598,7 @@ pub fn[K : Hash + Eq + Compare, V] Table::rebuild_index(
           Some(record) => {
             let key = project(record)
             match buckets.get(key) {
-              Some(set) => set.add(slot)
+              Some(set) => set.insert(slot)
               None => buckets.set(key, @sorted_set.SortedSet([slot]))
             }
           }
@@ -616,7 +620,7 @@ pub fn[K : Hash + Eq + Compare, V] Table::rebuild_index(
           Some(record) => {
             let key = project(record)
             match buckets.get(key) {
-              Some(set) => set.add(slot)
+              Some(set) => set.insert(slot)
               None => buckets.set(key, @sorted_set.SortedSet([slot]))
             }
           }

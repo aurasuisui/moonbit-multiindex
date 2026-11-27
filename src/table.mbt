@@ -159,22 +159,24 @@ pub fn[K, V] Table::iter(self : Table[K, V]) -> Iter2[RowId, V] {
   let mut pos = 0
   let len = self.order.length()
   let version = self.version
-  Iter2::new(
-    fn() -> (RowId, V)? {
-      if self.version != version {
-        abort("Table::iter: table mutated during iteration")
-      }
-      while pos < len {
-        let slot = self.order[pos]
-        pos = pos + 1
-        match self.rows[slot] {
-          Some(value) => return Some(({ slot, gen: self.gens[slot], }, value))
-          None => continue
+  Iter2(
+    Iter(
+      fn() -> (RowId, V)? {
+        if self.version != version {
+          abort("Table::iter: table mutated during iteration")
         }
-      }
-      None
-    },
-    size_hint=len,
+        while pos < len {
+          let slot = self.order[pos]
+          pos = pos + 1
+          match self.rows[slot] {
+            Some(value) => return Some(({ slot, gen: self.gens[slot], }, value))
+            None => continue
+          }
+        }
+        None
+      },
+      size_hint=len,
+    ),
   )
 }
 
