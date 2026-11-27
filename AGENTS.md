@@ -56,6 +56,41 @@ example-smoke:   write moon.work (local workspace, gitignored) → cd cmd/leader
 > `moon info` used to print `Int` where newer releases print `Int32`. The interface gate folds
 > those two spellings (see the step's comment) and still catches every real signature change.
 
+> **A local toolchain older than CI's is a blind spot, not a smaller one — install `latest` locally.**
+> Measured 2026-11-27. On `moonc v0.10.22` our whole local gauntlet was green while CI's
+> `--deny-warn` step failed with **13 errors**: `moonc v1.0.0-rc1` had promoted four silently
+> deprecated core APIs to hard errors (see the table below). The local compiler simply did not
+> emit them, so *every* local verification agreed with a false picture. "Green locally, red on CI"
+> is therefore not a code problem to debug — it is a toolchain-version problem to fix first:
+>
+> ```bash
+> moon version --all                    # compare with the version the CI log prints
+> moon fix --target all                 # let the compiler apply its own migration fixes
+> moon check --deny-warn --target all   # must be 0 errors *on latest*, or CI will be red
+> ```
+>
+> `moon fix` applied 10 of our 13 migration sites; the three `Iter2::new(f)` →
+> `Iter2(Iter(f))` sites needed a hand edit because the fixer declines to restructure a nested
+> closure. Treat a toolchain bump as its own green commit (see above) and **re-run the full
+> gauntlet on the new compiler**, never assume a previous green carries over.
+
+### Deprecations promoted to errors by `moonc v1.0.0-rc1` (2026-11)
+
+The 1.0 release candidate froze the compiler and turned these core call shapes from silent
+deprecations into `[0020]` errors under `--deny-warn`. All are migrated in-tree; the table
+exists so the next bump is recognisable at a glance rather than re-derived from a red log.
+
+| Old | New | Sites we had |
+|---|---|---|
+| `SortedSet::add` | `SortedSet::insert` | 6 |
+| `SortedMap::range(lo, hi)` (positional) | `range(low~, high~)` | 2 |
+| `Iter2::new(f, size_hint=n)` | `Iter2(Iter(f, size_hint=n))` | 3 |
+
+Core packages we depend on — `debug`, `json`, `sorted_map`, `sorted_set`, `random`, `test` —
+are all declared **stable** as of 1.0-rc1; only `moonbitlang/core/async` and
+`moonbitlang/core/archive` may still see minor API refinements before the full 1.0
+(targeted 2027-02-18).
+
 **The interface check is load-bearing:** `src/pkg.generated.mbti` is a
 checked-in interface snapshot. Change a public signature → run `moon info` and commit the
 regenerated file, or CI fails.
