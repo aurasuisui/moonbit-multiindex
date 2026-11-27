@@ -204,10 +204,10 @@
 | 2 | JSON 往返 | ✅ | `json_test.mbt` 3 条:round-trip 保插入序、重注册后答案一致、畸形输入报错不静默 |
 | 2 | 新增方法的象限边界 | ✅ | `moon test -f "*contains_by*"` **4/4**、`"*count_by*"` **2/2**、`"*first_by*"` **5/5**、`"*last_by*"` **5/5**、`"*rebuild*"` **16/16** |
 | 3 | 压力用例(10k+ 操作) | ✅ | `bench_test.mbt`:10 000 次操作(5 000 insert + 2 500 remove + 2 500 复用 insert,全程 `verify_invariants`) |
-| 3 | 基准无回退 | ⏳ |  |
+| 3 | 基准无回退 | ✅ | 2026-11-27 **发布后首次复测**(发布前无法跑:`bench/` 依赖已发布的 0.4.0)。配方:`moon.work` → `moon run --release bench/main.mbt` → exit 0,首行 `VERSION: 0.4.0 (local workspace module)`;口径 `µs/op = median / n`(n = 20 000,自适应批次已由 batch_size 平均)。实测 vs `bench/README.md` 的 2026-10-19 基线(**不同机器,故看量级不看小数**):`insert-fresh.k1` 0.88 / 0.98、`remove.k1` 45.9 / 54.5、`swap_remove.k1` 1.68 / 1.49、`insert-fresh.k8` 11.3 / 11.6、`slot-reuse-storm.k8` 125 / 144 —— **逐项同量级,无项回退一个数量级**。`swap_remove` 相对 `remove` 的倍数在 k=1/2/4/8 为 27× / 21× / 5.7× / 3.4×,与 SPEC §13 R3 记录的「比值随 n 增长、随 k 收窄」一致 |
 | 4 | README API 表与 SPEC 一致 | ✅ | **38** 个公开方法名全部出现在 README(missing=0);SPEC §3.1 已登记 `rebuild_index` 的签名与失败语义、§6 复杂度表含 4 个查询族方法与 `rebuild_index` |
 | 4 | 至少一个可运行示例 | ✅ | 2026-11-25 干净 clone(HEAD `7c4fab2`):根写 `moon.work`(`members = [".", "bench", "cmd/leaderboard"]`,无 `[workspace]` 头)→ `cd cmd/leaderboard; moon run .` → exit 0、**34 行**;首行 `== aurasuisui/multiindex VERSION: 0.4.0 (local workspace module) ==`,含 `== adding players ==` 与 `verify_invariants: Ok`;跑后删 `moon.work`,`git status --porcelain=v1` 仍空 |
-| 4 | `docs/README.md` 地图无孤儿 | ⏳ |  |
+| 4 | `docs/README.md` 地图无孤儿 | ✅ | `git ls-files '*.md'` = **22**;`docs/README.md` 逐条核对:22 个 md 中 21 个在册,第 22 个是地图自身(`README.md(本文件)`),**孤儿 0**;相对链接 **112** 条、**坏链 0** |
 | 4 | `CHANGELOG.md` 有本版 entry | ✅ | `## [0.4.0] - 2026-11-26`(Added:`rebuild_index` + 查询族四方法;Changed:降序惰性、工具链对齐、七处版本、文档对账;Notes 写明 bench 未复测) |
 | 4 | 许可证与第三方来源齐备 | ✅ | `LICENSE`(Apache-2.0 正文)、`NOTICE`、`third_party/LICENSES/multi_index_map-MIT.txt`、README「致谢与来源」 |
 | 发布 | 产物不含 PII / 开发态垃圾 | ✅ | 2026-11-25 干净 clone `moon package`(`Running moon check ... Check passed`)→ `_build/publish/aurasuisui-multiindex-0.4.0.zip` **59 项**(v0.3.0 为 56 项;+3/−0,差异见下);`_build` / `moon.work` / `*.coverage` / `.exe` / `.mooncakes` 条目名命中 **0**;邮箱形态 **0**,手机号/身份证号形态 **0 真命中**(11 条正则命中均为数值常量/checksum 误报,file:line 见下) |
@@ -248,6 +248,55 @@
 > 本段主表 Tier 0 的 `moon fmt --check` / `moon check` / `moon check --deny-warn --target all` / 接口快照 / `moon test` / `moon test --target all` / `moon build` 均在此干净 clone 上复跑并 exit 0,判定栏维持 ✅。
 
 > 本段证据对应 clone HEAD `7c4fab2`(当时 206 条)。M6b 补入 3 条契约测试后本版为 **209** 条;最终发布提交上的完整复跑见 M8 的验收彩排记录。
+
+
+### v0.4.0 验收彩排(2026-11-27,M8)
+
+> **快照**:main = dev = tag v0.4.0 = `0900a32`(三方同树,内容一致);registry `aurasuisui/multiindex` = **0.4.0**,`build_status: success`,`yanked: false`。
+> **方式**:发布后再跑一遍评审标准 §4 的十条 L0,证据取本仓命令原样输出,不采信历史记录。
+> **工具链**:`moon 0.1.20261126` / `moonc v1.0.0-rc1`(与 CI 的 latest 一致)。
+
+| # | L0 门槛 | 判定 | 证据 |
+|---|---|---|---|
+| 1 | MoonBit 为主体 | ✅ | 生产 **2662** / 测试 **6608** 行(非空行口径),18 个 `.mbt`,全部 MoonBit;无其他语言胶水 |
+| 2 | 仓库公开、快照可追踪 | ✅ | GitHub 公开;main / dev / v0.4.0 三棵树 hash 均 `e59ba4bf`;远端已同步(双向差 0) |
+| 3 | 选题边界清晰 | ✅ | README 首段 + indexmap / bimap / slotmap 三类边界表;申报书「通用性、场景」段 |
+| 4 | 核心 API 已交付 | ✅ | mbti 的 **38** 个 `pub fn Table::*`,申报书与 README 声称的方法**缺失 0**;本期新增 `rebuild_index` + 4 个查询族均在册 |
+| 5 | README 可用 | ✅ | 干净目录 `moon new` → `moon add aurasuisui/multiindex@0.4.0` → 下载成功;快速开始块逐字编译且输出与文档一致(M6 实测) |
+| 6 | CI 绿 | ✅ | main run `45927276086` success、dev run `45926853076` success;八步 check-and-test + example-smoke 两 job 全绿 |
+| 7 | 示例可运行 | ✅ | `example-smoke` success;本地 `moon run .` 输出含 VERSION 行 / `== adding players ==` / `verify_invariants: Ok` |
+| 8 | 测试可运行 | ✅ | `moon test --target all` → **209/209 × wasm / wasm-gc / js / native** |
+| 9 | 已发布 mooncakes | ✅ | `latest_version = 0.4.0`、`build_status: success`、`yanked: false`、`created_at 2026-11-27T02:12:53Z`;七处版本一致 |
+| 10 | 许可与归属 | ✅ | 根目录 Apache-2.0;NOTICE 逐条登记上游(`multi_index_map` MIT / `slotmap` Zlib / thunderdome / hecs);SPEC §0 源码级核查 |
+
+**承诺矩阵(申报书核心功能 → 公开入口 → 黑盒测试)**
+
+| 承诺 | 公开 API | 黑盒测试 |
+|---|---|---|
+| 记录存储与稳定句柄 | `Table::new` / `get` / `contains` / `RowId` | 空表 / 删最后一条 / 槽位复用拒旧 handle;I9 代际耗尽 |
+| 索引注册·删除·修复 | `register_*` / `unregister_index` / `rebuild_index` | 注册回填 / 重名拒 / 未知名 abort;`rebuild_index_test.mbt` **7 条** |
+| 写入与冲突归还 | `insert` / `insert_many` / `update` / `modify` / `insert_or_replace` / `remove` / `swap_remove` / `clear` | 批内冲突 / 批 vs 库冲突 / Err 归还;`model_test` 对拍线性扫描 oracle |
+| 查询与遍历 | `get_by` / `iter_by` / `range_by` / `range_half_open_by` / `iter_asc_by` / `iter_desc_by` / `contains_by` / `count_by` / `first_by` / `last_by` / `iter` | `query_family_test.mbt` **7 条**;方向断言;哈希象限 abort |
+| 一致性与可变记录契约 | `verify_invariants` / `index_stats` | `check_invariants` I1–I9;**写侧别名 3 条** + 读侧 1 条 + 容错 4 条 |
+| JSON 与质量 | `to_json` / `from_json` | 往返 / 重注册 / 畸形输入可捕获 |
+
+**边界矩阵覆盖(评审标准 §6)**
+
+| 类别 | 覆盖 | 落点 |
+|---|---|---|
+| 生命周期对称 | ✅ | 注册 / 删除 / 空表 / 最后一条 / 最后索引 |
+| **可变/别名** | ✅ | **读侧 1 + 写侧 3**(改容器后 verify 报 I4、旧键命中新键漏查) |
+| 错误路径原子性 | ✅ | insert / insert_many / update / modify / rebuild_index 的 Err 均断言前后状态 |
+| 脏态与恢复 | ✅ | 脏表 remove/swap_remove/update total;rebuild_index 一步;三步降级 |
+| 唯一性 | ✅ | 重复键 / 批内重复 / 脏态插同键 / 唯一桶覆盖 |
+| 迭代器 | ✅ | fail-fast(version);迭代中改表 abort;重建前游标走旧快照 |
+| 跨表 / 外部输入 | ✅ | 跨表 RowId 契约化为未定义(README/SPEC);未知索引名 abort |
+| 空 / 极端规模 | ✅ | bench_test:20k 插入 + 20k swap_remove,全程 verify=Ok |
+| 序列化 | ✅ | 往返 / 畸形输入;from_json 无上限已登记为已知债 |
+| 端到端核心链路 | ✅ | cmd/leaderboard 三类索引 + 唯一/非唯一/有序查询 + verify_invariants |
+| 多索引 | ✅ | 四象限同字段共存;index_stats 桶分布;unregister 一个不影响其它 |
+
+**放行结论**:10/10 门槛有本仓命令证据;承诺矩阵 6/6 行有 API + 黑盒测试;边界矩阵 11/11 类有覆盖。唯一未做自动化的是基准的**跨机器绝对数值**——已按「同量级」比对并说明,不作性能承诺。
 
 ## 历史执行记录
 
