@@ -581,7 +581,9 @@ enum Index[K, V] {
 
 - `f` 可以**就地修改**共享容器;库在调用 `f` **之前**对每个索引的旧投影做快照,提交时用快照下线旧桶、用 `project(value)` 上线新桶(`src/table.mbt` 的 `projection_snapshot`)。0.3.0 之前这里会静默写坏索引(旧桶不动、新键不加);0.3.0 起对**成功路径**修复,若 `f` 已就地改坏而预检返回 `Err`,`Err` 不回滚记录,见下「拒绝路径的边界」。
 - `f` 不得在调用之外被并发修改:本库是单线程假设,没有锁;跨线程共享同一张表属于未定义行为。
-- `f` **不得重入表**:在闭包里 `register_*` / `remove` / `clear` 会破坏本次提交的假设(旧投影快照可能对不上注册表),属于未定义行为,现有实现会 `abort`。需要改 schema 或删别的记录,请先结束本次 `modify`。
+- `f` **不得重入表**:在闭包里调用任何写操作都会破坏本次提交的假设(旧投影快照可能对不上注册表),属于未定义行为。需要改 schema 或删别的记录,请先结束本次 `modify`。
+  - 0.4.1 起**实现会 `abort`**,分两类检测:①**记录写**(`insert` / `insert_many` / `insert_or_replace` / `update` / `modify` / `remove` / `swap_remove` / `clear`)走四个 chokepoint 之一,必然递增变更计数器 `version`;②**schema 写**(`register_*` / `unregister_index`)只改索引注册表,按 I8 不动 `version`,故按注册表长度 `indexes.length()` 检测。哨兵在调用 `f` 前快照这两个量,`f` 返回后任一变化即 `abort`。
+  - 唯一检测不到的是 `rebuild_index`:它重发桶集合但既不改 schema 也不改记录,不移动上述两个量;该调用本身无害,`verify_invariants` 仍是兜底。
 
 #### 拒绝路径的边界(Err 不会回滚)
 
