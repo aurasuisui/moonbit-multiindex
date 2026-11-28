@@ -308,6 +308,108 @@
 
 **放行结论**:10/10 门槛有本仓命令证据;承诺矩阵 6/6 行有 API + 黑盒测试;边界矩阵 11/11 类有覆盖。唯一未做自动化的是基准的**跨机器绝对数值**——已按「同量级」比对并说明,不作性能承诺。
 
+## v0.4.1(未发布 —— M5 已起头,M6 续填)
+
+> **表头约定 —— 包内副本是发布前快照**:`moon publish` 打包的是**当时 HEAD 的快照**,因此**包里那份**
+> 的 `产物` / `publish` / `tag` 三行按定义只能是 📌 或 ⏳(它们只能在包生成之后才发生)。**仓库 HEAD**
+> 在 publish 完成后回填 `产物` + `publish` 为 ✅(带 registry 证据),`tag` 行在仓库 HEAD 也保持 📌:tag
+> 打在**回填后的那个 commit** 上,它的 sha 记进**下一版**的「历史执行记录」—— 不回填,也不为 tag 再造一个
+> 提交(沿用 v0.2.2 / v0.3.0 / v0.4.0 的表头约定)。
+>
+> **本段由 M5 起头,`产物` / `publish` / `tag` 三行归 M6。** 判定栏 ⏳ = 证据要到 **M6**(打包核对 /
+> 发布 / registry 回查 / tag / CI run id)才存在,**证据格一律留空,发布前不预填**。
+>
+> **本段计数是本版真值,且一律标注测量快照**:公开方法 **38** / 测试 **215** / md **23** / 覆盖率
+> **976/1002**,四项均取自干净 clone 的 HEAD `36b0c5e`(2026-11-28)。上方 v0.4.0 段里的 38 / 209 / 22
+> 与 976/1002 是**那一版的历史快照**,按本仓库既有纪律(B8:历史快照只标注不改写)保持原样,不要拿来当本版数字。
+
+| Tier | 项 | 判定 | 证据 |
+|---|---|---|---|
+| 0 | `moon fmt --check` | ✅ | 2026-11-28 干净 clone(HEAD `36b0c5e`,复跑后删除)本机 `moon 0.1.20261126 (ccd306a 2026-11-26)`:`moon fmt --check` → exit 0、`Finished. moon: ran 20 tasks, now up to date` |
+| 0 | `moon check` | ✅ | exit 0、`Finished. moon: ran 135 tasks, now up to date` |
+| 0 | `moon check --deny-warn --target all` | ✅ | exit 0、`Finished. moon: ran 537 tasks, now up to date`(wasm / wasm-gc / js / native 全查) |
+| 0 | 接口快照(见上方注①的口径) | ✅ | 同一 clone:`moon info` exit 0;按 `ci.yml` 同一套 `sed -E 's/\bInt32\b/Int/g'` 折叠后两侧均 **114 行**、逐行一致(**diff 行数 0**);裸 `git diff --quiet -- src/pkg.generated.mbti` 也 exit 0 —— **本 clone 未关 `core.autocrlf` 仍无假阳**,因 `.gitattributes` 已固定 LF |
+| 0 | `moon test` | ✅ | `Total tests: 215, passed: 215, failed: 0.`,exit 0 |
+| 0 | `moon test --target all` | ✅ | 四行均为 `Total tests: 215, passed: 215, failed: 0.`(`[wasm]` / `[wasm-gc]` / `[js]` / `[native]`),exit 0 |
+| 0 | `moon build` | ✅ | exit 0、`Finished. moon: ran 132 tasks, now up to date` |
+| 0 | 版本单一真源 | ✅ | 干净 clone 内七处均 **0.4.1**:`moon.mod:3`、`src/lib.mbt:23`、`src/pkg.generated.mbti:10`(`moon info` 生成)、`cmd/leaderboard/moon.mod:2`、`bench/moon.mod:2`、`README.md:39`、`bench/README.md:18`;这七个文件内 `0.4.0` 残留 **0**。CI 的 version single-source 步比对 `moon.mod` 的 `0.4.1` 与 `src/lib.mbt` 的 `VERSION` `0.4.1` = 一致 |
+| 0 | `moon.mod` 元数据 | ✅ | 干净 clone 的 `moon.mod` 逐键存在:`name = "aurasuisui/multiindex"` / `version = "0.4.1"` / `readme` / `repository` / `license = "Apache-2.0"` / 5 个 `keywords` / `description` / `source = "src"` |
+| 0 | CI 工具链(不可固定) | ✅ | 干净 clone 内 `moon version --all` → `moon 0.1.20261126 (ccd306a 2026-11-26)` / `moonc v1.0.0-rc1+3c0520448 (2026-11-26)` / `moonrun 0.1.20261126 (ccd306a 2026-11-26)` —— **三个二进制同为 20261126 批次**;上游只服务 `latest`,CI 每步打印 `moon version`(`.github/workflows/ci.yml:17-36`),漂移由 `moon fmt --check` **检测而非预防** |
+| 1 | 不变量 I1–I9 随机序列每步成立 | ✅ | 干净 clone:`moon test -f "*qc:*"` **7/7**;驱动是 `src/property_wbtest.mbt` 的 `check_invariants`,委托公开 `verify_invariants` |
+| 1 | 模型对拍逐步一致 | ✅ | `moon test -f "*model differential*"` **2/2**(`src/model_test.mbt`,每步对 `Array[V]` 线性扫描 oracle) |
+| 1 | 差分测试对参考实现一致 | ✅ | `moon test -f "*golden stream*"` **1/1**(`src/differential_test.mbt` 回放 `multi_index_map` 0.15.1 黄金序列) |
+| 1 | 回归钉子仍在 | ✅ | `moon test -f "*regression*"` **1/1**;update 撞已占用唯一键仍零变更(`src/table_test.mbt:597`) |
+| 1 | 冲突路径:`Err` 后表与调用前一致 | ✅ | `moon test -f "*conflict*"` **3/3**、`"*atomic*"` **1/1**(`modify is atomic even when two unique indexes would both break`,`src/table_test.mbt:649`);对值类型 / 未被 `modify` 闭包就地修改的记录成立,共享容器的 Err 边界见 `docs/SPEC.md` §3.7 |
+| 2 | 每条公开 API 有测试 | ✅ | `src/pkg.generated.mbti` 的 **38** 个 `pub fn[...] Table::` 方法名全部出现在 `README.md`(**missing = 0**,逐个正则匹配);全量 **215** 条测试 |
+| 2 | 行覆盖率 | ✅ **976/1002(97.41%)**,测量快照 = 干净 clone HEAD `36b0c5e` | clone 内 `moon test --enable-coverage` → **215/215**;然后 `$env:MOON_COVE_REPORT_ENABLED='0'; moon coverage analyze -p aurasuisui/multiindex -- -f summary` → `src/index.mbt: 319/326`、`src/table.mbt: 259/262`、`src/table_api.mbt: 343/359`、`Total: 976/1002`;同一条命令加 `-f caret` 标出 **23 行**,行号集合 = `src/index.mbt:383/384/385/444/447`、`src/table.mbt:414/489/717`、`src/table_api.mbt:211/315/559/820/822/824/826/842/844/846/917/919/921/923/927`。注:分母 1002 与 `7c4fab2` 那次相同属**巧合**,分行数是本快照的值(见上方 D3 补注);该 23 行集合与 `docs/SPEC.md` §7.3 登记的那份(`448037f` 快照)**逐一相同**,即从 `448037f` 到 `36b0c5e` 未新增未覆盖行 |
+| 2 | `abort` 守卫有断言 | ✅ | 干净 clone:`src/abort_guard_wbtest.mbt` **46 条 = 28 条 `test "panic …"` + 18 条伴生**;全仓 `^test "panic ` 共 **30** 条(另 2 条在 `table_test.mbt`);`moon test -f "*panic*"` **30/30** |
+| 2 | 边界:空表/单元素/槽位复用/代际回绕/超长桶/重名注册 | ✅ | `"*stale handle*"` **5/5**(含 `a recycled slot rejects the stale handle and keeps the new occupant`,`src/table_test.mbt:167`)、`"*recycled slot*"` **1/1**、`"*I9*"` **2/2**(`src/table_wbtest.mbt:102` 代际耗尽退休)、`"*duplicate index name*"` **1/1**(`src/table_test.mbt:252`,被拒且不改状态)、`"*stress*"` **1/1**(长桶 n/4 → n/8,`src/bench_test.mbt:10`) |
+| 2 | 泛型:自定义键 / Int 边界 | ✅ | `"*with_capacity*"` **2/2**(含 0 / 负值,`src/table_test.mbt:309`、`src/table_wbtest.mbt:292`);未注册索引时键类型无约束(`src/table_test.mbt:199`);元组键 `(String, Int)` / `(Int, Int, Int)` 仍在 `table_test` 内 |
+| 2 | JSON 往返 | ✅ | `"*round trip*"` **1/1**、`"*malformed input*"` **1/1**(`src/json_test.mbt:9` / `:91`);重注册一致性在 `src/json_test.mbt:40`,**未**单列一条 glob —— 该条测名不含这几个词,故此处不按 glob 计数 |
+| 2 | 新增方法的象限边界 | ✅ | `"*contains_by*"` **4/4**、`"*count_by*"` **2/2**、`"*first_by*"` **5/5**、`"*last_by*"` **5/5**、`"*rebuild*"` **17/17**、`"*unregister_index*"` **6/6** |
+| 3 | 压力用例(10k+ 操作) | ✅ | `moon test -f "*stress*"` **1/1**;`src/bench_test.mbt:10` 共 10 000 次操作(5 000 insert + 2 500 remove + 2 500 复用 insert,全程 `verify_invariants`) |
+| 3 | 基准无回退 | ✅(干净 clone 内两次独立运行,同量级) | clone 根写 `moon.work` → `moon run --release bench/main.mbt` → exit 0 两次;口径 `us/op = median / n`(n = 20 000),输出**第 8 行**打印 `# aurasuisui/multiindex VERSION: 0.4.1 (local workspace module)`。两次实测 `insert-fresh.k1` **0.971 / 1.046**、`remove.k1` **51.897 / 51.145**、`swap_remove.k1` **1.597 / 1.589**、`insert-fresh.k8` **13.739 / 15.660**、`slot-reuse-storm.k8` **142.990 / 146.231**;对照 `bench/README.md` 的 2026-10-19 基线(0.98 / 54.5 / 1.49 / 11.6 / 144)与上方 v0.4.0 段的 2026-11-27 复测(0.88 / 45.9 / 1.68 / 11.3 / 125)—— **逐项同量级,无一项回退一个数量级** |
+| 4 | README API 表与 SPEC 一致 | ✅ | **38** 个公开方法名全部出现在 README(missing = 0);`docs/SPEC.md` §3.1 登记 `rebuild_index` 的签名与失败语义(`:348`)、§6 复杂度表含 `rebuild_index` 与 4 个查询族方法(`:656-672`) |
+| 4 | 至少一个可运行示例 | ✅ | 干净 clone(HEAD `36b0c5e`):根写 `moon.work`(`members = [".", "bench", "cmd/leaderboard"]`,**无 `[workspace]` 头**,44 字节、末字节 `0x0a`)→ `cd cmd/leaderboard; moon run .` → **exit 0、34 行**;三条 landmark 逐条命中:`== aurasuisui/multiindex VERSION: 0.4.1 (local workspace module) ==` / `== adding players ==` / `  verify_invariants: Ok`;跑后删 `moon.work`,`git status --porcelain=v1` 仍空 |
+| 4 | `docs/README.md` 地图无孤儿 | ✅ | 干净 clone:`git ls-files '*.md'` = **23**;逐条核对 **unlisted = 0**(第 23 个是地图自身 `README.md(本文件)`);去掉围栏代码块与行内代码后,相对链接 **113 条、坏链 0** |
+| 4 | `CHANGELOG.md` 有本版 entry | ✅ | `## [0.4.1] - 2026-11-28`(`CHANGELOG.md:8`):Fixed 记 `modify` 双哨兵与 rc1 弃用迁移、Changed 记 `.gitattributes` 与七处版本、Notes 记覆盖率口径 / `0.4.0` tag 不改动 / 215×4 与守卫 46 / 已知债,末行写明发布结果由 M6 回填(`:48`) |
+| 4 | 许可证与第三方来源齐备 | ✅ | 包内 `LICENSE`(Apache-2.0 正文,10173 字节)、`NOTICE`(4782 字节)、`third_party/LICENSES/multi_index_map-MIT.txt`(1069 字节)均在 60 项内;README「致谢与来源」与 `moon.mod` 的 `license = "Apache-2.0"` 一致 |
+| 发布 | 产物不含 PII / 开发态垃圾 | ⏳ | — |
+| 发布 | `moon publish` 并确认 `build_status: success` | ⏳ | — |
+| 发布 | 打 tag `v0.4.1` 并推送 | ⏳ | — |
+
+### M5 干净 clone 八项门禁复跑(2026-11-28)
+
+> 在**临时目录的干净 clone** 上重跑 `.github/workflows/ci.yml` 的八项(`check-and-test` 七步 + `example-smoke`)。
+> **clone 命令这次 deliberately 不传 `--config core.autocrlf=false`**(M2 的战术验证):
+>
+> ```powershell
+> $tmp = Join-Path $env:TEMP ("m5-" + (Get-Date -Format yyyyMMddHHmmss))
+> git clone --branch dev "C:\Users\aurasui\Desktop\moonbit-dev\moonbit-multiindex" $tmp
+> ```
+>
+> clone 落点 `%TEMP%\m5-20261128154136`(复跑后删除)。初始 `git rev-parse HEAD` =
+> `36b0c5ef7415b35d8f1c99c7e34cc150326cb423`、`git status --porcelain=v1` **空**;
+> `git config --get core.autocrlf` = **`true`**(来源 `C:/Program Files/Git/etc/gitconfig`,即**没有**关掉它),
+> 而 `git ls-files --eol` 仍为 **63/63 `i/lf w/lf`、`w/crlf` = 0、`w/mixed` = 0** —— `.gitattributes` 自己就够了(M2/D2)。
+> clone 中**未跑** `moon fmt`(只跑 `--check`),未 push、未改任何文件。
+
+| # | 门禁(按 `ci.yml` 顺序) | 命令 | exit | 关键输出 |
+|---|---|---|---|---|
+| 1 | 格式 | `moon fmt --check` | 0 | `Finished. moon: ran 20 tasks, now up to date` |
+| 2 | 类型检查 | `moon check` | 0 | `Finished. moon: ran 135 tasks, now up to date` |
+| 3 | 零警告(全后端) | `moon check --deny-warn --target all` | 0 | `Finished. moon: ran 537 tasks, now up to date` |
+| 4 | 接口快照 + 版本单一真源 | `moon info`;`Int32→Int` 折叠比对;`moon.mod` ↔ `src/lib.mbt` | 0 | `moon info` exit 0;两侧 114 行、折叠后 diff **0**;裸 `git diff --quiet -- src/pkg.generated.mbti` exit 0;`moon.mod` 的 `0.4.1` == `src/lib.mbt` 的 `VERSION` `0.4.1` |
+| 5 | 测试(默认后端) | `moon test` | 0 | `Total tests: 215, passed: 215, failed: 0.` |
+| 6 | 测试(四后端) | `moon test --target all` | 0 | 四行均为 `215/215`:`[wasm]` / `[wasm-gc]` / `[js]` / `[native]` |
+| 7 | 构建 | `moon build` | 0 | `Finished. moon: ran 132 tasks, now up to date` |
+| 8 | 示例(example-smoke) | 根写 `moon.work`(无 `[workspace]` 头)→ `cd cmd/leaderboard; moon run .` | 0 | **34 行**;三条 landmark 全中(原文见上方「至少一个可运行示例」行);跑后删 `moon.work`,`git status` 仍空 |
+
+**负向对照(证明 `moon.work` 不是装饰)**:同一 clone 内**删掉** `moon.work` 后再跑 `cd cmd/leaderboard; moon run .`
+→ exit **-1**,报 `Error: Failed to resolve the module dependency graph` 与
+`version 0.4.1 was not found in the registry`。registry 侧当场复核
+(`https://mooncakes.io/api/v0/manifest/aurasuisui/multiindex`):`latest_version = 0.4.0`、`build_status = success`、
+versions 为 `0.4.0, 0.3.0, 0.2.2, 0.2.1, 0.2.0, 0.1.0`。也就是说 **0.4.1 未发布,`cmd/` 与 `bench/` 里写的 `@0.4.1` 直接解析
+必然失败 —— 这是预期行为**,与 CI 的 `example-smoke` 用 `moon.work` 让工作区成员胜出的写法一致(`ci.yml:121-144`);
+发布后会自动回落到 registry 副本。
+
+### M5 打包体检与 D2 关闭证据(2026-11-28)
+
+> 本节只证明「包能打、内容干净、行尾已对齐」,**不是**发布证据 —— `产物` / `publish` / `tag` 三行仍待 M6。
+
+| 项 | 实测 |
+|---|---|
+| 命令 | 干净 clone(HEAD `36b0c5e`)内 `moon package` → `Running moon check ...` / `Check passed` / `Package to ..._build\publish\aurasuisui-multiindex-0.4.1.zip`,**exit 0**。**未执行 `moon publish --dry-run`** —— 它属发布动作,不在 M5 授权范围(口径同 v0.4.0 段,归 M6) |
+| 干净树 | clone 初始 `git status --porcelain=v1` **空**;`git rev-parse HEAD` = `36b0c5e`;`core.autocrlf` = `true`(未改);全部门禁 + 示例 + 打包 + 覆盖率跑完后 status 仍空,`moon.work` 已删 |
+| 打包内容 | `_build/publish/aurasuisui-multiindex-0.4.1.zip` **60 项**(zip 条目数 = 解压后文件数 60,无目录条目) |
+| 差异(对照 0.4.0 的 59 项) | 基线**当场重测**:同机用 `git clone --branch v0.4.0` 建一次性 clone 后 `moon package` → `aurasuisui-multiindex-0.4.0.zip` **59 项**(不沿用历史记录)。差异 **+1 / −0** —— 新增 `docs/plans/v0.4.1.md`(本版计划,非垃圾),**无删除**。结构上也可独立核对:`v0.4.0` 树 61 个受跟踪文件 − `.gitignore` / `.github/workflows/ci.yml` = 59;HEAD 63 − `.gitattributes` / `.github/` / `.gitignore` = 60 |
+| **包内 CRLF(必须 0)** | 解压 60 个文件后**逐文件逐字节**扫 `0x0D`:**命中 0 / 60,CR 字节总数 0**。同法扫 0.4.0 的包作对照:**59/59 个文件都含 CR,合计 19 783 个 CR 字节**(如 `src/table_test.mbt` 2157、`src/table_api.mbt` 964、`moon.mod` 21)。这组对照就是 **D2 的关闭证据**:0.4.0 的发布件确实带 CRLF,0.4.1 一个都没有 |
+| 与 HEAD 树逐字节一致(D2 的更强判据) | 60 个包内文件与 `HEAD:<path>` 的 **git blob 逐一比对**(`git hash-object --no-filters` vs `git rev-parse HEAD:<path>`):**60/60 哈希相同,0 个不一致**。即「打包取自工作树」不再引入任何字节差异;0.4.1 的 tag 尚不存在,故本次对 `HEAD` 比对,tag 建立后同一判据应复跑 |
+| 开发态垃圾 | 条目名扫描 `_build` / `moon.work` / `*.coverage` / `.exe` / `.mooncakes` / `.git` → **命中 0** |
+| PII | 包内 60 个文件逐行扫描:邮箱形态 **0**;手机号/身份证号形态 **1 条正则命中,真 PII 0** —— 落在 `tools/diffgen/Cargo.lock:36`,是 `checksum = "<64 位十六进制>"` 里的一段 11 位数字子串(行内偏移 31、长度 11),纯校验和,**误报**;按要求只报文件名与行号,不复制命中内容 |
+| 包内版本 | 七处均 **0.4.1**:`moon.mod:3`、`src/lib.mbt:23`、`src/pkg.generated.mbti:10`、`cmd/leaderboard/moon.mod:2`、`bench/moon.mod:2`、`README.md:39`、`bench/README.md:18`;这七个文件内 `0.4.0` 残留 **0** |
+| 发现但未改(白名单外) | `docs/README.md:54` 的申报书行仍写「当前 v0.4.0」,与 M4 已把申报书本体升到 0.4.1 不同步。M5 只授权改本文件,登记于此待后续文档轮次处理 |
+
 ## 历史执行记录
 
 ### v0.3.0 验收彩排(2026-11-09,M7)
