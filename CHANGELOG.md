@@ -42,7 +42,7 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 
 - **测试 209**(四后端各 209),公开 `Table::*` 方法 **38**;`src/abort_guard_wbtest.mbt`
   **42 条 = 26 条 `test "panic …"` + 16 条伴生**。
-- **覆盖率重算**:**973/999 = 97.40%**(**0.4.0 发布 tag `0900a32`、209 条测试时的快照**)。主配方:`moon clean` → `moon test --enable-coverage`
+- **覆盖率重算**:**973/999 = 97.40%**(**这是 0.4.0 发布时的值** —— tag `0900a32`、209 条测试;0.4.1 的覆盖率另见其 CHANGELOG 段,会随 M1 的重入哨兵加行而变化)。主配方:`moon clean` → `moon test --enable-coverage`
   (**该命令只产生 trace,本身不出报告**)→ `moon coverage analyze -p aurasuisui/multiindex -- -f summary`,
   等价简写 `moon coverage report -f summary`(两者输出相同);老配方的 `$env:MOON_COVE_REPORT_ENABLED='0'`
   只是 legacy reporter 的兼容开关,不是必需步骤。summary:

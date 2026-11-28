@@ -214,7 +214,13 @@
 | 发布 | `moon publish` 并确认 `build_status: success` | ✅ | 2026-11-27 单次 `moon publish`(未重试)→ `Server status: 200 OK`、exit 0;发布前 `--dry-run` → `202 Accepted`。registry 复核:`latest_version = 0.4.0`、`build_status: success`、`yanked: false`、`created_at 2026-11-27T02:12:53Z`、versions 含 0.4.0 |
 | 发布 | 打 tag `v0.4.0` 并推送 | 📌 | 按表头约定:tag 打在**回填后的这个 commit** 上,其 sha 记入下一版「历史执行记录」;包内那份是回填前快照,这一行在包内只能是 📌 |
 
-> **D3 补注(2026-11-28)**:上表「行覆盖率」那格记的 **976/1002** **不是** 0.4.0 tag 的值 —— 它是提交 `7c4fab2`(206 条测试)那次测量的结果,当时被误记为 0.4.0 真值。在 tag `0900a32`(209 条测试)上按同一配方复跑得到 **973/999 = 97.40%**(`src/index.mbt: 319/326`、`src/table.mbt: 256/259`、`src/table_api.mbt: 343/359`)。按 B8 纪律,**该历史格保留原数不改写**,只在这里标注;当前版本真值见 `CHANGELOG.md`、`docs/SPEC.md` §7.3、`CONTRIBUTING.md`。
+> **D3 补注(2026-11-28)**:上表「行覆盖率」那格是**历史执行记录,按 B8 纪律保留原数不改写**,但它有个内部矛盾需要标明 ——
+>
+> - 该格的**分行数** `src/table.mbt: 257/260`、`src/table_api.mbt: 345/361` 与 `Total: 976/1002` 是提交 `7c4fab2`(**206 条测试**)那次的测量,当时被误记为 0.4.0 真值;
+> - 同一格命令里写的 `(209/209)` 则是 209 条测试的说法 —— **两者不是同一次测量**。
+>
+> 0.4.0 tag `0900a32`(209 条测试)的真值是 **973/999 = 97.40%**(`src/index.mbt: 319/326`、`src/table.mbt: 256/259`、`src/table_api.mbt: 343/359`)。
+> **一个必须点明的巧合**:0.4.1 的 HEAD 复测也得到 `Total: 976/1002`(与 `7c4fab2` 同值),但**分行数不同**(HEAD 是 `257`/`260` 之外的 `259/262` 与 `343/359`),分母 1002 是两条不同路径碰巧相等 —— 不要为此把两个快照「统一」成一行。当前实现真值见 `docs/SPEC.md` §7.3 与 `CONTRIBUTING.md`;0.4.0 历史值见 `CHANGELOG.md` 的 `## [0.4.0]` 段。
 
 ### M5 的 dry-run 与解包核对(M6 已填打包项;服务端 dry-run 归 M7)
 
@@ -254,14 +260,16 @@
 
 ### v0.4.0 验收彩排(2026-11-27,M8)
 
-> **快照**:main = dev(树 `12f79c00`);tag v0.4.0 = `0900a32`(树 `e59ba4bf`),比 main 少 M8 段落 —— 按仓库表头约定,tag 冻结发布件,M8 是发布后证据;registry `aurasuisui/multiindex` = **0.4.0**,`build_status: success`,`yanked: false`。
+> **快照**(2026-11-27 M8 当日):main = `2f4e71f`(树 `12f79c00`);dev = `dd4feb5`(树 `12f79c00`);tag v0.4.0 = `0900a32`(树 `e59ba4bf`),比 main 少 M8 段落 —— 按仓库表头约定,tag 冻结发布件,M8 是发布后证据;registry `aurasuisui/multiindex` = **0.4.0**,`build_status: success`,`yanked: false`。
+>
+> 三者的 sha 与树 hash 各自独立,不合并为「main = dev」:`main` 的树与当日 `dev` 相同是**内容相同**,不是同一个 commit。`dev` 此后已被 0.4.1 的 M0–M3 提交推进(撰写本行时 tip = `448037f`,树 `e8424eb2`),上表数值固定取 M8 当日。
 > **方式**:发布后再跑一遍评审标准 §4 的十条 L0,证据取本仓命令原样输出,不采信历史记录。
 > **工具链**:`moon 0.1.20261126` / `moonc v1.0.0-rc1`(与 CI 的 latest 一致)。
 
 | # | L0 门槛 | 判定 | 证据 |
 |---|---|---|---|
-| 1 | MoonBit 为主体 | ✅ | 生产 **2698** / 测试 **6884** 行(非空行口径;快照 `ff12cac`/dev)。统计:`git ls-tree -r --name-only HEAD -- src \| ?{$_ -like '*.mbt' -and $_ -ne 'src/pkg.generated.mbti'}`,逐个 `git show HEAD:<path> \| ?{$_.Trim() -ne ''}` 计数,文件名含 `test` 归测试、其余归生产 → 18 个 `.mbt`(6 生产 + 12 测试),全部 MoonBit;无其他语言胶水 |
-| 2 | 仓库公开、快照可追踪 | ✅ | GitHub 公开;main = dev(树 `12f79c00`)、tag v0.4.0 = `0900a32`(树 `e59ba4bf`,比 main 少 M8 段落 —— tag 冻结发布件,M8 是发布后证据);远端已同步(双向差 0) |
+| 1 | MoonBit 为主体 | ✅ | 生产 **2698** / 测试 **6884** 行(非空行口径,快照 `448037f` = 0.4.1 HEAD)。**口径 = `git show HEAD:<path>` 的非空行**;工作树直接 `Get-Content` 会因编码/CRLF 差 **9 / 5** 行(得 2689 / 6879),不要据此判定数字有误。统计:`git ls-tree -r --name-only HEAD -- src \| ?{$_ -like '*.mbt' -and $_ -ne 'src/pkg.generated.mbti'}`,逐个计数,文件名含 `test` 归测试、其余归生产 → 18 个 `.mbt`(6 生产 + 12 测试),全部 MoonBit;无其他语言胶水。注:M8 当日 `dev` = `dd4feb5` 时为 **2668 / 6726**;本格取 0.4.1 HEAD 的复测值,两者快照不同 |
+| 2 | 仓库公开、快照可追踪 | ✅ | GitHub 公开;main = `2f4e71f`(树 `12f79c00`)、dev = `dd4feb5`(树 `12f79c00`)、tag v0.4.0 = `0900a32`(树 `e59ba4bf`,比 main 少 M8 段落 —— tag 冻结发布件,M8 是发布后证据);三个 sha 各自独立、树 hash 各自标注;远端已同步(双向差 0) |
 | 3 | 选题边界清晰 | ✅ | README 首段 + indexmap / bimap / slotmap 三类边界表;申报书「通用性、场景」段 |
 | 4 | 核心 API 已交付 | ✅ | mbti 的 **38** 个 `pub fn Table::*`,申报书与 README 声称的方法**缺失 0**;本期新增 `rebuild_index` + 4 个查询族均在册 |
 | 5 | README 可用 | ✅ | 干净目录 `moon new` → `moon add aurasuisui/multiindex@0.4.0` → 下载成功;快速开始块逐字编译且输出与文档一致(M6 实测) |
