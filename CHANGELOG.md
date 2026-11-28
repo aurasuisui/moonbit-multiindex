@@ -42,11 +42,11 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 
 - **测试 209**(四后端各 209),公开 `Table::*` 方法 **38**;`src/abort_guard_wbtest.mbt`
   **42 条 = 26 条 `test "panic …"` + 16 条伴生**。
-- **覆盖率重算**:**976/1002 = 97.41%**。主配方:`moon clean` → `moon test --enable-coverage`
+- **覆盖率重算**:**973/999 = 97.40%**(**0.4.0 发布 tag `0900a32`、209 条测试时的快照**)。主配方:`moon clean` → `moon test --enable-coverage`
   (**该命令只产生 trace,本身不出报告**)→ `moon coverage analyze -p aurasuisui/multiindex -- -f summary`,
   等价简写 `moon coverage report -f summary`(两者输出相同);老配方的 `$env:MOON_COVE_REPORT_ENABLED='0'`
   只是 legacy reporter 的兼容开关,不是必需步骤。summary:
-  `src/index.mbt: 319/326`、`src/table.mbt: 257/260`、`src/table_api.mbt: 345/361`;`-f caret` 标出
+  `src/index.mbt: 319/326`、`src/table.mbt: 256/259`、`src/table_api.mbt: 343/359`;`-f caret` 标出
   23 行,逐条归因见 SPEC §7.3。
 - **bench 未复测**:降序游标是内部实现改动,本版**没有**重跑 native + release 基准,
   `bench/README.md` 的数字仍是上一轮实测;需要新数字时按该文件的命令自行重跑。

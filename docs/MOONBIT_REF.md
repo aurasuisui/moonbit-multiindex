@@ -742,11 +742,11 @@ pub fn probe_containers() -> Unit {
   sm[1] = "a"                  // 索引赋值
   let sg  : String?      = sm.get(1)
   let sat : String       = sm[1]
-  let srn : Int          = sm.range(0, 3).to_array().length()  // ⚠️ 双闭区间
+  let srn : Int          = sm.range(low=0, high=3).to_array().length()  // ⚠️ 双闭区间;low~/high~ 具名
   for k, v in sm { println("\{k}=\{v}") }
 
   let ss : @sorted_set.SortedSet[Int] = @sorted_set.SortedSet([])
-  ss.add(3); ss.add(1)
+  ss.insert(3); ss.insert(1)
   let sc : Bool     = ss.contains(1)
   let sl : Int      = ss.length()
   let sa : Array[Int] = ss.to_array()
@@ -757,7 +757,7 @@ pub fn probe_containers() -> Unit {
   let buckets : Map[String, @sorted_set.SortedSet[Int]] = Map([])
   buckets.set("k", @sorted_set.SortedSet([]))
   match buckets.get("k") {
-    Some(s) => s.add(7)       // 取出后改内部,原 Map 生效(引用语义)
+    Some(s) => s.insert(7)    // 取出后改内部,原 Map 生效(引用语义)
     None => ()
   }
 }
@@ -797,14 +797,16 @@ test "panic missing index key aborts" {
 ```moonbit
 let sm : @sorted_map.SortedMap[Int, String] =
   @sorted_map.SortedMap([(1, "a"), (2, "b"), (3, "c"), (4, "d")])
-sm.range(1, 3).to_array()   // => [(1,"a"), (2,"b"), (3,"c")]   3 个!
-sm.range(1, 4).to_array()   // => 4 个
+sm.range(low=1, high=3).to_array()   // => [(1,"a"), (2,"b"), (3,"c")]   3 个!
+sm.range(low=1, high=4).to_array()   // => 4 个
 
 let ss : @sorted_set.SortedSet[Int] = @sorted_set.SortedSet([1, 2, 3, 4])
-ss.range(1, 3).to_array()   // => [1, 2, 3]                        3 个!
+ss.range(low=1, high=3).to_array()   // => [1, 2, 3]                        3 个!
 ```
 
-`SortedMap::range(Self, K, K) -> Iter2[K, V]`,`SortedSet::range(Self, V, V) -> Iter[V]` [源码]。
+`SortedMap::range(Self, low~ : K, high~ : K) -> Iter2[K, V]`,`SortedSet::range(Self, low~ : V, high~ : V) -> Iter[V]` [源码]。
+
+> **本节的写法按 1.0-rc1 校准**:`SortedMap::range` 用 `low~` / `high~` 具名参数、`SortedSet` 用 `insert` —— `moonc v1.0.0-rc1` 起旧写法(`range(lo, hi)` 位置参、`SortedSet::add`)是**硬错误** `[0020]`,不是警告。
 
 > **这直接关系到 `SPEC.md` §3.3 的 `range_by` / `range_inclusive_by` 语义**:`SPEC.md` 写的是 `range_by` = `[lo, hi)`、`range_inclusive_by` = `[lo, hi]`,而 core 的 `SortedMap::range` 是 `[lo, hi]`。**本库若直接转发 core 的 range,两个方法会退化成同一个语义**;要实现半开区间,必须自己做 `hi` 的前驱调整,或在文档里改口径。**这是一个需要你拍板的设计问题,我没有替你决定。**
 
@@ -864,10 +866,10 @@ pub fn[X, Y] Iter2::to_array(Self[X, Y]) -> Array[(X, Y)]
 
 ```moonbit
 // 要个数:先 to_array
-let n = sm.range(0, 3).to_array().length()
+let n = sm.range(low=0, high=3).to_array().length()
 // 要遍历:for k, v in .. 或 .each(..)
 let mut acc = ""
-sm.range(1, 3).each(fn(_k, v) { acc = acc + v })
+sm.range(low=1, high=3).each(fn(_k, v) { acc = acc + v })
 // 想要 Iter 的能力:先 .iter() 降级成一元迭代器
 let c = sm.iter().count()
 ```

@@ -597,8 +597,8 @@ pub fn[K : Hash + Eq + Compare, V] Table::insert(
 /// `tools/diffgen/README.md`).
 ///
 /// `holder` in the conflict: against a live record it is that record's handle; for a
-/// clash **inside the batch** it is the handle the earlier member would receive once
-/// the batch is accepted, since no record is live there yet (see CHANGELOG Notes).
+/// clash **inside the batch** it is the **batch position** (an index into `values`) of
+/// the earlier member, not a handle, since no record is live there yet (see CHANGELOG Notes).
 pub fn[K : Hash + Eq + Compare, V] Table::insert_many(
   self : Table[K, V],
   values : Array[V],

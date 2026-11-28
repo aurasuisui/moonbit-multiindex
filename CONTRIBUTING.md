@@ -253,7 +253,8 @@ test "descriptive english name" {
   moon coverage clean
   ```
 
-  Current: **976/1002 (97.41%)**, recomputed for 0.4.0 with `moon 0.1.20261120`; `-f caret` flags
+  Current (0.4.0 tag `0900a32`, 209 tests): **973/999 (97.40%)**, re-measured with
+  `moon 0.1.20261126` / `moonc v1.0.0-rc1`; `-f caret` flags
   23 lines, most of which are *failure branches* rather than
   code that never ran — the reporter groups a condition line with its failure branch, so read the
   table in [`docs/SPEC.md` §7.3](docs/SPEC.md) rather than the raw line numbers. A new uncovered

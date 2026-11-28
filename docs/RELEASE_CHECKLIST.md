@@ -165,7 +165,7 @@
 
 > 这张表只证明「包能打、内容干净」,**不是**发布证据 —— `产物` / `publish` / `tag` 三行仍由 M6 填写。
 
-## v0.4.0(待发布,2026-11-26)
+## v0.4.0(2026-11-27 发布)
 
 > **表头约定 —— 包内副本是发布前快照**:`moon publish` 打包的是**当时 HEAD 的快照**,因此**包里那份**
 > 的 `产物` / `publish` / `tag` 三行按定义只能是 📌 或 ⏳(它们只能在包生成之后才发生)。**仓库 HEAD**
@@ -197,14 +197,14 @@
 | 1 | 回归钉子仍在 | ✅ | `moon test -f "*regression*"` **1/1**;update 撞唯一键零变更、`modify` 双冲突零变更、`insert_or_replace` 双撞键 abort |
 | 1 | 冲突路径:`Err` 后表与调用前一致 | ✅ | 对值类型 / 未被 `modify` 闭包就地修改的记录成立;共享容器的 Err 边界见 `docs/SPEC.md` §3.7 |
 | 2 | 每条公开 API 有测试 | ✅ | `src/pkg.generated.mbti` 的 **38** 个 `pub fn Table::*` 全部出现在 README(missing=0);全量 **209** 条测试 |
-| 2 | 行覆盖率 | ✅ **976/1002(97.41%)** | `moon clean` → `moon test --enable-coverage`(209/209)→ `$env:MOON_COVE_REPORT_ENABLED='0'; moon coverage analyze -p aurasuisui/multiindex -- -f summary` → `src/index.mbt: 319/326`、`src/table.mbt: 257/260`、`src/table_api.mbt: 345/361`、`Total: 976/1002`;`-f caret` 标出 **23 行**,逐条归因见 `docs/SPEC.md` §7.3 |
+| 2 | 行覆盖率 | ✅ **976/1002(97.41%)**(本行是**历史快照,不改写**;它对应的是 206 条测试时的提交 `7c4fab2`) | `moon clean` → `moon test --enable-coverage`(209/209)→ `$env:MOON_COVE_REPORT_ENABLED='0'; moon coverage analyze -p aurasuisui/multiindex -- -f summary` → `src/index.mbt: 319/326`、`src/table.mbt: 257/260`、`src/table_api.mbt: 345/361`、`Total: 976/1002`;`-f caret` 标出 **23 行**,逐条归因见 `docs/SPEC.md` §7.3 |
 | 2 | `abort` 守卫有断言 | ✅ | `src/abort_guard_wbtest.mbt` **42 条 = 26 条 `test "panic …"` + 16 条伴生**;`moon test -f "*panic*"` **27/27**(含 `table_test.mbt` 的 1 条);`rebuild_index` 的未注册名守卫、`first_by` / `last_by` 的哈希象限守卫各有 1 条 panic 测试 |
 | 2 | 边界:空表/单元素/槽位复用/代际回绕/超长桶/重名注册 | ✅ | `table_test.mbt` 的空表 / 删最后一条 / 回收槽拒绝旧 handle;`table_wbtest.mbt` 的 I9 代际耗尽退休;`bench_test.mbt` 长桶 `n/4 → n/8`;重名注册被拒且不改状态 |
 | 2 | 泛型:自定义键 / Int 边界 | ✅ | 元组键 `(String, Int)`、`(Int, Int, Int)`;未注册索引时键类型无约束;`with_capacity(0/-5)`;I9 代际上限路径 |
 | 2 | JSON 往返 | ✅ | `json_test.mbt` 3 条:round-trip 保插入序、重注册后答案一致、畸形输入报错不静默 |
-| 2 | 新增方法的象限边界 | ✅ | `moon test -f "*contains_by*"` **4/4**、`"*count_by*"` **2/2**、`"*first_by*"` **5/5**、`"*last_by*"` **5/5**、`"*rebuild*"` **16/16** |
+| 2 | 新增方法的象限边界 | ✅ | `moon test -f "*contains_by*"` **4/4**、`"*count_by*"` **2/2**、`"*first_by*"` **5/5**、`"*last_by*"` **5/5**、`"*rebuild*"` **17/17** |
 | 3 | 压力用例(10k+ 操作) | ✅ | `bench_test.mbt`:10 000 次操作(5 000 insert + 2 500 remove + 2 500 复用 insert,全程 `verify_invariants`) |
-| 3 | 基准无回退 | ✅ | 2026-11-27 **发布后首次复测**(发布前无法跑:`bench/` 依赖已发布的 0.4.0)。配方:`moon.work` → `moon run --release bench/main.mbt` → exit 0,首行 `VERSION: 0.4.0 (local workspace module)`;口径 `µs/op = median / n`(n = 20 000,自适应批次已由 batch_size 平均)。实测 vs `bench/README.md` 的 2026-10-19 基线(**不同机器,故看量级不看小数**):`insert-fresh.k1` 0.88 / 0.98、`remove.k1` 45.9 / 54.5、`swap_remove.k1` 1.68 / 1.49、`insert-fresh.k8` 11.3 / 11.6、`slot-reuse-storm.k8` 125 / 144 —— **逐项同量级,无项回退一个数量级**。`swap_remove` 相对 `remove` 的倍数在 k=1/2/4/8 为 27× / 21× / 5.7× / 3.4×,与 SPEC §13 R3 记录的「比值随 n 增长、随 k 收窄」一致 |
+| 3 | 基准无回退 | ✅ | 2026-11-27 **发布后首次复测**。配方:`moon.work` → `moon run --release bench/main.mbt` → exit 0,输出**第 8 行**打印 `# aurasuisui/multiindex VERSION: 0.4.0 (local workspace module)`(首行是 `# [manual] swap_remove vs remove: …` 的分节标题,不是 VERSION);口径 `µs/op = median / n`(n = 20 000,自适应批次已由 batch_size 平均)。实测 vs `bench/README.md` 的 2026-10-19 基线(**不同机器,故看量级不看小数**):`insert-fresh.k1` 0.88 / 0.98、`remove.k1` 45.9 / 54.5、`swap_remove.k1` 1.68 / 1.49、`insert-fresh.k8` 11.3 / 11.6、`slot-reuse-storm.k8` 125 / 144 —— **逐项同量级,无项回退一个数量级**。`swap_remove` 相对 `remove` 的倍数在 k=1/2/4/8 为 27× / 21× / 5.7× / 3.4×,与 SPEC §13 R3 记录的「比值随 n 增长、随 k 收窄」一致 |
 | 4 | README API 表与 SPEC 一致 | ✅ | **38** 个公开方法名全部出现在 README(missing=0);SPEC §3.1 已登记 `rebuild_index` 的签名与失败语义、§6 复杂度表含 4 个查询族方法与 `rebuild_index` |
 | 4 | 至少一个可运行示例 | ✅ | 2026-11-25 干净 clone(HEAD `7c4fab2`):根写 `moon.work`(`members = [".", "bench", "cmd/leaderboard"]`,无 `[workspace]` 头)→ `cd cmd/leaderboard; moon run .` → exit 0、**34 行**;首行 `== aurasuisui/multiindex VERSION: 0.4.0 (local workspace module) ==`,含 `== adding players ==` 与 `verify_invariants: Ok`;跑后删 `moon.work`,`git status --porcelain=v1` 仍空 |
 | 4 | `docs/README.md` 地图无孤儿 | ✅ | `git ls-files '*.md'` = **22**;`docs/README.md` 逐条核对:22 个 md 中 21 个在册,第 22 个是地图自身(`README.md(本文件)`),**孤儿 0**;相对链接 **112** 条、**坏链 0** |
@@ -213,6 +213,8 @@
 | 发布 | 产物不含 PII / 开发态垃圾 | ✅ | 2026-11-25 干净 clone `moon package`(`Running moon check ... Check passed`)→ `_build/publish/aurasuisui-multiindex-0.4.0.zip` **59 项**(v0.3.0 为 56 项;+3/−0,差异见下);`_build` / `moon.work` / `*.coverage` / `.exe` / `.mooncakes` 条目名命中 **0**;邮箱形态 **0**,手机号/身份证号形态 **0 真命中**(11 条正则命中均为数值常量/checksum 误报,file:line 见下) |
 | 发布 | `moon publish` 并确认 `build_status: success` | ✅ | 2026-11-27 单次 `moon publish`(未重试)→ `Server status: 200 OK`、exit 0;发布前 `--dry-run` → `202 Accepted`。registry 复核:`latest_version = 0.4.0`、`build_status: success`、`yanked: false`、`created_at 2026-11-27T02:12:53Z`、versions 含 0.4.0 |
 | 发布 | 打 tag `v0.4.0` 并推送 | 📌 | 按表头约定:tag 打在**回填后的这个 commit** 上,其 sha 记入下一版「历史执行记录」;包内那份是回填前快照,这一行在包内只能是 📌 |
+
+> **D3 补注(2026-11-28)**:上表「行覆盖率」那格记的 **976/1002** **不是** 0.4.0 tag 的值 —— 它是提交 `7c4fab2`(206 条测试)那次测量的结果,当时被误记为 0.4.0 真值。在 tag `0900a32`(209 条测试)上按同一配方复跑得到 **973/999 = 97.40%**(`src/index.mbt: 319/326`、`src/table.mbt: 256/259`、`src/table_api.mbt: 343/359`)。按 B8 纪律,**该历史格保留原数不改写**,只在这里标注;当前版本真值见 `CHANGELOG.md`、`docs/SPEC.md` §7.3、`CONTRIBUTING.md`。
 
 ### M5 的 dry-run 与解包核对(M6 已填打包项;服务端 dry-run 归 M7)
 
@@ -252,14 +254,14 @@
 
 ### v0.4.0 验收彩排(2026-11-27,M8)
 
-> **快照**:main = dev = tag v0.4.0 = `0900a32`(三方同树,内容一致);registry `aurasuisui/multiindex` = **0.4.0**,`build_status: success`,`yanked: false`。
+> **快照**:main = dev(树 `12f79c00`);tag v0.4.0 = `0900a32`(树 `e59ba4bf`),比 main 少 M8 段落 —— 按仓库表头约定,tag 冻结发布件,M8 是发布后证据;registry `aurasuisui/multiindex` = **0.4.0**,`build_status: success`,`yanked: false`。
 > **方式**:发布后再跑一遍评审标准 §4 的十条 L0,证据取本仓命令原样输出,不采信历史记录。
 > **工具链**:`moon 0.1.20261126` / `moonc v1.0.0-rc1`(与 CI 的 latest 一致)。
 
 | # | L0 门槛 | 判定 | 证据 |
 |---|---|---|---|
-| 1 | MoonBit 为主体 | ✅ | 生产 **2662** / 测试 **6608** 行(非空行口径),18 个 `.mbt`,全部 MoonBit;无其他语言胶水 |
-| 2 | 仓库公开、快照可追踪 | ✅ | GitHub 公开;main / dev / v0.4.0 三棵树 hash 均 `e59ba4bf`;远端已同步(双向差 0) |
+| 1 | MoonBit 为主体 | ✅ | 生产 **2698** / 测试 **6884** 行(非空行口径;快照 `ff12cac`/dev)。统计:`git ls-tree -r --name-only HEAD -- src \| ?{$_ -like '*.mbt' -and $_ -ne 'src/pkg.generated.mbti'}`,逐个 `git show HEAD:<path> \| ?{$_.Trim() -ne ''}` 计数,文件名含 `test` 归测试、其余归生产 → 18 个 `.mbt`(6 生产 + 12 测试),全部 MoonBit;无其他语言胶水 |
+| 2 | 仓库公开、快照可追踪 | ✅ | GitHub 公开;main = dev(树 `12f79c00`)、tag v0.4.0 = `0900a32`(树 `e59ba4bf`,比 main 少 M8 段落 —— tag 冻结发布件,M8 是发布后证据);远端已同步(双向差 0) |
 | 3 | 选题边界清晰 | ✅ | README 首段 + indexmap / bimap / slotmap 三类边界表;申报书「通用性、场景」段 |
 | 4 | 核心 API 已交付 | ✅ | mbti 的 **38** 个 `pub fn Table::*`,申报书与 README 声称的方法**缺失 0**;本期新增 `rebuild_index` + 4 个查询族均在册 |
 | 5 | README 可用 | ✅ | 干净目录 `moon new` → `moon add aurasuisui/multiindex@0.4.0` → 下载成功;快速开始块逐字编译且输出与文档一致(M6 实测) |
