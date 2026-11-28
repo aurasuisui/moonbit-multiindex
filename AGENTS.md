@@ -98,6 +98,31 @@ regenerated file, or CI fails.
 `cmd/*` example packages and `bench/` are standalone (they import the **published** package),
 so root `moon check`/`moon test` never touches them.
 
+### Line endings are pinned, not inherited
+
+`.gitattributes` pins every text file to LF (`* text=auto eol=lf`) — in the repository
+*and* in the working tree. That is not cosmetic: 0.4.0 was packaged from a Windows working
+tree that still had 16 CRLF files, so the published zip did not match the tag byte for byte
+(D2, `docs/plans/v0.4.1.md`). **The checkout must never decide the published bytes.**
+
+So do not let `core.autocrlf` decide anything — the attribute file already does.
+
+```bash
+git ls-files --eol | Select-String 'w/crlf'   # must be empty on a clean tree
+```
+
+**`git add --renormalize .` alone does not fix a dirty working tree** — measured: it rebuilds the
+*index* only, and when the blobs are already LF it stages nothing and leaves `w/crlf` untouched.
+The working tree is rewritten by the eol filter only when a file is re-checked-out, so the fix is
+to delete the offending files and let git re-lay them:
+
+```bash
+git ls-files --eol | Select-String 'w/crlf'   # list them
+git rm --cached <file> && git checkout -- <file>   # or: del <file>; git checkout -- <file>
+```
+
+A clean tree shows `i/lf w/lf` for every text file. `moon package` ships the working tree.
+
 ## Architecture
 
 ```

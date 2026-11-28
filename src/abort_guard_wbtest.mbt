@@ -830,3 +830,104 @@ test "contains_by and count_by answer for the registered name where the unknown 
   @test.assert_eq(t.count_by("u", 7), 1)
   @test.assert_eq(t.count_by("u", 8), 0)
 }
+
+// ---------------------------------------------------------------------------
+// table.mbt: `modify` refuses a closure that re-enters the table (SPEC §3.7)
+//
+// The sentinel snapshots TWO counters around the closure and refuses when either
+// moved: `version` (bumped by the four write chokepoints, never by the registry)
+// and `indexes.length()` (moved by `register_*` / `unregister_index`, which never
+// bump `version`). Each panic test below therefore pins exactly one of the two, and
+// the companions prove that a read-only closure through the same fixture still
+// answers `Ok` — the guard must not fire on the normal path. The closure argument
+// is `Int32` in every fixture, so "read only" is not even expressible as a write to
+// a shared container: the only way to break the contract here is re-entry.
+// ---------------------------------------------------------------------------
+
+///|
+/// A legal table with one live record (7) and one hash-unique index over its key.
+///
+/// The closure the panic test hands to `modify` calls `insert` — a write through
+/// the `insert_impl` chokepoint, which bumps `version` and leaves the registry
+/// alone. That is the half of the sentinel `indexes.length()` cannot see.
+fn ag_fx_modify_reentry_write() -> (Table[Int32, Int32], RowId) raise {
+  let (t, id) = ag_one_record()
+  @test.assert_eq(t.version, 1) // one insert so far
+  @test.assert_eq(t.indexes.length(), 1)
+  (t, id)
+}
+
+///|
+/// Negative property (framework): without the `version` half of the sentinel,
+/// the closure's `insert` would land, `modify` would answer `Ok` and this test
+/// would fail with "panic is expected".
+test "panic modify aborts on re-entry" {
+  let (t, id) = ag_fx_modify_reentry_write()
+  t.modify(id, fn(record) {
+    // re-entry: a write from inside the closure (bumps `version`)
+    t.insert(record + 100) |> ignore
+    record
+  })
+  |> ignore
+}
+
+///|
+/// Companion: the same fixture, a closure that only reads. `modify` must answer
+/// `Ok` and commit the new value, so the panic test above is about re-entry and not
+/// about `modify` refusing every closure.
+test "modify still commits when the closure only reads the table" {
+  let (t, id) = ag_fx_modify_reentry_write()
+  match t.modify(id, fn(record) { record + 1 }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("a read-only closure must not be refused")
+  }
+  @test.assert_eq(t.get(id), Some(8))
+  @test.assert_eq(t.len(), 1)
+  check_invariants(t)
+}
+
+///|
+/// A legal table with one live record (7) and one registered index, ready for the
+/// closure to drop that index.
+///
+/// `unregister_index` never bumps `version` (it changes the schema, not a record),
+/// so this is the half of the sentinel the `version` snapshot cannot see: a
+/// version-only guard lets this test pass silently.
+fn ag_fx_modify_reentry_unregister() -> (Table[Int32, Int32], RowId) raise {
+  let (t, id) = ag_one_record()
+  @test.assert_eq(t.version, 1)
+  @test.assert_eq(t.indexes.length(), 1)
+  (t, id)
+}
+
+///|
+/// Negative property (framework): without the `indexes.length()` half of the
+/// sentinel, unregistering inside the closure would leave `modify_impl` no registry
+/// to retarget, `modify` would answer `Ok` and this test would fail with "panic is
+/// expected".
+test "panic modify aborts when the closure unregisters an index" {
+  let (t, id) = ag_fx_modify_reentry_unregister()
+  t.modify(id, fn(record) {
+    // re-entry: schema change without a record change (version stays put)
+    t.unregister_index("u") |> ignore
+    record
+  })
+  |> ignore
+}
+
+///|
+/// Companion: the same fixture with a closure that leaves the registry alone.
+/// `modify` must answer `Ok`, the index must still be registered and must still
+/// resolve its key, so the panic test above is about the registry change itself.
+test "modify still commits when the closure leaves the registry alone" {
+  let (t, id) = ag_fx_modify_reentry_unregister()
+  match t.modify(id, fn(record) { record + 1 }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("a closure that touches no index must not be refused")
+  }
+  @test.assert_eq(t.get(id), Some(8))
+  @test.assert_eq(t.indexes.length(), 1)
+  @test.assert_eq(t.has_index("u"), true)
+  @test.assert_eq(t.get_by("u", 8), Some((id, 8)))
+  check_invariants(t)
+}

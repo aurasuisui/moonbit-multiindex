@@ -36,7 +36,7 @@ CI 装 latest,上游 formatter 一旦变动 `moon fmt --check` 会先红,须单�
 ```powershell
 moon new hello-multiindex
 cd hello-multiindex
-moon add aurasuisui/multiindex@0.4.0
+moon add aurasuisui/multiindex@0.4.1
 ```
 
 `moon add` 只写 `moon.mod`。**还要在 `moon.pkg` 里声明包入口**,否则第一次写 `@multiindex.`
@@ -177,7 +177,7 @@ moon run .
 |---|---|
 | `verify_invariants()` | `Result[Unit, String]`:首个违反点,消息含不变量编号与槽位/键 |
 | `index_stats(name)` | `IndexStats { buckets, entries, longest_bucket, average_bucket }` |
-| `to_json()` / `Table::from_json(json)` | `{"records": [...]}`,**按插入序**;索引不参与序列化 |
+| `to_json()` / `Table::from_json(json)` | `{"records": [...]}`,**按当前 `iter()` 顺序**(未做过 `swap_remove` 时即插入序);索引不参与序列化 |
 
 ## 限制(已知边界)
 

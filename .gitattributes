@@ -1,0 +1,10 @@
+# Normalise every text file to LF in the repository and in the working tree.
+# Rationale: 0.4.0 was packaged from a Windows working tree that had 16 CRLF
+# files, so the published zip did not match the tag byte for byte
+# (docs/plans/v0.4.1.md D2). Never let the checkout decide the published bytes.
+* text=auto eol=lf
+
+# Keep binary assets untouched.
+*.png binary
+*.jpg binary
+*.zip binary

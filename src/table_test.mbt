@@ -2155,3 +2155,72 @@ test "a record aliased after insert is repairable by rebuild_index" {
   @test.assert_eq(t.len(), 1)
   assert_invariants(t)
 }
+
+// ---------------------------------------------------------------------------
+// M1 (v0.4.1): `modify` refuses a closure that re-enters the table (SPEC §3.7)
+//
+// The audit report §12.3 corrects the severity: the A path (the closure removes a
+// *different* row) only broke the abort promise, while the **E path** — the closure
+// removes **its own** row, inserts a replacement and returns the new value — silently
+// dropped that inserted record (it was never indexed) and left `verify_invariants`
+// answering `Ok`. That ordering is undefined behaviour, so the regression asserts the
+// honest expectation: **abort**. It deliberately does not assert "the data survived",
+// because after the fix the lossy window is no longer reachable.
+// ---------------------------------------------------------------------------
+
+///|
+/// The E-path fixture: one table with a unique index and two records, one of which
+/// the closure can delete. `1` and `10` leave room for the `+1` transformation the
+/// companion performs, so that test fails for no reason but a missing guard.
+fn e_path_fixture() -> (
+  @aurasuisui/multiindex.Table[Int32, Int32],
+  @aurasuisui/multiindex.RowId,
+  @aurasuisui/multiindex.RowId,
+) raise {
+  let t : @aurasuisui/multiindex.Table[Int32, Int32] = @aurasuisui/multiindex.Table::new()
+  assert_registered(t.register_unique("u", fn(v) { v }))
+  let mine = insert_ok(t, 1)
+  let other = insert_ok(t, 10)
+  assert_invariants(t)
+  @test.assert_eq(t.len(), 2)
+  (t, mine, other)
+}
+
+///|
+/// Undefined behaviour must not be observable as data loss. The closure removes its
+/// own row (the row this `modify` is about to commit over), inserts a replacement and
+/// returns the new value. v0.4.1 aborts on the re-entry — `remove` and `insert` both
+/// run through a chokepoint and bump `version` — so the dropped-record window from
+/// 0.4.0 is closed. The `panic ` name prefix is the whole assertion: there is no
+
+///|
+/// committed state to inspect, so nothing is asserted about the data.
+test "panic modify aborts instead of silently losing a self-inserted record" {
+  let (t, mine, _other) = e_path_fixture()
+  t.modify(mine, fn(previous) {
+    t.remove(mine) |> ignore // E path: drop the row this modify is committing over
+    t.insert(30) |> ignore // the record 0.4.0 used to drop without a trace
+    previous + 1
+  })
+  |> ignore
+}
+
+///|
+/// Companion: the same fixture with a closure that does **not** re-enter the table.
+/// The transformation runs, the unique index is retargeted from key 1 to key 2 and
+/// the checker agrees, so the panic test above is about the re-entry and not about
+/// the fixture being unusable for an ordinary `modify`.
+test "modify on the E-path fixture commits when the closure does not re-enter" {
+  let (t, mine, other) = e_path_fixture()
+  match t.modify(mine, fn(previous) { previous + 1 }) {
+    Ok(_) => ()
+    Err(_) => @test.fail("a closure that does not re-enter must not be refused")
+  }
+  @test.assert_eq(t.get(mine), Some(2))
+  @test.assert_eq(t.get(other), Some(10))
+  @test.assert_eq(t.get_by("u", 1), None)
+  @test.assert_eq(t.get_by("u", 2), Some((mine, 2)))
+  @test.assert_eq(t.get_by("u", 10), Some((other, 10)))
+  @test.assert_eq(t.len(), 2)
+  assert_invariants(t)
+}

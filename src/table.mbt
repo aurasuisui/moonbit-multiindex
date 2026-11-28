@@ -597,8 +597,8 @@ pub fn[K : Hash + Eq + Compare, V] Table::insert(
 /// `tools/diffgen/README.md`).
 ///
 /// `holder` in the conflict: against a live record it is that record's handle; for a
-/// clash **inside the batch** it is the handle the earlier member would receive once
-/// the batch is accepted, since no record is live there yet (see CHANGELOG Notes).
+/// clash **inside the batch** it is the **batch position** (an index into `values`) of
+/// the earlier member, not a handle, since no record is live there yet (see CHANGELOG Notes).
 pub fn[K : Hash + Eq + Compare, V] Table::insert_many(
   self : Table[K, V],
   values : Array[V],
@@ -761,6 +761,26 @@ pub fn[K : Hash + Eq + Compare, V] Table::update(
 /// reference implementation gets wrong). A stale `id` yields
 /// `Err(StaleHandle(id, None))`: with no record to transform there is no new
 /// record to hand back.
+///
+/// **`f` must not re-enter the table.** Calling any write from inside the closure
+/// — `insert` / `insert_many` / `insert_or_replace` / `update` / `modify` /
+/// `remove` / `swap_remove` / `clear`, and equally `register_*` /
+/// `unregister_index` — invalidates what this commit is built on (the snapshot of
+/// the old projections, and the registry it walks), so `modify` **aborts** instead
+/// of answering `Err`. That is the docs/SPEC.md §7.1 rule for programmer errors:
+/// no honest return value can express "the closure broke the table", so answering
+/// `Err` would disguise a bug as a business result.
+///
+/// Re-entry is detected by snapshotting the mutation counter `version` and the size
+/// of the index registry before `f` runs, then comparing both after it returns.
+/// The two are needed **together**: the write chokepoints (`insert` / `remove` /
+/// `swap_remove` / `clear`) bump `version` but leave the registry alone, while
+/// `register_*` / `unregister_index` change the registry without bumping `version`
+/// (I8 counts record changes, and a schema change is not one). This guard is the
+/// behaviour docs/SPEC.md §3.7 promises. The one call it cannot see is
+/// `rebuild_index`: it republishes a bucket set without moving either count, and it
+/// changes neither the schema nor the records, so it is harmless here —
+/// `verify_invariants` remains the backstop.
 pub fn[K : Hash + Eq + Compare, V] Table::modify(
   self : Table[K, V],
   id : RowId,
@@ -772,7 +792,17 @@ pub fn[K : Hash + Eq + Compare, V] Table::modify(
       // Snapshot the *old* projections before the closure runs: it may mutate a
       // container the record shares with the caller (docs/SPEC.md §3.2).
       let old_keys = self.projection_snapshot(id.slot)
+      // Re-entry sentinel (docs/SPEC.md §3.7). Both counts are needed: `version`
+      // catches the write chokepoints, and the registry length catches
+      // `register_*` / `unregister_index`, which never bump `version`.
+      let v0 = self.version
+      let n0 = self.indexes.length()
       let value = f(previous)
+      if self.version != v0 || self.indexes.length() != n0 {
+        abort(
+          "Table::modify: the closure re-entered the table (version or index registry changed)",
+        )
+      }
       match self.find_conflict_excluding(value, id.slot) {
         Some(conflict) => Err(Conflict(conflict, value))
         None => {
