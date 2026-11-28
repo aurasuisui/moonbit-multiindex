@@ -410,6 +410,192 @@ versions 为 `0.4.0, 0.3.0, 0.2.2, 0.2.1, 0.2.0, 0.1.0`。也就是说 **0.4.1 �
 | 包内版本 | 七处均 **0.4.1**:`moon.mod:3`、`src/lib.mbt:23`、`src/pkg.generated.mbti:10`、`cmd/leaderboard/moon.mod:2`、`bench/moon.mod:2`、`README.md:39`、`bench/README.md:18`;这七个文件内 `0.4.0` 残留 **0** |
 | 发现但未改(白名单外) | `docs/README.md:54` 的申报书行仍写「当前 v0.4.0」,与 M4 已把申报书本体升到 0.4.1 不同步。M5 只授权改本文件,登记于此待后续文档轮次处理 |
 
+### v0.4.1 验收彩排(2026-11-28,M7)
+
+> **快照**(2026-11-28 M7 当日):`dev` = **`f73490b`**(树 `bfb794fa`)、`main` = **`6ecb45c`**(树 `b07dbd6`)、
+> tag **`v0.4.1`** = annotated tag 对象 `a9f0704` → commit `6ecb45c`(树 `b07dbd6`)。
+> 三个 ref 的 **sha 与 tree 分行列出**,不合并为「main = dev」:`main` 与 tag 指向**同一个 commit**(故树相同),
+> `dev` 在 tag 之后又走了 **2 个纯文档提交**(`d628772` 回填本清单、`f73490b` 回填计划),所以 `dev` 的树 `bfb794fa` 与
+> `main` / tag 的 `b07dbd6` **不同**,差异只有 `docs/RELEASE_CHECKLIST.md` 与 `docs/plans/v0.4.1.md` 两个文件。
+> **`src/` 在 tag 与 `dev` 之间逐字节相同**(`git diff --quiet v0.4.1 dev -- src` exit **0**)。
+>
+> **方式**:发布后(2026-11-28)重跑评审标准 §4 的十条 L0,证据取本仓命令原样输出,不采信历史记录。
+> **工具链**:`moon 0.1.20261126 (ccd306a 2026-11-26)` / `moonc v1.0.0-rc1+3c0520448 (2026-11-26)` /
+> `moonrun 0.1.20261126 (ccd306a 2026-11-26)` —— **三个二进制同为 20261126 批次**(与 CI 的 latest 一致)。
+> **本节只改这一份文件与 `docs/plans/v0.4.1.md`;源码 / 版本 / CHANGELOG / SPEC / README / tag 全未动。**
+
+#### A. 评审标准 §4 的十条 L0 门槛
+
+| # | L0 门槛 | 判定 | 证据(命令 + 关键输出) |
+|---|---|---|---|
+| 1 | MoonBit 为主体 | ✅ | **生产 2698 / 测试 6884 行**,18 个 `.mbt`(6 生产 + 12 测试),全部 MoonBit,无其他语言胶水。**口径 = `git show HEAD:<path>` 的非空行**(逐个 `git show "HEAD:$f" \| Where-Object { $_.Trim() -ne '' }` 计数);同一命令在**工作树**上跑得**同值 2698 / 6884**(`.gitattributes` 已把工作树钉成 LF,不再有 M8 那次 ±9/±5 的编码差)。文件级:生产 `extends 96 / index 595 / json 49 / lib 193 / table 831 / table_api 934`;测试 `abort_guard_wbtest 854 / bench_test 63 / differential_fixture_test 261 / differential_test 151 / json_test 102 / model_test 604 / property_test 431 / property_wbtest 455 / query_family_test 224 / rebuild_index_test 310 / table_test 2113 / table_wbtest 1316`。`src` 下扩展名分布:`.mbt 18 / .pkg 1 / .mbti 1`。全仓受跟踪 `.mbt` = **21**(另 3 个是 `bench/main.mbt`、`bench/swap_compare.mbt`、`cmd/leaderboard/main.mbt`,仍是 MoonBit)。快照 `f73490b` |
+| 2 | 仓库公开、快照可追踪 | ✅ | `gh repo view --json visibility` → `"visibility":"PUBLIC","isPrivate":false`。**三个 ref 分行**:`main` = `6ecb45ce49c54c84c9707928f00ae4e28de16495`(树 `b07dbd62d62b2bbafe140aa22ee56ab8bcbdbb83`);`dev` = `f73490b11dbf3bb628c57bddf8493793933ad255`(树 `bfb794faab82662409aae866a288f1d59e560612`);tag `v0.4.1` = tag 对象 `a9f0704daebcf450016cd4526eac15f079e82916` → commit `6ecb45c`(树 `b07dbd62`,与 `main` 同树同 commit)。**三条 `git diff --quiet`**:`v0.4.1 main` exit **0**;`v0.4.1 dev` exit **1**;`main dev` exit **1**(后两条非 0 是 `dev` 上那 2 个纯文档提交,非漂移)。**远端同步**:`git rev-list --left-right --count origin/main...main` = `0 0`、`origin/dev...dev` = `0 0`;`git ls-remote` 的 `refs/heads/dev` / `refs/heads/main` / `refs/tags/v0.4.1` 与本地逐一相同 |
+| 3 | 选题边界清晰 | ✅ | README 首段 `README.md:3`「一张记录表,**N 个二级索引**。用稳定 ID 定位记录,按任意索引 O(1)/O(log n) 查找。」+`:4-13` 的 `Table[K, V]` / `RowId` 段。**三类边界表位置**:①`README.md:22-26` 的 `indexmap` / `bimap` / `multiindex` 三行对照表;②`README.md:198-204`「与生态中已有项目的关系」逐条(slotmap / IndexMap 系 / 不依赖 bimap 与 indexmap);③`docs/SPEC.md:135-141`「与生态既有项目的边界」表(另含 `dowdiness/btree`)。申报书 §通用性、场景与索引增删(`docs/申报书.md:13-14`)同口径 |
+| 4 | 核心 API 已交付 | ✅ | `(Select-String -Path src/pkg.generated.mbti -Pattern '^pub fn.*Table::').Count` → **38**;同口径用 Python 去重后仍是 **38** 个方法名,逐个在 `README.md` 内检索,**missing = 0**。38 个名:clear / contains / contains_by / count_by / first_by / from_json / get / get_by / has_index / index_entries / index_names / index_stats / insert / insert_many / insert_or_replace / is_empty / iter / iter_asc_by / iter_by / iter_desc_by / last_by / len / modify / new / range_by / range_half_open_by / rebuild_index / register_non_unique / register_non_unique_ordered / register_unique / register_unique_ordered / remove / swap_remove / to_json / unregister_index / update / verify_invariants / with_capacity |
+| 5 | README 可用 | ✅ | 仓库外干净目录(`%TEMP%\m7probe-20261128162846`):`moon new probe` → exit **0**;`moon add aurasuisui/multiindex@0.4.1` → exit **0**,stderr 原文 `Registry index updated successfully` / `Using cached aurasuisui/multiindex@0.4.1`;`moon.mod` 写入 `"aurasuisui/multiindex@0.4.1"`;下载落盘 `.mooncakes/aurasuisui/multiindex` **60 个文件**,其 `moon.mod:3` = `version = "0.4.1"`、`src/lib.mbt:23` = `pub const VERSION : String = "0.4.1"`。按 README:58-95 的快速开始块**逐字**粘进根 `main.mbt`(补 `moon.pkg` 的 `import` + `pkgtype(kind: "executable")`)→ `moon run .` exit **0**,**8 行**输出与 README:100-107 **逐字一致**(`inserted 3 records, len = 3` / `id=7 -> Alice` / `team=1 -> Alice` / `team=1 -> Bob` / `score in [100, 130] -> Alice` / `Carol: 150` / `Alice: 120` / `Bob: 95`) |
+| 6 | CI 绿 | ✅ | `gh run list --branch main --limit 3` → run **`46125570172`** `conclusion=success`、`headSha=6ecb45c`(created 2026-11-28T08:23:14Z);`gh run list --branch dev --limit 3` → run **`46125667872`** `conclusion=success`、`headSha=f73490b`(created 2026-11-28T08:24:31Z)。两 run 的 job 级:`check-and-test`(13 步)`success` + `example-smoke`(7 步)`success`,即八项门禁两 job 全绿 |
+| 7 | 示例可运行 | ✅ | 干净 clone(不传 `--config`,`core.autocrlf=true`)内写 `moon.work`(`members = [".", "bench", "cmd/leaderboard"]`,**无 `[workspace]` 头**,45 字节)→ `cd cmd/leaderboard; moon run .` → exit **0**、**34 行**;三条 landmark 逐条命中:`== aurasuisui/multiindex VERSION: 0.4.1 (local workspace module) ==` / `== adding players ==` / `  verify_invariants: Ok`;跑后删 `moon.work`,`git status --porcelain=v1` 仍**空** |
+| 8 | 测试可运行 | ✅ | `moon test --target all` exit **0**,四行全为 `Total tests: 215, passed: 215, failed: 0.` —— `[wasm]` / `[wasm-gc]` / `[js]` / `[native]`。**panic 组计数**:全仓 `^test "panic ` = **30**(28 条在 `src/abort_guard_wbtest.mbt` + 2 条在 `src/table_test.mbt`);`abort_guard_wbtest.mbt` 共 **46** 条 `^test ` = 28 panic + 18 伴生;`moon test -f "*panic*"` → **30/30**。分文件测试数:`table_test 81` / `table_wbtest 52` / `abort_guard_wbtest 46` / `property_wbtest 11` / `query_family_test 7` / `rebuild_index_test 7` / `property_test 4` / `json_test 3` / `model_test 2` / `bench_test 1` / `differential_test 1` = **215** |
+| 9 | 已发布 mooncakes | ✅ | `https://mooncakes.io/api/v0/manifest/aurasuisui/multiindex`(HTTP **200**):`latest_version = 0.4.1`、`build_status = success`、`yanked = False`、`created_at = 2026-11-28T08:22:11.036184+00:00`(在 `metadata.created_at` 内;`mooncakes` 把 `created_at` 放在 `metadata` 下,顶层没有该键 —— 这是本轮实测发现的,**不改任何既有行**)、`versions = 0.4.1, 0.4.0, 0.3.0, 0.2.2, 0.2.1, 0.2.0, 0.1.0`(逐条 `yanked=False`)、`metadata.checksum = 6e178334ecb511ee25671023bb9a0d0812de051b73ba76e09cb69477a2202a50`、`downloads = 86`。七处版本均 0.4.1 且这七个文件内 `0.4.0` 残留 **0** |
+| 10 | 许可与归属 | ✅ | 根目录 `LICENSE`(**10173** 字节,Apache-2.0 正文)、`NOTICE`(**4782** 字节)、`third_party/LICENSES/multi_index_map-MIT.txt`(**1069** 字节);三者**均进包**(在 `moon package` 那 60 项内逐条查得)。`moon.mod:9` = `license = "Apache-2.0"`;README「致谢与来源」登记 `multi_index_map`(MIT)/ `slotmap`(Zlib)/ `thunderdome` / `hecs`;SPEC §0 有源码级核对 |
+
+**承诺矩阵(申报书核心功能 → 公开入口 → 黑盒测试)**
+
+| 承诺(申报书 §核心功能) | 公开 API | 黑盒测试(文件:行) |
+|---|---|---|
+| 记录存储与稳定句柄 | `Table::new` / `get` / `contains` / `RowId` | `src/table_test.mbt:118`(空表)、`:167`(回收槽拒绝旧 handle)、`:673`(旧 handle 不碰新占用)、`:1337`(删最后一条);`src/table_wbtest.mbt:102`(I9 代际耗尽退休) |
+| 索引注册·删除·修复 | `register_*` / `unregister_index` / `rebuild_index` | `src/table_test.mbt:343`(回填)、`:252`(重名拒且零变更)、`:1587`/`:1615`/`:1633`/`:1651`(unregister 四例);`src/rebuild_index_test.mbt` **7 条**(`:79`/`:111`/`:136`/`:186`/`:224`/`:261`/`:295`);`moon test -f "*rebuild*"` **17/17** |
+| 写入与冲突归还 | `insert` / `insert_many` / `update` / `modify` / `insert_or_replace` / `remove` / `swap_remove` / `clear` | `src/table_test.mbt:469`(唯一冲突归还记录且零变更)、`:649`(modify 双冲突原子)、`:597`(update 撞唯一键零变更)、`:1255`(批内 vs 库冲突同名序)、`:1368`(swap_remove 拒旧 handle);`src/model_test.mbt` 2 条逐步对拍 `Array[V]` 线性扫描 oracle |
+| 查询与遍历 | `get_by` / `iter_by` / `range_by` / `range_half_open_by` / `iter_asc_by` / `iter_desc_by` / `contains_by` / `count_by` / `first_by` / `last_by` / `iter` | `src/query_family_test.mbt` **7 条**(`:23`/`:51`/`:84`/`:113`/`:139`/`:213` 等);`src/table_test.mbt:756`/`:779`/`:822`(方向与桶内槽序)、`:895`(半开区间端点)、`:928`(空表有序查询);`moon test -f "*contains_by*"` 4/4、`"*count_by*"` 2/2、`"*first_by*"` 5/5、`"*last_by*"` 5/5 |
+| 一致性与可变记录契约 | `verify_invariants` / `index_stats` | `src/property_wbtest.mbt`(I1–I9 每步 + 7 条「守卫非空转」元测试,共 11 条)、`src/table_test.mbt:1921`(外部改动报 I4)、`:1681`/`:1747`(modify 旧投影快照);**写侧别名 3 条**见下「边界矩阵」 |
+| JSON 与质量 | `to_json` / `from_json` | `src/json_test.mbt` 3 条:`:9`(往返保插入序)、`:40`(重注册后答案一致)、`:91`(畸形输入报错不静默) |
+
+> 统计口径:`src/pkg.generated.mbti` 的 **38** 个 `pub fn ... Table::*` 全部在上表出现;215 条测试按「一条测试只归一类」拆开,六行合计覆盖 215 条里的绝大部分,余下为白盒不变量/守卫/容器内部测试(不在申报书承诺面内)。
+
+**边界矩阵覆盖(评审标准 §6)**
+
+| §6 类别 | 覆盖 | 落点(测试文件:行) |
+|---|---|---|
+| 生命周期对称 | ✅ | `table_test.mbt:1587`(删索引只摘注册表)/ `:1651`(名字可重注册)/ `:1337`(删最后一条)/ `rebuild_index_test.mbt:111`(空表重建);注册侧 `:212` 四象限矩阵 |
+| **可变 / 别名** | ✅ **读侧 1 + 写侧 3 + 修复 1** | 读侧:`table_test.mbt:1921` `external mutation of an indexed field is caught by verify_invariants`(改被索引字段 → `verify` 报 I4)。**写侧 3 条(0.4.1 补齐的写侧口径)**:`:2048` `insert shares the caller's containers…`(insert 存的是调用方的 `tags` 数组本体,事后改 → I4、旧键仍命中、新键不被索引)、`:2082` `insert_many shares the caller's containers on every record`(批内被改的那条脏、未被改的不受影响)、`:2128` `a record aliased after insert is repairable by rebuild_index`(一步重建 → 旧键不命中、新键命中、`verify` 回 Ok)。另有 `:1681`/`:1747` 的 modify 旧投影快照。glob 实测:`"*external mutation*"` **3/3**、`"*aliased*"` **1/1** |
+| 错误路径原子性 | ✅ | `table_test.mbt:469`/`:649`/`:597`/`:1368`/`:252`/`:358`/`:403`;白盒 `table_wbtest.mbt:266`(回填失败注册表与桶都不动);glob `"*conflict*"` **3/3**、`"*atomic*"` **1/1** |
+| 脏态与恢复 | ✅ | `table_test.mbt:1797`/`:1815`/`:1838`/`:1867`(remove / swap_remove / update / modify 容忍库外改动)、`:1893`(四象限残留条目)、`:1971`(两步恢复在重复投影下失败);`rebuild_index_test.mbt:136`/`:295`(一步修复) |
+| 唯一性 | ✅ | `table_test.mbt:1212`(双唯一索引报名字升序第一个)、`:1424`/`:1468`(insert_or_replace)、`table_wbtest.mbt:582`(I5 构造性成立)、`:1226`/`:1245`(bucket 指向别的槽时 `remove` 答 false) |
+| 迭代器 | ✅ | fail-fast:`abort_guard_wbtest.mbt:205`/`:465`/`:546`/`:580`(iter / iter_by / range_by / iter_desc_by 迭代中改表 abort);`table_wbtest.mbt:143`(version 只在真变更时动);`rebuild_index_test.mbt:261`(重建前游标走旧快照);`query_family_test.mbt:213`(四个查询只读,活游标可继续走) |
+| 跨表 / 外部输入 | ✅ | `abort_guard_wbtest.mbt:623`(未知索引名 abort)、`:786`(contains_by 未知名 abort)、`:826`(已注册可答/未知名 abort 对照);`table_test.mbt:1615`(unregister 未知名答 false 不 abort);跨表 `RowId` 在 README:12 与 SPEC §2.1 契约化为**未定义** |
+| 空 / 极端规模 | ✅ | `bench_test.mbt:10`(10 000 次操作:5 000 insert + 2 500 remove + 2 500 复用 insert,全程 `verify_invariants`);`table_test.mbt:118`/`:928`/`:895`(空表);glob `"*stress*"` **1/1** |
+| 序列化 | ✅ | `json_test.mbt:9`/`:40`/`:91`;from_json 无上限已登记为已知债(SPEC §3.7 口径) |
+| 端到端核心链路 | ✅ | `cmd/leaderboard`(三类索引 + 唯一/非唯一/有序查询 + `verify_invariants: Ok`,34 行);CI `example-smoke` job success |
+| 多索引 | ✅ | `table_test.mbt:212`(四象限注册矩阵)、`:224`(每象限答 get_by/iter_by)、`:1156`(index_stats 桶分布)、`:1558`(index_entries 名字序);`rebuild_index_test.mbt:224`(四象限重建);`table_wbtest.mbt:492`(is_ordered 只对两个有序象限) |
+
+#### B. 0.4.1 四项实质变化的特别验证(评审最可能抽查)
+
+**B1. D1 修复生效 —— `modify` 闭包重入一律 abort(附 `stderr` 原文)**
+
+探针**建在仓库外**(临时目录,`moon add aurasuisui/multiindex@0.4.1` 取**已发布包**,不是本地源码),
+源码 `main.mbt` 四个场景,各跑一次 `moon run . -- <scenario>`,把 stdout / stderr 分开重定向:
+
+| 场景 | 闭包内的动作 | exit | stdout | stderr 首行(原文) |
+|---|---|---|---|---|
+| `control` | 只读(`rec + 1`) | **0** | `modify Ok` / `value=8` / `NO ABORT: closure completed and modify returned` | *(无)* |
+| `insert` | `t.insert(rec + 100)` | **1** | *(空)* | `Table::modify: the closure re-entered the table (version or index registry changed)` |
+| `remove` | `t.remove(id)` | **1** | *(空)* | 同上 |
+| `unregister` | `t.unregister_index("u")` | **1** | *(空)* | 同上 |
+
+`insert` 场景的 stderr **完整原文**(末尾 abort 栈):
+
+```text
+Table::modify: the closure re-entered the table (version or index registry changed)
+RuntimeError: unreachable
+    at @aurasuisui/multiindex.Table::modify[Int, Int] (wasm://wasm/000820fa:wasm-function[72]:0x183f)
+    at @aurasuisui/d1.scenario_insert (wasm://wasm/000820fa:wasm-function[68]:0x16fc)
+    at __moonbit_main (wasm://wasm/000820fa:wasm-function[362]:0xb92c)
+    at __moonbit_main.wasi_entry[stamp=4149] (wasm://wasm/000820fa:wasm-function[363]:0xb9f6)
+```
+
+`remove` / `unregister` 两个场景**同一首行、同一 `modify` 栈帧 `(wasm-function[72]:0x183f)`**,只有调用者帧不同
+(`scenario_remove` `[65]:0x164d`、`scenario_unregister` `[62]:0x159c`)—— 说明拦在**同一个哨兵**上,
+而不是被下游的别的 `abort` 撞上。
+
+**负向对照(证明这是 0.4.1 新修的,不是本来就有)**:同一份 `main.mbt` 指向 **`aurasuisui/multiindex@0.4.0`** 重跑:
+
+| 场景 | 0.4.1 结果 | **0.4.0 结果** | 结论 |
+|---|---|---|---|
+| `insert` | abort,exit 1 | **`NO ABORT: closure completed and modify returned`,exit 0** | 0.4.0 静默通过 —— 正是 D1 |
+| `unregister` | abort,exit 1 | **`NO ABORT: …`,exit 0** | 仅 `version` 快照看不到 schema 变化,**0.4.0 无第二个快照** |
+| `remove` | abort,exit 1 | exit 1,但 stderr 是 `Table::modify_impl: slot 0 holds no live record` | 撞的是**下游**守卫,不是重入哨兵 —— 与 0.4.1 的 `Table::modify: the closure re-entered…` 首行不同 |
+| `control` | `Ok`,exit 0 | 未跑(0.4.0 无哨兵,对照无意义) | — |
+
+> 这也复核了计划 §九 已决 1:「只快照 `version` 会让 `unregister` 那条仍然通过」—— 0.4.0 的 `unregister` 实测 exit 0 正是这句话的实证。
+
+仓库内的对应守卫测试(白盒,与探针互为独立证据):`src/abort_guard_wbtest.mbt:864` `panic modify aborts on re-entry`
+(`version` 半)、`:908` `panic modify aborts when the closure unregisters an index`(`indexes.length()` 半),
+各自有伴生测试 `:878` / `:922` 证明只读闭包仍答 `Ok`;`moon test -f "*panic*"` → **30/30**。
+
+**B2. D2 关闭 —— 干净 clone 打包后包内 CR 字节 = 0(对照 0.4.0 的 19783 个)**
+
+```powershell
+# clone 命令 deliberately 不传 --config core.autocrlf=false
+git clone --branch dev <主工作树> %TEMP%\m7clone-20261128163003
+cd %TEMP%\m7clone-20261128163003
+git rev-parse HEAD            # f73490b11dbf3bb628c57bddf8493793933ad255
+git config --get core.autocrlf # true   ← 没关它,.gitattributes 自己就够了
+moon package                  # Check passed → aurasuisui-multiindex-0.4.1.zip (384540 字节)
+```
+
+解压后**逐文件逐字节**数 `0x0D`:
+
+| 包 | 条目数 | 含 CR 的文件数 | **CR 字节总数** |
+|---|---|---|---|
+| `aurasuisui-multiindex-0.4.1.zip`(HEAD 重打) | 60 | **0 / 60** | **0** |
+| `aurasuisui-multiindex-0.4.0.zip`(同机重打,基线) | 59 | **59 / 59** | **19783** |
+
+C# 化口径(`[System.IO.File]::ReadAllBytes` 后数 `-eq 13`),两个包里没有任何目录条目。
+**D2 的关闭判据成立**:0.4.0 的发布件确实带 CRLF(59 个文件全中,合计 19783 字节),0.4.1 一个都没有。
+
+**更强判据(包内容 = 哪个 ref 的字节)**:把解压后的 60 个文件与 `git cat-file blob <ref>:<path>` 逐一比对:
+
+| 比对基准 | 相同 | 不同 | 缺失 |
+|---|---|---|---|
+| `HEAD`(`f73490b`) | **60 / 60** | 0 | 0 |
+| tag `v0.4.1`(`6ecb45c`) | 59 / 60 | **1** | 0 |
+
+唯一的差异是 `docs/plans/v0.4.1.md` —— 因为 `moon package` 打的是**当时工作树**的快照,而该文件在 tag 之后
+被 `f73490b` 改过 3 行(计划看板 M6 行)。**这是「包内副本是发布前快照」这一既有表头约定的正常后果**,
+不是 D2 复发:`src/` 全部 20 个受跟踪文件(18 `.mbt` + `moon.pkg` + `pkg.generated.mbti`)在 HEAD 与 tag 之间**逐字节相同**(`git diff --quiet v0.4.1 HEAD -- src` exit **0**),且包内 `src/**` 全部 0 个 CR。
+(登记为**发现但未改**:若下游要求「包 == tag 逐字节」,唯一不一致的是这份计划文档,而我无权改它。)
+
+**B3. 覆盖率是发布快照的 —— 当前 HEAD 重跑三件套,绑定 SHA**
+
+```powershell
+cd %TEMP%\m7clone-20261128163003      # HEAD = f73490b11dbf3bb628c57bddf8493793933ad255
+$env:MOON_COVE_REPORT_ENABLED = '0'
+moon clean
+moon test --enable-coverage            # Total tests: 215, passed: 215, failed: 0.
+moon coverage analyze -p aurasuisui/multiindex -- -f summary
+```
+
+```text
+src\index.mbt: 319/326
+src\table.mbt: 259/262
+src\table_api.mbt: 343/359
+Total: 976/1002
+```
+
+**976/1002 = 97.41%**,快照 = `f73490b`(2026-11-28 M7 当日 HEAD)。三件套的中间量:`moon test --enable-coverage` **215/215**。
+`-f caret` 标出 **23 行**:`src/index.mbt:383/384/385/444/447`、`src/table.mbt:414/489/717`、
+`src/table_api.mbt:211/315/559/820/822/824/826/842/844/846/917/919/921/923/927` ——
+与 `docs/SPEC.md` §7.3 登记的那份(`448037f` 快照)**行号集合逐一相同**,`448037f → f73490b` 未新增未覆盖行。
+
+> **为什么这不是「结构又变了」**:`src/` 从 `36b0c5e`(M4 拍板 976/1002 的那次 clone)到 `f73490b` **完全没动**
+> (`git diff --quiet 36b0c5e HEAD -- src` exit **0**),所以 976/1002 必然可复现;本轮**实测重跑**得到同一个数,
+> 不是抄历史。与 `973/999`(0.4.0 tag `0900a32` 的快照)不是同一口径 —— 那是**上一版**的数,`CHANGELOG.md` 的
+> `## [0.4.0]` 段保留它是对的。
+
+**B4. 0.4.0 的 tag 未被改动**
+
+```powershell
+git rev-parse v0.4.0            # bb7456dc1d5d299715666e5a075776894bc45e79   ← annotated tag 对象
+git rev-parse 'v0.4.0^{commit}' # 0900a326871681b50826eca1e0d5df29b3842895   ← 它指向的 commit
+git rev-parse 'v0.4.0^{commit}^{tree}'  # e59ba4bf00f85fb3434cb07853e6d7fbde613303
+git ls-remote origin refs/tags/v0.4.0   # bb7456dc1d5d299715666e5a075776894bc45e79  ← 远端同值
+```
+
+| 项 | 值 |
+|---|---|
+| tag 对象 | `bb7456dc1d5d299715666e5a075776894bc45e79` |
+| → commit | `0900a326871681b50826eca1e0d5df29b3842895` |
+| → 树 | `e59ba4bf00f85fb3434cb07853e6d7fbde613303` |
+| tagger | `aurasuisui <aurasuisui@users.noreply.github.com> 1795745744 +0800` |
+| 远端 `refs/tags/v0.4.0` | 与本地**同值** |
+
+计划 §一 非目标写的「不改 `0.4.0` 的 tag」**成立**;tag 对象里的 message 仍是 v0.4.0 的原文。
+作为对照,`v0.4.1` = 对象 `a9f0704d` → commit `6ecb45c` → 树 `b07dbd6`,与 `main` 完全一致。
+
+> **放行结论(待审核,不自行置 ✅)**:10/10 门槛均有本仓命令证据;承诺矩阵 6/6 行有 API + 黑盒测试:边界矩阵 11/11 类有覆盖。
+> 两处**未做**如实登记:①基准的**跨机器绝对数值**未做自动化比对(沿用 `bench/README.md` 与 v0.4.0 段的「同量级」口径,本轮**未重跑 bench**);
+> ②覆盖率的 23 行未覆盖**未逐行重新归因**,沿用 `docs/SPEC.md` §7.3 已登记的那份(本轮已核对行号集合与 HEAD 完全一致)。
+
 ## 历史执行记录
 
 ### v0.3.0 验收彩排(2026-11-09,M7)
