@@ -105,9 +105,23 @@ so root `moon check`/`moon test` never touches them.
 tree that still had 16 CRLF files, so the published zip did not match the tag byte for byte
 (D2, `docs/plans/v0.4.1.md`). **The checkout must never decide the published bytes.**
 
-So do not let `core.autocrlf` decide anything — the attribute file already does. If
-`git ls-files --eol` reports any `w/crlf`, run `git add --renormalize .` first: that pins the
-blobs to LF (what `moon package` ships). A clean tree shows `i/lf w/lf` for every text file.
+So do not let `core.autocrlf` decide anything — the attribute file already does.
+
+```bash
+git ls-files --eol | Select-String 'w/crlf'   # must be empty on a clean tree
+```
+
+**`git add --renormalize .` alone does not fix a dirty working tree** — measured: it rebuilds the
+*index* only, and when the blobs are already LF it stages nothing and leaves `w/crlf` untouched.
+The working tree is rewritten by the eol filter only when a file is re-checked-out, so the fix is
+to delete the offending files and let git re-lay them:
+
+```bash
+git ls-files --eol | Select-String 'w/crlf'   # list them
+git rm --cached <file> && git checkout -- <file>   # or: del <file>; git checkout -- <file>
+```
+
+A clean tree shows `i/lf w/lf` for every text file. `moon package` ships the working tree.
 
 ## Architecture
 
