@@ -308,7 +308,7 @@
 
 **放行结论**:10/10 门槛有本仓命令证据;承诺矩阵 6/6 行有 API + 黑盒测试;边界矩阵 11/11 类有覆盖。唯一未做自动化的是基准的**跨机器绝对数值**——已按「同量级」比对并说明,不作性能承诺。
 
-## v0.4.1(未发布 —— M5 已起头,M6 续填)
+## v0.4.1(2026-11-28 发布)
 
 > **表头约定 —— 包内副本是发布前快照**:`moon publish` 打包的是**当时 HEAD 的快照**,因此**包里那份**
 > 的 `产物` / `publish` / `tag` 三行按定义只能是 📌 或 ⏳(它们只能在包生成之后才发生)。**仓库 HEAD**
@@ -354,9 +354,9 @@
 | 4 | `docs/README.md` 地图无孤儿 | ✅ | 干净 clone:`git ls-files '*.md'` = **23**;逐条核对 **unlisted = 0**(第 23 个是地图自身 `README.md(本文件)`);去掉围栏代码块与行内代码后,相对链接 **113 条、坏链 0** |
 | 4 | `CHANGELOG.md` 有本版 entry | ✅ | `## [0.4.1] - 2026-11-28`(`CHANGELOG.md:8`):Fixed 记 `modify` 双哨兵与 rc1 弃用迁移、Changed 记 `.gitattributes` 与七处版本、Notes 记覆盖率口径 / `0.4.0` tag 不改动 / 215×4 与守卫 46 / 已知债,末行写明发布结果由 M6 回填(`:48`) |
 | 4 | 许可证与第三方来源齐备 | ✅ | 包内 `LICENSE`(Apache-2.0 正文,10173 字节)、`NOTICE`(4782 字节)、`third_party/LICENSES/multi_index_map-MIT.txt`(1069 字节)均在 60 项内;README「致谢与来源」与 `moon.mod` 的 `license = "Apache-2.0"` 一致 |
-| 发布 | 产物不含 PII / 开发态垃圾 | ⏳ | — |
-| 发布 | `moon publish` 并确认 `build_status: success` | ⏳ | — |
-| 发布 | 打 tag `v0.4.1` 并推送 | ⏳ | — |
+| 发布 | 产物不含 PII / 开发态垃圾 | ✅ | 包内 60 项逐条查:`_build` / `moon.work` / `*.coverage` / `*.exe` / `.mooncakes` / `.git` 命中 **0**;email **0**、身份证形态 **0**、手机号形态 **1** —— `tools/diffgen/Cargo.lock:36` 的 64 位 hex checksum 里 11 位数字子串,**误报**(未复制内容) |
+| 发布 | `moon publish` 并确认 `build_status: success` | ✅ | 2026-11-28 单次 `moon publish`(未重试)→ `Server status: 200 OK`、exit 0;发布前 `--dry-run` → `202 Accepted`。registry 复核:`latest_version = 0.4.1`、`build_status: success`、`yanked: false`、`created_at 2026-11-28T08:22:11Z`、versions = 0.4.1 / 0.4.0 / 0.3.0 / 0.2.2 / 0.2.1 / 0.2.0 / 0.1.0 |
+| 发布 | 打 tag `v0.4.1` 并推送 | 📌 | 按表头约定:tag 打在**回填后的这个 commit** 上,其 sha 记入下一版「历史执行记录」;包内那份是回填前快照,这一行在包内只能是 📌 |
 
 ### M5 干净 clone 八项门禁复跑(2026-11-28)
 
