@@ -5,6 +5,48 @@ All notable changes to `aurasuisui/multiindex` are documented here.
 
 ---
 
+## [0.4.1] - 2026-11-28
+
+**第七个发布版本,PATCH —— 零新增公开 API、零签名变更**;本版只有修复与打包/文档对齐。
+按 `docs/RELEASE_CHECKLIST.md` 的 semver 表,向后兼容的错误修复 = PATCH,故不发 0.5.0。
+
+### Fixed
+
+- **`modify` 闭包重入不再静默改坏表**:0.3.0 起 `modify` 在调用闭包**之前**快照每个索引的旧投影,
+  但闭包**重入表**会破坏这次提交的假设 —— 旧投影对不上注册表,索引被静默写坏。
+  0.4.1 起加**双哨兵**:进闭包前快照 `version`(记录写,`insert` / `update` / `remove` / `clear` 等
+  四个 chokepoint 必然递增)与 `indexes.length()`(schema 写,`register_*` / `unregister_index`
+  按 I8 不动 `version`,只能看长度);闭包返回后**任一变化即 `abort`**,把未定义行为变成显式失败。
+  这正是 SPEC §3.7 已承诺、实现此前未做的行为。**只加检测,不改任何公开签名**。
+- **13 处被 `moonc v1.0.0-rc1` 升为 error 的 deprecated 调用**:rc1 把三类核心调用形状从静默弃用
+  改成 `[0020]` 硬错误 —— `SortedSet::add` → `insert`、`SortedMap::range` 的位置参数 →
+  `low~` / `high~`、`Iter2::new(f)` → `Iter2(Iter(f))`(逐形状的站点数见 `AGENTS.md` 的对照表)。
+  迁移在 `e153f65`(四后端仍 209/209,零行为变化,不改任何断言);`Iter2` 那几处因 fixer 不肯重构
+  嵌套闭包而手改后重排。**该提交的树与 `v0.4.0` tag 的 `src` 逐字节相同(已随 0.4.0 发布)**;
+  0.4.0 的 CHANGELOG 段当时漏记这一条,故在此补记 —— **不重复实现**。
+
+### Changed
+
+- **新增 `.gitattributes`(`* text=auto eol=lf`)**:0.4.0 的包与 tag 不一致的**根因** ——
+  仓库没有行尾约定,打包取自仍有 16 个 CRLF 文件的 Windows 工作树,于是发布 zip 与 tag 逐字节不同
+  (D2)。0.4.1 起文本文件在仓库与工作树**一律 LF**,发布字节不再由检出方决定。
+- **七处版本 0.4.0 → 0.4.1**:`moon.mod`、`src/lib.mbt` 的 `VERSION`、`src/pkg.generated.mbti`
+  (`moon info` 生成,只动 `VERSION` 一行)、`cmd/leaderboard/moon.mod`、`bench/moon.mod`、
+  `README.md` 安装段、`bench/README.md` 的版本串。**PATCH:无公开 API 变更。**
+
+### Notes / Deviations
+
+- **覆盖率按「绑定测量快照」口径记录**:会被后续提交改变的统计量一律注明测量时的 SHA,
+  不写「本版真值」。现有实测(HEAD `448037f`、215 条测试)为 **976/1002 = 97.41%**,
+  逐行缺口与复跑配方见 SPEC §7.3;重入哨兵落地后行数已变,该数字**不再代表 0.4.1 发布快照**,
+  发布前需在干净树上重测一次。
+- **`0.4.0` 的 tag 不改动**:已发布版本不可覆盖;D2 的「包与 tag 不一致」只能由 0.4.1 起的新约束保证不再发生。
+- **测试与守卫**:`moon test --target all` 四后端各 **215** 条(0.4.0 为 209,新增 6 条 = 3 条
+  `test "panic …"` + 3 条伴生,全部属于重入哨兵);`src/abort_guard_wbtest.mbt` **46 条 = 28 条
+  `test "panic …"` + 18 条伴生**。公开 `Table::*` 方法仍为 **38** 个(`src/pkg.generated.mbti` 只差 `VERSION` 一行)。
+- **已知债(本次不做)**:跨表 `RowId` 无表标识(OBS-1)留 0.5;A1–A4 复杂度表按实测重写留 0.5。
+- 发布结果(publish / tag / 产物)由 M6 回填到 `docs/RELEASE_CHECKLIST.md` 的 v0.4.1 段。
+
 ## [0.4.0] - 2026-11-26
 
 **第六个发布版本,MINOR** —— 新增 `Table::rebuild_index` 与查询族 `contains_by` / `count_by` /

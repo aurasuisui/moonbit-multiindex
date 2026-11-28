@@ -20,7 +20,7 @@
 
 ///|
 /// Library version string.
-pub const VERSION : String = "0.4.0"
+pub const VERSION : String = "0.4.1"
 
 ///|
 /// A stable handle to a stored record: a slot index plus a generation counter.

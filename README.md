@@ -36,7 +36,7 @@ CI 装 latest,上游 formatter 一旦变动 `moon fmt --check` 会先红,须单�
 ```powershell
 moon new hello-multiindex
 cd hello-multiindex
-moon add aurasuisui/multiindex@0.4.0
+moon add aurasuisui/multiindex@0.4.1
 ```
 
 `moon add` 只写 `moon.mod`。**还要在 `moon.pkg` 里声明包入口**,否则第一次写 `@multiindex.`
